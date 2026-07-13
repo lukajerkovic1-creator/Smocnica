@@ -51,7 +51,7 @@ jobs:
           cache-dependency-path: functions/package-lock.json
       - uses: android-actions/setup-android@v3
       - uses: gradle/actions/setup-gradle@v4
-      - run: sdkmanager "platforms;android-37" "build-tools;37.0.0"
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - name: Verify Cloud Functions and Firebase rules
         run: |
           npm --prefix functions ci
@@ -116,7 +116,7 @@ jobs:
         run: |
           CLEAN_VERSION=${VERSION_NAME#v}
           ./gradlew --no-daemon lintRelease verifyReleaseSigningConfiguration assembleRelease -PVERSION_NAME="$CLEAN_VERSION" -PVERSION_CODE="$VERSION_CODE"
-          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/37.0.0/apksigner"
+          APKSIGNER="$ANDROID_SDK_ROOT/build-tools/36.0.0/apksigner"
           test -x "$APKSIGNER"
           CERT_OUTPUT=$("$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk)
           printf '%s\n' "$CERT_OUTPUT"

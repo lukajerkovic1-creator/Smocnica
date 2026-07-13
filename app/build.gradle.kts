@@ -40,12 +40,12 @@ if (hasFirebaseConfig) {
 
 android {
     namespace = "hr.smocnica"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "hr.smocnica"
         minSdk = 29
-        targetSdk = 37
+        targetSdk = 36
         versionCode = providers.gradleProperty("VERSION_CODE").orNull?.toInt() ?: 1
         versionName = providers.gradleProperty("VERSION_NAME").orNull ?: "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

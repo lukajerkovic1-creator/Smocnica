@@ -10,7 +10,7 @@ room { schemaDirectory("$projectDir/schemas") }
 
 android {
     namespace = "hr.smocnica.core.data"
-    compileSdk = 37
+    compileSdk = 36
     defaultConfig {
         minSdk = 29
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

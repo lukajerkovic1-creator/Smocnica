@@ -14,7 +14,7 @@ Datum provjere: 13. srpnja 2026.
 | Firebase Emulator Suite | `npm --prefix functions run test:emulator` | 18/18 prošlo: Firestore/Storage pravila i integracijske operacije |
 | Runtime smoke | `adb install -r`, brisanje podataka, hladni start i `logcat` | instalacija i start uspješni; hrvatski login renderiran; nema fatalne iznimke |
 | Workflow sintaksa | parsiranje `ci.yml` i `release.yml` Node YAML parserom | oba workflowa valjana |
-| APK manifest | `aapt dump badging` | debug `hr.smocnica.debug`, release `hr.smocnica`, `minSdk 29`, `targetSdk 37`, `versionCode 1` |
+| APK manifest | `aapt dump badging` | debug `hr.smocnica.debug`, release `hr.smocnica`, `minSdk 29`, stabilni `targetSdk 36`, `versionCode 1` |
 
 Lint za aplikaciju i `core:data`, u debug i release varijantama, završava s 0 pogrešaka i 0 fatalnih nalaza. Preostala upozorenja su informativna (novije verzije ovisnosti/Gradlea, preporuka KTX API-ja i dinamički dohvat generirane update konfiguracije).
 
@@ -22,7 +22,7 @@ Lint za aplikaciju i `core:data`, u debug i release varijantama, završava s 0 p
 
 - debug: `app/build/outputs/apk/debug/app-debug.apk`, 116.839.672 bajta, SHA-256 `9FCA2E61DD20037E7755BF6A50B84D33E3B7ADD41D7675E4786FBF533392AA6C`;
 - debug potpis: APK Signature Scheme v2, jedan potpisnik (razvojni debug certifikat);
-- release: `app/build/outputs/apk/release/app-release.apk`, 29.832.536 bajtova, SHA-256 `11EC6297DCCBE276D106C1F160449E33573CC3E2EB9AF93C876A6F681537C366`;
+- release: `app/build/outputs/apk/release/app-release.apk`, 29.832.532 bajta, SHA-256 `EBC083BC216D4CEFF929C97E99315F329CA5C272926BCC87738FC9EE0D84809F`;
 - release potpis: APK Signature Scheme v3, jedan RSA-4096 potpisnik, certifikat SHA-256 `AAEDD1CFBA45A8E61F155EE6B43DF77648C82AB76408F3205D536A22EE678644`;
 - provjereni emulator: Android API 35.
 

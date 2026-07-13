@@ -4,7 +4,7 @@ plugins {
 
 android {
     namespace = "hr.smocnica.core.domain"
-    compileSdk = 37
+    compileSdk = 36
     defaultConfig { minSdk = 29 }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
