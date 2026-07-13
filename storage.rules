@@ -1,0 +1,32 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function activeMember(pantryId) {
+      return request.auth != null
+        && firestore.exists(/databases/(default)/documents/pantries/$(pantryId)/members/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/pantries/$(pantryId)/members/$(request.auth.uid)).data.active == true;
+    }
+
+    function activeProduct(pantryId, productId) {
+      return firestore.exists(/databases/(default)/documents/pantries/$(pantryId)/products/$(productId))
+        && (!firestore.get(/databases/(default)/documents/pantries/$(pantryId)/products/$(productId)).data.keys().hasAny(['deletedAt'])
+          || firestore.get(/databases/(default)/documents/pantries/$(pantryId)/products/$(productId)).data.deletedAt == null);
+    }
+
+    match /pantries/{pantryId}/products/{productId}/{fileName} {
+      allow read: if activeMember(pantryId);
+      allow create, update: if activeMember(pantryId)
+        && activeProduct(pantryId, productId)
+        && fileName == 'main.jpg'
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType == 'image/jpeg'
+        && request.resource.metadata.productId == productId;
+      allow delete: if activeMember(pantryId);
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

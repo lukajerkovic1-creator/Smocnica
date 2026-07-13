@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.Smocnica" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:navigationBarColor">#FAF7FF</item>
+        <item name="android:statusBarColor">#FAF7FF</item>
+    </style>
+</resources>
+

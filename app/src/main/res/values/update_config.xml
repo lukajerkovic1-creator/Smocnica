@@ -1,0 +1,5 @@
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="UnusedResources">
+    <!-- Override these values in an untracked local resource or CI-generated release resource. -->
+    <string name="github_releases_api_url" translatable="false"></string>
+    <string name="expected_signer_sha256" translatable="false"></string>
+</resources>

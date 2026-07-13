@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function activeMember(pantryId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/pantries/$(pantryId)/members/$(request.auth.uid))
+        && get(/databases/$(database)/documents/pantries/$(pantryId)/members/$(request.auth.uid)).data.active == true;
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+      match /devices/{deviceId} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
+    match /pantries/{pantryId} {
+      allow read: if activeMember(pantryId);
+      allow write: if false;
+
+      match /{collection}/{documentId} {
+        allow read: if activeMember(pantryId)
+          && collection in [
+            'members', 'devices', 'shelves', 'categories', 'products', 'stocks',
+            'shoppingItems', 'activities', 'trash', 'inventorySessions'
+          ];
+        allow write: if false;
+      }
+
+      match /{collection}/{documentId}/{subcollection}/{subdocumentId} {
+        allow read: if activeMember(pantryId);
+        allow write: if false;
+      }
+    }
+
+    match /inviteCodes/{hash} {
+      allow read, write: if false;
+    }
+
+    match /barcodes/{reservation} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+

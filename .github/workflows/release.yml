@@ -1,0 +1,116 @@
+name: Signed Android release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: Semantička verzija, npr. 1.2.0
+        required: true
+      version_code:
+        description: Rastući Android versionCode
+        required: true
+      minimum_supported_version_code:
+        description: Najstariji dopušteni versionCode
+        required: true
+        default: '1'
+      force_update:
+        description: Obavezno ažuriranje
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      VERSION_NAME: ${{ inputs.version_name || github.ref_name }}
+      VERSION_CODE: ${{ inputs.version_code || github.run_number }}
+      MIN_VERSION_CODE: ${{ inputs.minimum_supported_version_code || '1' }}
+      FORCE_UPDATE: ${{ inputs.force_update || false }}
+      RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version_name) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - run: sdkmanager "platforms;android-37" "build-tools;37.0.0"
+      - name: Verify Cloud Functions and Firebase rules
+        run: |
+          npm --prefix functions ci
+          npm --prefix functions run build
+          npm --prefix functions run test:emulator
+      - name: Validate monotonically increasing release version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CLEAN_VERSION=${VERSION_NAME#v}
+          [[ "$CLEAN_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]
+          [[ "$VERSION_CODE" =~ ^[1-9][0-9]*$ ]]
+          [[ "$MIN_VERSION_CODE" =~ ^[1-9][0-9]*$ ]]
+          test "$MIN_VERSION_CODE" -le "$VERSION_CODE"
+          LATEST=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/latest" || true)
+          MANIFEST_URL=$(printf '%s' "$LATEST" | jq -r '.assets[]? | select(.name == "release-manifest.json") | .browser_download_url' | head -1)
+          if test -n "$MANIFEST_URL"; then
+            LATEST_CODE=$(curl -fsSL "$MANIFEST_URL" | jq -r '.versionCode')
+            [[ "$LATEST_CODE" =~ ^[1-9][0-9]*$ ]]
+            test "$VERSION_CODE" -gt "$LATEST_CODE"
+          fi
+      - name: Decode Firebase Android configuration
+        env:
+          GOOGLE_SERVICES_B64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          test -n "$GOOGLE_SERVICES_B64"
+          printf '%s' "$GOOGLE_SERVICES_B64" | base64 --decode > app/google-services.json
+      - name: Decode signing key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_B64"
+          mkdir -p keys
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > keys/smocnica-release.jks
+      - name: Prepare verified update configuration
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          SIGNER=$(keytool -list -v -keystore keys/smocnica-release.jks -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" | sed -n 's/.*SHA256: //p' | head -1 | tr -d ':')
+          test ${#SIGNER} -eq 64
+          mkdir -p app/src/release/res/values
+          printf '<resources><string name="github_releases_api_url" translatable="false">https://api.github.com/repos/%s/releases/latest</string><string name="expected_signer_sha256" translatable="false">%s</string></resources>' "$GITHUB_REPOSITORY" "$SIGNER" > app/src/release/res/values/update_config.xml
+      - name: Build and verify signed APK
+        env:
+          ANDROID_KEYSTORE_FILE: keys/smocnica-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          CLEAN_VERSION=${VERSION_NAME#v}
+          chmod +x gradlew
+          ./gradlew test lintRelease assembleRelease -PVERSION_NAME="$CLEAN_VERSION" -PVERSION_CODE="$VERSION_CODE"
+          apksigner verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          mv app/build/outputs/apk/release/app-release.apk "smocnica-$CLEAN_VERSION.apk"
+      - name: Generate update manifest
+        run: |
+          CLEAN_VERSION=${VERSION_NAME#v}
+          APK="smocnica-$CLEAN_VERSION.apk"
+          SHA=$(sha256sum "$APK" | cut -d' ' -f1)
+          jq -n --argjson versionCode "$VERSION_CODE" --arg versionName "$CLEAN_VERSION" --argjson minSupportedVersionCode "$MIN_VERSION_CODE" --arg apkUrl "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/$APK" --arg sha256 "$SHA" --argjson forceUpdate "$FORCE_UPDATE" '{versionCode:$versionCode,versionName:$versionName,minSupportedVersionCode:$minSupportedVersionCode,apkUrl:$apkUrl,sha256:$sha256,forceUpdate:$forceUpdate,releaseNotes:"Vidi bilješke GitHub izdanja."}' > release-manifest.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', inputs.version_name) }}
+          generate_release_notes: true
+          files: |
+            smocnica-*.apk
+            release-manifest.json
