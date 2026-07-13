@@ -16,7 +16,7 @@ Projekt ima `minSdk 29` (Android 10). Na Windowsu Android Gradle Plugin odbija n
 1. U Firebase Console izradite dvije Android aplikacije: produkcijsku `hr.smocnica` i razvojnu `hr.smocnica.debug`.
 2. Dodajte SHA-1 i SHA-256 otiske debug i release certifikata. U Authentication > Sign-in method uključite Google.
 3. Razvojni `google-services.json` spremite u `app/src/debug/google-services.json`, a produkcijski u `app/src/release/google-services.json`. Root fallback `app/google-services.json` koristi release workflow. Sve su te datoteke namjerno u `.gitignore`.
-4. Uključite Firestore, Storage, Cloud Messaging, Crashlytics i App Check. Za release registrirajte Play Integrity provider; za debug registrirajte token koji SDK ispiše u Logcatu.
+4. Uključite Firestore, Storage, Cloud Messaging, Crashlytics i App Check. Za release registrirajte Play Integrity provider; za debug registrirajte token koji SDK ispiše u Logcatu. Za release APK iz GitHub Releasesa postavite `PLAY_RECOGNIZED` i `LICENSED` na “Not required” te zahtijevajte “Device integrity”, jer se APK distribuira izvan Google Playa.
 5. Postavite projekt: kopirajte `.firebaserc.example` u `.firebaserc`, zamijenite ID, pa pokrenite:
 
 ```powershell
@@ -75,7 +75,7 @@ Debug APK nastaje u `app/build/outputs/apk/debug/app-debug.apk`. Bez `google-ser
 
 ## Potpisivanje i čuvanje ključeva
 
-Kopirajte `keystore.properties.example` kao neversionirani `keystore.properties` ili postavite varijable `ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` i `ANDROID_KEY_PASSWORD`. Keystore, lozinke, `google-services.json`, servisni računi i App Check tokeni nikada se ne spremaju u Git, Gradle datoteke ili Actions artefakte.
+Vrijednosti iz `local.properties.example` dodajte u postojeći neversionirani `local.properties` ili postavite varijable `ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` i `ANDROID_KEY_PASSWORD`. Build task `verifyReleaseSigningConfiguration` odbija nedostajuću ili djelomičnu produkcijsku signing konfiguraciju. Keystore, lozinke, `google-services.json`, servisni računi i App Check tokeni nikada se ne spremaju u Git, Gradle datoteke ili Actions artefakte.
 
 GitHub Actions release traži sljedeće repository secrets:
 
@@ -85,7 +85,7 @@ GitHub Actions release traži sljedeće repository secrets:
 - `ANDROID_KEY_PASSWORD`
 - `GOOGLE_SERVICES_JSON_BASE64`
 
-Workflow iz certifikata izračunava ugrađeni SHA-256 fingerprint, dodaje Firebase konfiguraciju iz tajne, potpisuje i provjerava APK, generira `release-manifest.json` i objavljuje oba artefakta u javni GitHub Release. Repozitorij izdanja mora biti javan da bi aplikacija mogla provjeravati verziju bez tokena. Tag mora biti oblika `v1.2.3`; `versionCode` uvijek mora rasti. Za ručni workflow obvezno unesite oba broja.
+Workflow iz certifikata izračunava ugrađeni SHA-256 fingerprint, dodaje Firebase konfiguraciju iz tajne, potpisuje i provjerava APK, generira `release-manifest.json` sa stvarnim bilješkama i objavljuje oba artefakta u javni GitHub Release. Workflow se zaustavlja ako repozitorij nije javan. Tag mora biti oblika `v1.2.3` ili `v1.2.3-rc1`; `versionCode` uvijek mora rasti. Za ručni workflow obvezno unesite oba broja.
 
 ## GitHub ažuriranja
 
@@ -101,4 +101,4 @@ Fotografija iz kamere ili galerije dekodira se, smanjuje na najviše 2048 px, po
 
 Crashlytics je isključen u debug buildu. Produkcijski reporter koristi samo unaprijed definirane kodove i tehnički sloj; ne postavlja Firebase UID i ne šalje nazive artikala, barkodove, količine, shopping stavke, pozivne kodove, fotografije ni sadržaj sigurnosne kopije. Izvoz kroz Android Storage Access Framework ostaje na odredištu koje odabere korisnik.
 
-Detalji modela i odluka nalaze se u [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), faze u [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md), matrica provjere u [docs/TEST_PLAN.md](docs/TEST_PLAN.md), a rezultati zadnjeg lokalnog prolaza u [docs/VERIFICATION.md](docs/VERIFICATION.md).
+Detalji modela i odluka nalaze se u [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), faze u [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md), matrica provjere u [docs/TEST_PLAN.md](docs/TEST_PLAN.md), a rezultati zadnjeg lokalnog prolaza u [docs/VERIFICATION.md](docs/VERIFICATION.md). Produkcijske ručne vrijednosti i signing/deploy postupak opisani su u [docs/PRODUCTION_SETUP.md](docs/PRODUCTION_SETUP.md), a obvezni test na dva uređaja u [docs/REAL_DEVICE_TEST_PLAN.md](docs/REAL_DEVICE_TEST_PLAN.md).

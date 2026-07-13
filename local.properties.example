@@ -1,0 +1,5 @@
+# Ove retke dodajte u lokalni, ignorirani local.properties. Ne commitajte stvarne vrijednosti.
+smocnica.release.storeFile=C:/sigurna-putanja/smocnica-release.jks
+smocnica.release.storePassword=CHANGE_ME
+smocnica.release.keyAlias=smocnica
+smocnica.release.keyPassword=CHANGE_ME
