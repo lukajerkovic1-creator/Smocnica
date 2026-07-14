@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "hr.smocnica.core.model"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig { minSdk = 29 }
     compileOptions {

@@ -7,15 +7,25 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
-val keystoreProperties = Properties().apply {
-    val propertiesFile = rootProject.file("keystore.properties")
+val localProperties = Properties().apply {
+    val propertiesFile = rootProject.file("local.properties")
     if (propertiesFile.exists()) propertiesFile.inputStream().use(::load)
 }
-val releaseStoreFile = keystoreProperties.getProperty("storeFile") ?: System.getenv("ANDROID_KEYSTORE_FILE")
-val releaseStorePassword = keystoreProperties.getProperty("storePassword") ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")
-val releaseKeyAlias = keystoreProperties.getProperty("keyAlias") ?: System.getenv("ANDROID_KEY_ALIAS")
-val releaseKeyPassword = keystoreProperties.getProperty("keyPassword") ?: System.getenv("ANDROID_KEY_PASSWORD")
-val hasReleaseSigning = listOf(releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword).all { !it.isNullOrBlank() }
+fun releaseSecret(localName: String, environmentName: String): String? =
+    localProperties.getProperty(localName)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(environmentName)?.takeIf { it.isNotBlank() }
+
+val releaseStoreFile = releaseSecret("smocnica.release.storeFile", "ANDROID_KEYSTORE_FILE")
+val releaseStorePassword = releaseSecret("smocnica.release.storePassword", "ANDROID_KEYSTORE_PASSWORD")
+val releaseKeyAlias = releaseSecret("smocnica.release.keyAlias", "ANDROID_KEY_ALIAS")
+val releaseKeyPassword = releaseSecret("smocnica.release.keyPassword", "ANDROID_KEY_PASSWORD")
+val releaseSigningValues = listOf(releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
+val configuredReleaseSigningValues = releaseSigningValues.count { !it.isNullOrBlank() }
+require(configuredReleaseSigningValues == 0 || configuredReleaseSigningValues == releaseSigningValues.size) {
+    "Release signing je djelomično konfiguriran. Postavite sva četiri smocnica.release.* svojstva u local.properties ili sva četiri ANDROID_* environment secreta."
+}
+val hasReleaseSigning = configuredReleaseSigningValues == releaseSigningValues.size
+val releaseKeystore = releaseStoreFile?.let { rootProject.file(it) }
 
 val hasFirebaseConfig = listOf(
     file("google-services.json"),
@@ -30,12 +40,12 @@ if (hasFirebaseConfig) {
 
 android {
     namespace = "hr.smocnica"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "hr.smocnica"
         minSdk = 29
-        targetSdk = 37
+        targetSdk = 36
         versionCode = providers.gradleProperty("VERSION_CODE").orNull?.toInt() ?: 1
         versionName = providers.gradleProperty("VERSION_NAME").orNull ?: "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -49,7 +59,7 @@ android {
 
     signingConfigs {
         if (hasReleaseSigning) create("release") {
-            storeFile = rootProject.file(requireNotNull(releaseStoreFile))
+            storeFile = requireNotNull(releaseKeystore)
             storePassword = releaseStorePassword
             keyAlias = releaseKeyAlias
             keyPassword = releaseKeyPassword
@@ -78,6 +88,19 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
+    }
+}
+
+tasks.register("verifyReleaseSigningConfiguration") {
+    group = "verification"
+    description = "Zaustavlja produkcijski build ako release signing nije potpun ili keystore ne postoji."
+    doLast {
+        check(hasReleaseSigning) {
+            "Release signing nije konfiguriran. Koristite ignorirani local.properties ili ANDROID_* GitHub Actions Secrets."
+        }
+        check(requireNotNull(releaseKeystore).isFile) {
+            "Release keystore ne postoji na konfiguriranoj putanji: ${requireNotNull(releaseKeystore).path}"
+        }
     }
 }
 
