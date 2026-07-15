@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import hr.smocnica.MainViewModel
 import hr.smocnica.core.model.Activity
+import hr.smocnica.core.model.ActivityType
 import hr.smocnica.ui.theme.Amber
 import hr.smocnica.ui.theme.Purple
 import hr.smocnica.ui.theme.Rose
@@ -188,16 +189,52 @@ private fun ActivityRow(activity: Activity) {
         }
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(activity.displayLabel, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            Text(activityText(activity), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(activityDescription(activity), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Text(SimpleDateFormat("HH:mm", Locale.forLanguageTag("hr-HR")).format(Date(activity.createdAt)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
-private fun activityText(activity: Activity): String = when {
-    activity.oldValue != null && activity.newValue != null -> "${activity.oldValue} → ${activity.newValue}"
-    activity.quantityDelta != null -> activity.quantityDelta?.let { if (it > 0) "+$it kom" else "$it kom" }.orEmpty()
-    else -> activity.deviceName
+internal fun activityDescription(activity: Activity): String {
+    val quantity = kotlin.math.abs(activity.quantityDelta ?: 0)
+    val oldShelf = activity.oldValue.asShelfName()
+    val newShelf = activity.newValue.asShelfName()
+    val action = when (activity.type) {
+        ActivityType.STOCK_ADDED -> "Dodano $quantity kom${newShelf.orEmpty().withShelfPrefix()}"
+        ActivityType.STOCK_REMOVED -> "Izvađeno $quantity kom${oldShelf.orEmpty().ifBlank { newShelf.orEmpty() }.withShelfPrefix(from = true)}"
+        ActivityType.STOCK_MOVED -> "Premješteno $quantity kom: ${oldShelf ?: "izvorna polica"} → ${newShelf ?: "odredišna polica"}"
+        ActivityType.PRODUCT_CREATED -> "Dodan artikl"
+        ActivityType.PRODUCT_UPDATED -> "Uređen artikl"
+        ActivityType.SHELF_CREATED -> "Dodana polica"
+        ActivityType.SHELF_RENAMED -> if (oldShelf != null && newShelf != null) "Preimenovana polica: $oldShelf → $newShelf" else "Preimenovana polica"
+        ActivityType.SHELF_REORDERED -> "Promijenjen redoslijed polica"
+        ActivityType.SHELF_DELETED -> "Obrisana polica"
+        ActivityType.CATEGORY_CREATED -> "Dodana kategorija"
+        ActivityType.CATEGORY_UPDATED -> "Uređena kategorija"
+        ActivityType.CATEGORY_REORDERED -> "Promijenjen redoslijed kategorija"
+        ActivityType.CATEGORY_DELETED -> "Obrisana kategorija"
+        ActivityType.INVENTORY_APPLIED -> "Primijenjena inventura"
+        ActivityType.ITEM_DELETED -> "Premješteno u koš"
+        ActivityType.ITEM_RESTORED -> "Vraćeno iz koša"
+        ActivityType.SHOPPING_UPDATED -> "Ažuriran popis za kupnju"
+        ActivityType.IMPORT_APPLIED -> "Uvezena sigurnosna kopija"
+        ActivityType.PANTRY_CREATED -> "Stvorena smočnica"
+        ActivityType.MEMBER_JOINED -> "Pridružen član"
+        ActivityType.MEMBER_REMOVED -> "Uklonjen član"
+        ActivityType.OWNERSHIP_TRANSFERRED -> "Preneseno vlasništvo"
+        ActivityType.UNKNOWN -> "Promjena"
+    }
+    return "$action · ${activity.deviceName}"
+}
+
+private fun String?.asShelfName(): String? = this?.trim()?.takeIf { value ->
+    value.isNotBlank() && value.toIntOrNull() == null
+}
+
+private fun String.withShelfPrefix(from: Boolean = false): String = when {
+    isBlank() -> ""
+    from -> " s police $this"
+    else -> " na policu $this"
 }
 
 @Composable

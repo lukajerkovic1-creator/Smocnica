@@ -50,6 +50,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -81,16 +83,24 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 
 @Composable
-fun StocksScreen(viewModel: MainViewModel, padding: PaddingValues) {
+fun StocksScreen(viewModel: MainViewModel, padding: PaddingValues, initialShelfId: String = "") {
     val products by viewModel.products.collectAsStateWithLifecycle()
     val shelves by viewModel.shelves.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
-    var activeFilter by remember { mutableStateOf(ProductFilter()) }
+    var activeFilter by remember(initialShelfId) {
+        mutableStateOf(ProductFilter(shelfIds = initialShelfId.takeIf(String::isNotBlank)?.let(::setOf) ?: emptySet()))
+    }
     var showFilters by remember { mutableStateOf(false) }
     var showEditor by remember { mutableStateOf<Product?>(null) }
     var creating by remember { mutableStateOf(false) }
     var actionProduct by remember { mutableStateOf<ProductWithStock?>(null) }
     var deletingProduct by remember { mutableStateOf<Product?>(null) }
+    val selectedShelf = shelves.firstOrNull { it.id == initialShelfId }
+
+    LaunchedEffect(initialShelfId) { viewModel.updateFilter(activeFilter) }
+    DisposableEffect(Unit) {
+        onDispose { viewModel.updateFilter(ProductFilter()) }
+    }
 
     Scaffold(
         modifier = Modifier.padding(padding),
@@ -99,7 +109,12 @@ fun StocksScreen(viewModel: MainViewModel, padding: PaddingValues) {
         },
     ) { inner ->
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = inner.calculateTopPadding() + 12.dp, bottom = 100.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { ScreenTitle("Sve zalihe", "Pretražite i uredite artikle") }
+            item {
+                ScreenTitle(
+                    selectedShelf?.name ?: "Sve zalihe",
+                    if (selectedShelf != null) "Artikli i količine na ovoj polici" else "Pretražite i uredite artikle",
+                )
+            }
             item {
                 OutlinedTextField(
                     activeFilter.query,
@@ -115,7 +130,7 @@ fun StocksScreen(viewModel: MainViewModel, padding: PaddingValues) {
             }
             item { AssistChip({ showFilters = true }, { Text("Filtri") }, leadingIcon = { Icon(Icons.Outlined.FilterList, null) }) }
             items(products, key = { it.product.id }) { item ->
-                ProductCard(item, shelves, { actionProduct = item }, { showEditor = item.product }, { deletingProduct = item.product })
+                ProductCard(item, shelves, initialShelfId.takeIf(String::isNotBlank), { actionProduct = item }, { showEditor = item.product }, { deletingProduct = item.product })
             }
             if (products.isEmpty()) item { EmptyState("Nema artikala za odabrane filtre.") }
         }
@@ -175,7 +190,7 @@ private fun ProductFilterDialog(
 }
 
 @Composable
-private fun ProductCard(item: ProductWithStock, shelves: List<Shelf>, adjust: () -> Unit, edit: () -> Unit, delete: () -> Unit) {
+private fun ProductCard(item: ProductWithStock, shelves: List<Shelf>, selectedShelfId: String?, adjust: () -> Unit, edit: () -> Unit, delete: () -> Unit) {
     Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().clickable { adjust() }) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             if (item.product.photoUri != null) ProductPhoto(item.product.photoUri, item.product.updatedAt, null, Modifier.size(58.dp))
@@ -183,15 +198,24 @@ private fun ProductCard(item: ProductWithStock, shelves: List<Shelf>, adjust: ()
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 Text(item.product.name, fontWeight = FontWeight.Bold)
                 Text(item.product.description.ifBlank { item.product.category }, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("${item.totalQuantity} kom · " + item.stocks.filter { it.quantity > 0 }.joinToString { stock ->
-                    "${shelves.firstOrNull { it.id == stock.shelfId }?.name ?: "Polica"} ${stock.quantity}"
-                }, style = MaterialTheme.typography.bodySmall)
+                Text(productQuantityText(item, shelves, selectedShelfId), style = MaterialTheme.typography.bodySmall)
                 if (item.isBelowMinimum) Text("Nedostaje ${item.shortfall} kom", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
             }
             IconButton(edit) { Icon(Icons.Outlined.Edit, "Uredi") }
             IconButton(delete) { Icon(Icons.Outlined.DeleteOutline, "Obriši") }
         }
     }
+}
+
+internal fun productQuantityText(item: ProductWithStock, shelves: List<Shelf>, selectedShelfId: String?): String {
+    if (!selectedShelfId.isNullOrBlank()) {
+        val onShelf = item.stocks.firstOrNull { it.shelfId == selectedShelfId }?.quantity ?: 0
+        return "$onShelf kom na polici · ${item.totalQuantity} ukupno"
+    }
+    val locations = item.stocks.filter { it.quantity > 0 }.joinToString { stock ->
+        "${shelves.firstOrNull { it.id == stock.shelfId }?.name ?: "Polica"} ${stock.quantity}"
+    }
+    return if (locations.isBlank()) "${item.totalQuantity} kom" else "${item.totalQuantity} kom · $locations"
 }
 
 @Composable

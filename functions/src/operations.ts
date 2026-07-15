@@ -56,11 +56,12 @@ export const applyOperation = onCall(callable, async (request) => {
       resultRevision: revision, appliedAt: timestamp,
       resultDigest: sha256(JSON.stringify({ operationId, revision })),
     });
+    const values = activityValues(payload, type);
     tx.create(pantryRef.collection("activities").doc(operationId), {
       type: activityType(type, payload), aggregateId,
       displayLabel: activityLabel(payload, type),
       quantityDelta: quantityDelta(payload, type),
-      oldValue: null, newValue: null,
+      oldValue: values.oldValue, newValue: values.newValue,
       actorUid: uid, deviceId, deviceDisplayName,
       createdAt: timestamp, expiresAt: daysFromNow(365),
     });
@@ -710,7 +711,27 @@ function activityType(type: string, payload: Data): string {
 function activityLabel(payload: Data, type: string): string {
   if (type === "upsert_product") return String(object(payload.product).name || "Artikl").slice(0, 100);
   if (type === "create_shelf") return String(object(payload.shelf).name || "Polica").slice(0, 100);
+  if (type === "adjust_stock" || type === "move_stock") return activityPayloadText(payload, "productName") || "Artikl";
   return type.replaceAll("_", " ").slice(0, 100);
+}
+
+function activityValues(payload: Data, type: string): { oldValue: string | null; newValue: string | null } {
+  if (type === "adjust_stock") {
+    const shelfName = activityPayloadText(payload, "shelfName");
+    return { oldValue: shelfName, newValue: shelfName };
+  }
+  if (type === "move_stock") {
+    return {
+      oldValue: activityPayloadText(payload, "fromShelfName"),
+      newValue: activityPayloadText(payload, "toShelfName"),
+    };
+  }
+  return { oldValue: null, newValue: null };
+}
+
+function activityPayloadText(payload: Data, key: string): string | null {
+  const value = payload[key];
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, 100) : null;
 }
 
 function quantityDelta(payload: Data, type: string): number | null {

@@ -295,8 +295,29 @@ class LocalInventoryRepository @Inject constructor(
                     .copy(quantity = onShelf + delta, updatedAt = now, syncState = SyncState.PENDING),
             )
             reconcileAutomaticShopping(product.model(), outcome.newTotal, now)
-            val operationId = enqueue(product.pantryId, AggregateType.STOCK, "${productId}_$shelfId", current?.revision ?: 0, OperationPayload.AdjustStock(productId, shelfId, delta), actorUid, deviceName, now)
-            record(operationId, if (delta > 0) ActivityType.STOCK_ADDED else ActivityType.STOCK_REMOVED, product.pantryId, productId, product.name, actorUid, deviceName, delta, old = total.toString(), new = outcome.newTotal.toString(), now = now)
+            val operationId = enqueue(
+                product.pantryId,
+                AggregateType.STOCK,
+                "${productId}_$shelfId",
+                current?.revision ?: 0,
+                OperationPayload.AdjustStock(productId, shelfId, delta, product.name, shelf.name),
+                actorUid,
+                deviceName,
+                now,
+            )
+            record(
+                operationId,
+                if (delta > 0) ActivityType.STOCK_ADDED else ActivityType.STOCK_REMOVED,
+                product.pantryId,
+                productId,
+                product.name,
+                actorUid,
+                deviceName,
+                delta,
+                old = shelf.name,
+                new = shelf.name,
+                now = now,
+            )
         }
     }
 
@@ -312,7 +333,9 @@ class LocalInventoryRepository @Inject constructor(
         database.withTransaction {
             val product = products.get(productId) ?: error("Artikl više ne postoji.")
             val from = stocks.get(productId, fromShelfId) ?: error("Artikl nije na izvornoj polici.")
+            val sourceShelf = shelves.get(fromShelfId) ?: error("Izvorna polica ne postoji.")
             val targetShelf = shelves.get(toShelfId) ?: error("Odredišna polica ne postoji.")
+            require(sourceShelf.pantryId == product.pantryId && sourceShelf.deletedAt == null) { "Izvorna polica nije dostupna." }
             require(targetShelf.pantryId == product.pantryId && targetShelf.deletedAt == null) { "Odredišna polica nije dostupna." }
             StockPolicy.move(from.quantity, quantity)
             val now = clock.now()
@@ -322,8 +345,17 @@ class LocalInventoryRepository @Inject constructor(
                 (to ?: hr.smocnica.core.data.local.StockEntity(product.pantryId, productId, toShelfId, 0, 0, now, SyncState.PENDING))
                     .copy(quantity = (to?.quantity ?: 0) + quantity, updatedAt = now, syncState = SyncState.PENDING),
             )
-            val operationId = enqueue(product.pantryId, AggregateType.STOCK, productId, maxOf(from.revision, to?.revision ?: 0), OperationPayload.MoveStock(productId, fromShelfId, toShelfId, quantity), actorUid, deviceName, now)
-            record(operationId, ActivityType.STOCK_MOVED, product.pantryId, productId, product.name, actorUid, deviceName, quantity, old = fromShelfId, new = toShelfId, now = now)
+            val operationId = enqueue(
+                product.pantryId,
+                AggregateType.STOCK,
+                productId,
+                maxOf(from.revision, to?.revision ?: 0),
+                OperationPayload.MoveStock(productId, fromShelfId, toShelfId, quantity, product.name, sourceShelf.name, targetShelf.name),
+                actorUid,
+                deviceName,
+                now,
+            )
+            record(operationId, ActivityType.STOCK_MOVED, product.pantryId, productId, product.name, actorUid, deviceName, quantity, old = sourceShelf.name, new = targetShelf.name, now = now)
         }
     }
 

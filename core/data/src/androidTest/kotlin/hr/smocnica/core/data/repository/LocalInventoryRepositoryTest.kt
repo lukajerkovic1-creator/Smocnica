@@ -80,6 +80,13 @@ class LocalInventoryRepositoryTest {
         }
         assertEquals(2, database.operationDao().next().size)
         assertTrue(database.operationDao().next().all { it.state.name == "PENDING" })
+        val stockOperation = database.operationDao().next().last()
+        val payload = json.decodeFromString(OperationPayload.serializer(), stockOperation.payloadJson) as OperationPayload.AdjustStock
+        assertEquals("Riža 1 kg", payload.productName)
+        assertEquals("Polica 1", payload.shelfName)
+        val activity = database.activityDao().listSince("p1", 0).first { it.aggregateId == product.id && it.quantityDelta == 1 }
+        assertEquals("Polica 1", activity.oldValue)
+        assertEquals("Polica 1", activity.newValue)
     }
 
     @Test

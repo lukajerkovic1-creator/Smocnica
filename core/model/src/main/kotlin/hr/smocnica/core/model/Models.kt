@@ -271,6 +271,8 @@ sealed interface OperationPayload {
         val productId: ProductId,
         val shelfId: ShelfId,
         val delta: Int,
+        val productName: String = "",
+        val shelfName: String = "",
     ) : OperationPayload
 
     @Serializable
@@ -280,6 +282,9 @@ sealed interface OperationPayload {
         val fromShelfId: ShelfId,
         val toShelfId: ShelfId,
         val quantity: Int,
+        val productName: String = "",
+        val fromShelfName: String = "",
+        val toShelfName: String = "",
     ) : OperationPayload
 
     @Serializable

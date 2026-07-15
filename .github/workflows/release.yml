@@ -122,6 +122,8 @@ jobs:
           test -x "$APKSIGNER"
           test -x "$AAPT2"
           "$AAPT2" dump resources app/build/outputs/apk/release/app-release.apk | grep -q 'string/default_web_client_id'
+          "$AAPT2" dump resources app/build/outputs/apk/release/app-release.apk | grep -q 'string/github_releases_api_url'
+          "$AAPT2" dump resources app/build/outputs/apk/release/app-release.apk | grep -q 'string/expected_signer_sha256'
           CERT_OUTPUT=$("$APKSIGNER" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk)
           printf '%s\n' "$CERT_OUTPUT"
           ACTUAL_SIGNER=$(printf '%s\n' "$CERT_OUTPUT" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 | tr '[:lower:]' '[:upper:]')

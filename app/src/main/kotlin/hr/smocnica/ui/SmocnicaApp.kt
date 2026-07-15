@@ -22,9 +22,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import hr.smocnica.MainViewModel
+import hr.smocnica.ui.theme.ThemeMode
 
 @Composable
-fun SmocnicaApp(requestedRoute: String? = null, onRouteConsumed: () -> Unit = {}, viewModel: MainViewModel = hiltViewModel()) {
+fun SmocnicaApp(
+    requestedRoute: String? = null,
+    onRouteConsumed: () -> Unit = {},
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    onThemeModeChange: (ThemeMode) -> Unit = {},
+    viewModel: MainViewModel = hiltViewModel(),
+) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val pantries by viewModel.pantries.collectAsStateWithLifecycle()
     val restoringPantries by viewModel.isRestoringPantries.collectAsStateWithLifecycle()
@@ -49,7 +56,7 @@ fun SmocnicaApp(requestedRoute: String? = null, onRouteConsumed: () -> Unit = {}
                 viewModel::refreshPantries,
                 viewModel::signOut,
             )
-            else -> MainNavigation(viewModel, requestedRoute, onRouteConsumed)
+            else -> MainNavigation(viewModel, requestedRoute, onRouteConsumed, themeMode, onThemeModeChange)
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
     }
