@@ -79,25 +79,24 @@ fun ShelvesScreen(viewModel: MainViewModel, padding: PaddingValues) {
             items(shelves, key = { it.id }) { shelf ->
                 val index = shelves.indexOfFirst { it.id == shelf.id }
                 val count = products.sumOf { product -> product.stocks.firstOrNull { it.shelfId == shelf.id }?.quantity ?: 0 }
-                Card(shape = RoundedCornerShape(18.dp)) {
-                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(shelf.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text("$count komada", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        IconButton({
-                            val reordered = shelves.toMutableList().apply { add(index - 1, removeAt(index)) }
-                            viewModel.reorderShelves(reordered)
-                        }, enabled = index > 0) { Icon(Icons.Outlined.ArrowUpward, "Pomakni gore") }
-                        IconButton({
-                            val reordered = shelves.toMutableList().apply { add(index + 1, removeAt(index)) }
-                            viewModel.reorderShelves(reordered)
-                        }, enabled = index in 0 until shelves.lastIndex) { Icon(Icons.Outlined.ArrowDownward, "Pomakni dolje") }
-                        IconButton({ moving = shelf }, enabled = count > 0 && shelves.size > 1) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "Premjesti sve") }
-                        IconButton({ editing = shelf }) { Icon(Icons.Outlined.Edit, "Preimenuj") }
-                        IconButton({ deleting = shelf }, enabled = count == 0) { Icon(Icons.Outlined.DeleteOutline, if (count == 0) "Obriši" else "Polica nije prazna") }
-                    }
-                }
+                ShelfCard(
+                    shelf = shelf,
+                    count = count,
+                    canMoveUp = index > 0,
+                    canMoveDown = index in 0 until shelves.lastIndex,
+                    canMoveStock = count > 0 && shelves.size > 1,
+                    onMoveUp = {
+                        val reordered = shelves.toMutableList().apply { add(index - 1, removeAt(index)) }
+                        viewModel.reorderShelves(reordered)
+                    },
+                    onMoveDown = {
+                        val reordered = shelves.toMutableList().apply { add(index + 1, removeAt(index)) }
+                        viewModel.reorderShelves(reordered)
+                    },
+                    onMoveStock = { moving = shelf },
+                    onEdit = { editing = shelf },
+                    onDelete = { deleting = shelf },
+                )
             }
             if (shelves.isEmpty()) item { EmptyState("Dodajte prvu policu za raspodjelu zalihe.") }
         }
@@ -115,6 +114,42 @@ fun ShelvesScreen(viewModel: MainViewModel, padding: PaddingValues) {
         "Prazna polica bit će premještena u koš na 30 dana.",
         { deleting = null },
     ) { viewModel.deleteShelf(shelf); deleting = null } }
+}
+
+@Composable
+internal fun ShelfCard(
+    shelf: Shelf,
+    count: Int,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    canMoveStock: Boolean,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onMoveStock: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Card(shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(shelf.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "$count komada",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onMoveUp, enabled = canMoveUp) { Icon(Icons.Outlined.ArrowUpward, "Pomakni gore") }
+                IconButton(onMoveDown, enabled = canMoveDown) { Icon(Icons.Outlined.ArrowDownward, "Pomakni dolje") }
+                IconButton(onMoveStock, enabled = canMoveStock) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "Premjesti sve") }
+                IconButton(onEdit) { Icon(Icons.Outlined.Edit, "Preimenuj") }
+                IconButton(onDelete, enabled = count == 0) { Icon(Icons.Outlined.DeleteOutline, if (count == 0) "Obriši" else "Polica nije prazna") }
+            }
+        }
+    }
 }
 
 @Composable
