@@ -37,6 +37,10 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect(second.status).toBe("ALREADY_APPLIED");
     expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(4);
     expect((await db.collection("pantries/p1/notifications").get()).size).toBe(1);
+    const activity = await db.doc("pantries/p1/activities/op-00000001").get();
+    expect(activity.get("displayLabel")).toBe("Riža");
+    expect(activity.get("oldValue")).toBe("Polica 1");
+    expect(activity.get("newValue")).toBe("Polica 1");
 
     await invoke(operation("op-00000002", -1) as never);
     expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(3);
@@ -213,7 +217,7 @@ function operation(operationId: string, delta: number) {
       aggregateType: "STOCK",
       aggregateId: "a_s1",
       baseRevision: 1,
-      payload: { type: "adjust_stock", productId: "a", shelfId: "s1", delta },
+      payload: { type: "adjust_stock", productId: "a", shelfId: "s1", delta, productName: "Riža", shelfName: "Polica 1" },
       deviceId: "device-0001",
       deviceDisplayName: "Testni uređaj",
     }, "u1");

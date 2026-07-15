@@ -3,6 +3,7 @@ package hr.smocnica.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
@@ -20,7 +21,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -31,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import hr.smocnica.ui.theme.ThemeMode
 
 private data class Destination(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
 
@@ -43,7 +46,13 @@ private val bottomDestinations = listOf(
 )
 
 @Composable
-fun MainNavigation(viewModel: MainViewModel, requestedRoute: String? = null, onRouteConsumed: () -> Unit = {}) {
+fun MainNavigation(
+    viewModel: MainViewModel,
+    requestedRoute: String? = null,
+    onRouteConsumed: () -> Unit = {},
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    onThemeModeChange: (ThemeMode) -> Unit = {},
+) {
     val context = LocalContext.current
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     LaunchedEffect(Unit) {
@@ -72,10 +81,14 @@ fun MainNavigation(viewModel: MainViewModel, requestedRoute: String? = null, onR
                     NavigationBarItem(
                         selected = current?.destination?.route == destination.route,
                         onClick = {
-                            navController.navigate(destination.route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
+                            if (destination.route == "home") {
+                                navController.popBackStack("home", inclusive = false)
+                            } else {
+                                navController.navigate(destination.route) {
+                                    popUpTo("home") { saveState = false }
+                                    launchSingleTop = true
+                                    restoreState = false
+                                }
                             }
                         },
                         icon = { Icon(destination.icon, destination.label) },
@@ -89,9 +102,16 @@ fun MainNavigation(viewModel: MainViewModel, requestedRoute: String? = null, onR
             composable("home") { DashboardScreen(viewModel, padding, navController::navigate) }
             composable("scanner") { ScannerScreen(viewModel, padding) }
             composable("shopping") { ShoppingScreen(viewModel, padding) }
-            composable("shelves") { ShelvesScreen(viewModel, padding) }
-            composable("menu") { MenuScreen(viewModel, padding, navController::navigate) }
-            composable("stocks") { StocksScreen(viewModel, padding) }
+            composable("shelves") {
+                ShelvesScreen(viewModel, padding) { shelfId ->
+                    navController.navigate("stocks?shelfId=${Uri.encode(shelfId)}") { launchSingleTop = true }
+                }
+            }
+            composable("menu") { MenuScreen(viewModel, padding, navController::navigate, themeMode, onThemeModeChange) }
+            composable(
+                route = "stocks?shelfId={shelfId}",
+                arguments = listOf(navArgument("shelfId") { type = NavType.StringType; defaultValue = "" }),
+            ) { entry -> StocksScreen(viewModel, padding, entry.arguments?.getString("shelfId").orEmpty()) }
             composable("inventory") { InventoryScreen(viewModel, padding) }
             composable("history") { HistoryScreen(viewModel, padding) }
             composable("categories") { CategoriesScreen(viewModel, padding) }

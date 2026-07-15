@@ -27,6 +27,7 @@ import hr.smocnica.core.model.Shelf
 import hr.smocnica.core.model.ShoppingItem
 import hr.smocnica.core.model.Member
 import hr.smocnica.core.model.TrashItem
+import hr.smocnica.core.model.ActivityType
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -37,6 +38,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -90,7 +92,10 @@ class MainViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList<ShoppingItem>())
 
     val activities = selectedPantry.flatMapLatest { pantry ->
-        pantry?.let { inventory.observeActivities(it.id, System.currentTimeMillis() - 365L * 24 * 60 * 60 * 1_000) } ?: flowOf(emptyList())
+        pantry?.let {
+            inventory.observeActivities(it.id, System.currentTimeMillis() - 365L * 24 * 60 * 60 * 1_000)
+                .map { values -> values.filterNot { activity -> activity.type == ActivityType.UNKNOWN } }
+        } ?: flowOf(emptyList())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val inventoryDraft = selectedPantry.flatMapLatest { pantry ->

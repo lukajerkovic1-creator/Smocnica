@@ -35,6 +35,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,12 +59,13 @@ import hr.smocnica.MainViewModel
 import hr.smocnica.core.model.Category
 import hr.smocnica.core.model.Shelf
 import hr.smocnica.ui.theme.Purple
+import hr.smocnica.ui.theme.ThemeMode
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 @Composable
-fun ShelvesScreen(viewModel: MainViewModel, padding: PaddingValues) {
+fun ShelvesScreen(viewModel: MainViewModel, padding: PaddingValues, openShelf: (String) -> Unit = {}) {
     val shelves by viewModel.shelves.collectAsStateWithLifecycle()
     val products by viewModel.allProducts.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<Shelf?>(null) }
@@ -85,6 +87,7 @@ fun ShelvesScreen(viewModel: MainViewModel, padding: PaddingValues) {
                     canMoveUp = index > 0,
                     canMoveDown = index in 0 until shelves.lastIndex,
                     canMoveStock = count > 0 && shelves.size > 1,
+                    onOpen = { openShelf(shelf.id) },
                     onMoveUp = {
                         val reordered = shelves.toMutableList().apply { add(index - 1, removeAt(index)) }
                         viewModel.reorderShelves(reordered)
@@ -123,13 +126,14 @@ internal fun ShelfCard(
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     canMoveStock: Boolean,
+    onOpen: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onMoveStock: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Card(shape = RoundedCornerShape(18.dp)) {
+    Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text(shelf.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
@@ -244,7 +248,7 @@ fun HistoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
         items(activities, key = { it.id }) { activity ->
             Column(Modifier.padding(vertical = 10.dp)) {
                 Text(activity.displayLabel, fontWeight = FontWeight.Bold)
-                Text("${activity.type.name.replace('_', ' ').lowercase()} · ${activity.deviceName}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(activityDescription(activity), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(formatter.format(Date(activity.createdAt)), style = MaterialTheme.typography.bodySmall)
             }
             HorizontalDivider()
@@ -254,7 +258,13 @@ fun HistoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
 }
 
 @Composable
-fun MenuScreen(viewModel: MainViewModel, padding: PaddingValues, navigate: (String) -> Unit) {
+fun MenuScreen(
+    viewModel: MainViewModel,
+    padding: PaddingValues,
+    navigate: (String) -> Unit,
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    onThemeModeChange: (ThemeMode) -> Unit = {},
+) {
     val selected by viewModel.selectedPantry.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
     val summary by viewModel.syncSummary.collectAsStateWithLifecycle()
@@ -266,6 +276,20 @@ fun MenuScreen(viewModel: MainViewModel, padding: PaddingValues, navigate: (Stri
                 Column(Modifier.padding(18.dp)) {
                     Text(session?.displayName ?: "Korisnik", fontWeight = FontWeight.Bold)
                     Text(viewModel.deviceIdentity.displayName, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Izgled", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ThemeMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = themeMode == mode,
+                            onClick = { onThemeModeChange(mode) },
+                            label = { Text(mode.label) },
+                        )
+                    }
                 }
             }
         }
