@@ -21,6 +21,7 @@ okhttp = "5.4.0"
 coil = "3.5.0"
 camera = "1.6.1"
 mlkitBarcode = "17.3.0"
+googleCodeScanner = "16.1.0"
 work = "2.11.2"
 datastore = "1.2.1"
 coreKtx = "1.18.0"
@@ -84,6 +85,7 @@ camera-camera2 = { module = "androidx.camera:camera-camera2", version.ref = "cam
 camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "camera" }
 camera-view = { module = "androidx.camera:camera-view", version.ref = "camera" }
 mlkit-barcode = { module = "com.google.mlkit:barcode-scanning", version.ref = "mlkitBarcode" }
+google-code-scanner = { module = "com.google.android.gms:play-services-code-scanner", version.ref = "googleCodeScanner" }
 junit = { module = "junit:junit", version.ref = "junit" }
 androidx-junit = { module = "androidx.test.ext:junit", version.ref = "androidxJunit" }
 espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "espresso" }

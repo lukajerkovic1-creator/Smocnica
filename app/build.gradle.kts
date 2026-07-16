@@ -134,6 +134,7 @@ dependencies {
     implementation(libs.camera.lifecycle)
     implementation(libs.camera.view)
     implementation(libs.mlkit.barcode)
+    implementation(libs.google.code.scanner)
     implementation(libs.zxing.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation(platform(libs.firebase.bom))
