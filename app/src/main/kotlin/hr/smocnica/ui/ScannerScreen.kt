@@ -1,6 +1,7 @@
 package hr.smocnica.ui
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.Uri
@@ -44,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -207,40 +209,84 @@ internal fun BarcodeCamera(
     val lifecycle = LocalLifecycleOwner.current
     val executor = remember { Executors.newSingleThreadExecutor() }
     val guard = remember { DuplicateScanGuard() }
+    val previewView = remember(context) { createBarcodePreviewView(context) }
+    val providerFuture = remember(context) { ProcessCameraProvider.getInstance(context) }
+    val currentAccepts by rememberUpdatedState(accepts)
+    val currentOnError by rememberUpdatedState(onError)
+    val currentOnBarcode by rememberUpdatedState(onBarcode)
+    val currentOnCamera by rememberUpdatedState(onCamera)
     val scanner = remember {
         BarcodeScanning.getClient(
             BarcodeScannerOptions.Builder().setBarcodeFormats(formats.first(), *formats.drop(1).toIntArray()).build(),
         )
     }
     DisposableEffect(Unit) { onDispose { executor.shutdown(); scanner.close() } }
-    AndroidView(
-        factory = { ctx ->
-            PreviewView(ctx).also { previewView ->
-                val providerFuture = ProcessCameraProvider.getInstance(ctx)
-                providerFuture.addListener({
-                    runCatching {
-                        val provider = providerFuture.get()
-                        val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
-                        val analysis = ImageAnalysis.Builder().setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
-                        analysis.setAnalyzer(executor) { imageProxy ->
-                            val mediaImage = imageProxy.image
-                            if (mediaImage == null) imageProxy.close() else {
-                                scanner.process(InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees))
-                                    .addOnSuccessListener { barcodes ->
-                                        barcodes.firstNotNullOfOrNull { it.rawValue }?.let { value ->
-                                            if (accepts(value) && guard.accept(value, System.currentTimeMillis())) onBarcode(value)
-                                        }
+    DisposableEffect(lifecycle, previewView, providerFuture) {
+        var disposed = false
+        var provider: ProcessCameraProvider? = null
+        var preview: Preview? = null
+        var analysis: ImageAnalysis? = null
+
+        providerFuture.addListener({
+            if (disposed) return@addListener
+            runCatching {
+                val activeProvider = providerFuture.get()
+                val activePreview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
+                val activeAnalysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                activeAnalysis.setAnalyzer(executor) { imageProxy ->
+                    val mediaImage = imageProxy.image
+                    if (mediaImage == null) {
+                        imageProxy.close()
+                    } else {
+                        scanner.process(InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees))
+                            .addOnSuccessListener { barcodes ->
+                                barcodes.firstNotNullOfOrNull { it.rawValue }?.let { value ->
+                                    if (currentAccepts(value) && guard.accept(value, System.currentTimeMillis())) {
+                                        currentOnBarcode(value)
                                     }
-                                    .addOnFailureListener { onError("Barkod nije moguće očitati. Pokušajte ponovno.") }
-                                    .addOnCompleteListener { imageProxy.close() }
+                                }
                             }
-                        }
-                        provider.unbindAll()
-                        onCamera?.invoke(provider.bindToLifecycle(lifecycle, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis))
-                    }.onFailure { onError("Kamera nije dostupna na ovom uređaju.") }
-                }, ContextCompat.getMainExecutor(ctx))
+                            .addOnFailureListener { currentOnError("Barkod nije moguće očitati. Pokušajte ponovno.") }
+                            .addOnCompleteListener { imageProxy.close() }
+                    }
+                }
+                activeProvider.unbindAll()
+                if (!disposed) {
+                    provider = activeProvider
+                    preview = activePreview
+                    analysis = activeAnalysis
+                    currentOnCamera?.invoke(
+                        activeProvider.bindToLifecycle(
+                            lifecycle,
+                            CameraSelector.DEFAULT_BACK_CAMERA,
+                            activePreview,
+                            activeAnalysis,
+                        ),
+                    )
+                } else {
+                    activeAnalysis.clearAnalyzer()
+                }
+            }.onFailure { currentOnError("Kamera nije dostupna na ovom uređaju.") }
+        }, ContextCompat.getMainExecutor(context))
+
+        onDispose {
+            disposed = true
+            analysis?.clearAnalyzer()
+            val activeProvider = provider
+            val activePreview = preview
+            val activeAnalysis = analysis
+            if (activeProvider != null && activePreview != null && activeAnalysis != null) {
+                activeProvider.unbind(activePreview, activeAnalysis)
             }
-        },
-        modifier = modifier,
-    )
+        }
+    }
+    AndroidView(factory = { previewView }, modifier = modifier)
+}
+
+internal fun createBarcodePreviewView(context: Context): PreviewView = PreviewView(context).apply {
+    // SurfaceView previews can render behind a Compose dialog on some Android devices.
+    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+    scaleType = PreviewView.ScaleType.FILL_CENTER
 }
