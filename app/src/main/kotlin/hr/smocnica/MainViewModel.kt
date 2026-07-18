@@ -383,11 +383,15 @@ class MainViewModel @Inject constructor(
     ) {
         viewModelScope.launch {
             val pantry = selectedPantry.value ?: run {
-                _messages.emit("Smočnica nije odabrana.")
+                val failure = IllegalStateException("Smočnica nije odabrana.")
+                onFailure(failure)
+                _messages.emit(failure.message.orEmpty())
                 return@launch
             }
             val uid = session.value?.uid ?: run {
-                _messages.emit("Korisnik nije prijavljen.")
+                val failure = IllegalStateException("Korisnik nije prijavljen.")
+                onFailure(failure)
+                _messages.emit(failure.message.orEmpty())
                 return@launch
             }
             runCatching { block(pantry, uid) }

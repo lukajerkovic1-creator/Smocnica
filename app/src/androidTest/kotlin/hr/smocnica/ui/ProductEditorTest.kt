@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertAll
 import androidx.compose.ui.test.isNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -206,5 +207,42 @@ class ProductEditorTest {
         compose.onNodeWithText("Dodaj količinu postojećem artiklu").performClick()
         compose.onAllNodesWithText("Spremanje…").assertAll(isNotEnabled())
         assertEquals(1, confirmations)
+    }
+
+    @Test
+    fun failedExistingProductAdjustmentRestoresControlsAndShowsError() {
+        val existing = ProductWithStock(
+            Product("existing", "p1", "Postojeći sok", barcode = "4006381333931", createdAt = 1, updatedAt = 1),
+            listOf(Stock("p1", "existing", "s1", 2, updatedAt = 1)),
+        )
+        compose.setContent {
+            SmocnicaTheme {
+                ProductEditor(
+                    current = null,
+                    shelves = shelves,
+                    categories = emptyList(),
+                    onDismiss = {},
+                    initialShelfId = "s1",
+                    activeProducts = listOf(existing),
+                    barcodeScanner = { detected, dismiss ->
+                        AlertDialog(
+                            onDismissRequest = dismiss,
+                            title = { Text("Testni skener") },
+                            confirmButton = { Button({ detected("4006381333931") }) { Text("Očitaj") } },
+                        )
+                    },
+                    onAddExisting = { _, _, _, done -> done(false) },
+                    onSave = { _, _, _, _, _, _ -> error("Duplikat se ne smije spremiti kao novi artikl.") },
+                )
+            }
+        }
+
+        compose.onNodeWithContentDescription("Skeniraj barkod").performClick()
+        compose.onNodeWithText("Očitaj").performClick()
+        compose.onNodeWithText("Dodaj količinu postojećem artiklu").performClick()
+
+        compose.onNodeWithText("Dodavanje količine nije uspjelo. Pokušajte ponovno.").assertExists()
+        compose.onNodeWithText("Dodaj količinu postojećem artiklu").assertIsEnabled()
+        compose.onNodeWithText("Nastavi ručno").assertIsEnabled()
     }
 }
