@@ -153,6 +153,9 @@ interface ProductDao {
     @Query("SELECT * FROM products WHERE pantryId = :pantryId AND barcode = :barcode AND deletedAt IS NULL LIMIT 1")
     suspend fun findBarcode(pantryId: String, barcode: String): ProductEntity?
 
+    @Query("SELECT * FROM products WHERE pantryId = :pantryId AND barcode = :barcode LIMIT 1")
+    suspend fun findAnyBarcode(pantryId: String, barcode: String): ProductEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: ProductEntity)
 

@@ -87,6 +87,12 @@ class LocalInventoryRepository @Inject constructor(
             }
         }
 
+    override fun observeDeletedProducts(pantryId: String): Flow<List<ProductWithStock>> =
+        combine(products.observeDeleted(pantryId), stocks.observeForPantry(pantryId)) { productRows, stockRows ->
+            val stockModels = stockRows.map { it.model() }
+            productRows.map { row -> ProductWithStock(row.model(), stockModels.filter { it.productId == row.id }) }
+        }
+
     override fun observeShopping(pantryId: String): Flow<List<ShoppingItem>> =
         shopping.observeActive(pantryId).map { list -> list.map { it.model() } }
 
@@ -239,7 +245,7 @@ class LocalInventoryRepository @Inject constructor(
             require(product.minimumQuantity <= MAX_QUANTITY) { "Minimalna količina je previsoka." }
             require(product.description.length <= 500) { "Opis artikla može imati najviše 500 znakova." }
             val barcode = product.barcode?.takeIf(String::isNotBlank)?.let(BarcodePolicy::requireSupported)
-            val duplicate = barcode?.let { products.findBarcode(product.pantryId, it) }
+            val duplicate = barcode?.let { products.findAnyBarcode(product.pantryId, it) }
             require(duplicate == null || duplicate.id == product.id) { "Ovaj barkod već je povezan s drugim artiklom." }
             val now = clock.now()
             val existing = product.id.takeIf(String::isNotBlank)?.let { products.get(it) }
@@ -317,6 +323,55 @@ class LocalInventoryRepository @Inject constructor(
                 old = shelf.name,
                 new = shelf.name,
                 now = now,
+            )
+        }
+    }
+
+    override suspend fun restoreProductAndAdjustStock(
+        pantryId: String,
+        productId: String,
+        shelfId: String,
+        quantity: Int,
+        actorUid: String,
+        deviceName: String,
+    ) {
+        require(quantity in 1..MAX_QUANTITY) { "Količina mora biti između 1 i $MAX_QUANTITY." }
+        database.withTransaction {
+            val product = products.get(productId) ?: error("Artikl nije pronađen u košu.")
+            val shelf = shelves.get(shelfId) ?: error("Polica više ne postoji.")
+            val now = clock.now()
+            require(product.pantryId == pantryId && product.deletedAt != null) { "Artikl nije dostupan za vraćanje." }
+            require(product.purgeAfter == null || product.purgeAfter > now) { "Rok za vraćanje artikla je istekao." }
+            require(shelf.pantryId == pantryId && shelf.deletedAt == null) { "Odabrana polica nije dostupna." }
+            product.barcode?.let { barcode ->
+                val activeDuplicate = products.findBarcode(pantryId, barcode)
+                require(activeDuplicate == null || activeDuplicate.id == productId) { "Ovaj barkod već pripada aktivnom artiklu." }
+            }
+
+            val restored = product.copy(deletedAt = null, purgeAfter = null, updatedAt = now, syncState = SyncState.PENDING)
+            val current = stocks.get(productId, shelfId)
+            val onShelf = current?.quantity ?: 0
+            val total = stocks.total(productId)
+            StockPolicy.adjust(onShelf, total, quantity, restored.minimumQuantity)
+            products.upsert(restored)
+            stocks.upsert(
+                (current ?: hr.smocnica.core.data.local.StockEntity(pantryId, productId, shelfId, 0, 0, now, SyncState.PENDING))
+                    .copy(quantity = onShelf + quantity, updatedAt = now, syncState = SyncState.PENDING),
+            )
+            reconcileAutomaticShopping(restored.model(), total + quantity, now)
+
+            val restoreOperationId = enqueue(
+                pantryId, AggregateType.PRODUCT, productId, 0,
+                OperationPayload.Restore(AggregateType.PRODUCT, productId), actorUid, deviceName, now,
+            )
+            record(restoreOperationId, ActivityType.ITEM_RESTORED, pantryId, productId, restored.name, actorUid, deviceName, now = now)
+            val stockOperationId = enqueue(
+                pantryId, AggregateType.STOCK, "${productId}_$shelfId", current?.revision ?: 0,
+                OperationPayload.AdjustStock(productId, shelfId, quantity, restored.name, shelf.name), actorUid, deviceName, now,
+            )
+            record(
+                stockOperationId, ActivityType.STOCK_ADDED, pantryId, productId, restored.name,
+                actorUid, deviceName, quantity, old = shelf.name, new = shelf.name, now = now,
             )
         }
     }

@@ -39,6 +39,7 @@ data class Invitation(val code: String, val expiresAt: Long)
 interface InventoryRepository {
     fun observeShelves(pantryId: String): Flow<List<Shelf>>
     fun observeProducts(pantryId: String, filter: ProductFilter = ProductFilter()): Flow<List<ProductWithStock>>
+    fun observeDeletedProducts(pantryId: String): Flow<List<ProductWithStock>>
     fun observeCategories(pantryId: String): Flow<List<Category>>
     fun observeShopping(pantryId: String): Flow<List<ShoppingItem>>
     fun observeActivities(pantryId: String, since: Long): Flow<List<Activity>>
@@ -54,6 +55,7 @@ interface InventoryRepository {
     suspend fun upsertProduct(product: Product, actorUid: String, deviceName: String): Product
     suspend fun deleteProduct(product: Product, actorUid: String, deviceName: String)
     suspend fun adjustStock(productId: String, shelfId: String, delta: Int, actorUid: String, deviceName: String)
+    suspend fun restoreProductAndAdjustStock(pantryId: String, productId: String, shelfId: String, quantity: Int, actorUid: String, deviceName: String)
     suspend fun moveStock(productId: String, fromShelfId: String, toShelfId: String, quantity: Int, actorUid: String, deviceName: String)
     suspend fun addManualShoppingItem(pantryId: String, name: String, category: String, quantity: Int, actorUid: String, deviceName: String): ShoppingItem
     suspend fun updateManualShoppingItem(item: ShoppingItem, name: String, category: String, quantity: Int, actorUid: String, deviceName: String)

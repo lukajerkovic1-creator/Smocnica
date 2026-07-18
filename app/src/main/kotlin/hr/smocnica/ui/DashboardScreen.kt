@@ -80,7 +80,16 @@ fun DashboardScreen(viewModel: MainViewModel, padding: PaddingValues, navigate: 
                 }
             }
         }
-        item { OverviewCard(below, shopping.size, products.size) }
+        item {
+            OverviewCard(
+                below = below,
+                shopping = shopping.size,
+                products = products.size,
+                openBelowMinimum = { navigate(stocksRoute(filter = "belowMinimum")) },
+                openShopping = { navigate("shopping") },
+                openProducts = { navigate(stocksRoute()) },
+            )
+        }
         item { SyncBanner(sync.pending, sync.syncing, sync.conflicts, sync.failed) {
             if (sync.conflicts + sync.failed > 0) navigate("conflicts") else viewModel.synchronize()
         } }
@@ -126,7 +135,14 @@ fun DashboardScreen(viewModel: MainViewModel, padding: PaddingValues, navigate: 
 }
 
 @Composable
-private fun OverviewCard(below: Int, shopping: Int, products: Int) {
+private fun OverviewCard(
+    below: Int,
+    shopping: Int,
+    products: Int,
+    openBelowMinimum: () -> Unit,
+    openShopping: () -> Unit,
+    openProducts: () -> Unit,
+) {
     Card(
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .38f)),
@@ -148,17 +164,17 @@ private fun OverviewCard(below: Int, shopping: Int, products: Int) {
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f))
             Row(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
-                Metric(below, "Ispod minimuma", Icons.Outlined.ErrorOutline, Rose, Modifier.weight(1f))
-                Metric(shopping, "Na popisu za kupnju", Icons.Outlined.ShoppingCart, Amber, Modifier.weight(1f))
-                Metric(products, "Ukupno artikala", Icons.Outlined.Inventory2, Purple, Modifier.weight(1f))
+                Metric(below, "Ispod minimuma", Icons.Outlined.ErrorOutline, Rose, Modifier.weight(1f), openBelowMinimum)
+                Metric(shopping, "Na popisu za kupnju", Icons.Outlined.ShoppingCart, Amber, Modifier.weight(1f), openShopping)
+                Metric(products, "Ukupno artikala", Icons.Outlined.Inventory2, Purple, Modifier.weight(1f), openProducts)
             }
         }
     }
 }
 
 @Composable
-private fun Metric(value: Int, label: String, icon: ImageVector, color: Color, modifier: Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+private fun Metric(value: Int, label: String, icon: ImageVector, color: Color, modifier: Modifier, open: () -> Unit) {
+    Column(modifier.clickable(onClick = open).padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(shape = CircleShape, color = color.copy(alpha = .12f)) { Icon(icon, null, Modifier.padding(8.dp).size(22.dp), tint = color) }
         Text(value.toString(), style = MaterialTheme.typography.headlineMedium, color = color, fontWeight = FontWeight.Bold)
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)

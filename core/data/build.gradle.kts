@@ -52,6 +52,7 @@ dependencies {
     testImplementation(libs.mockk)
     testImplementation(libs.turbine)
     testImplementation(libs.androidx.room.testing)
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.room.testing)
     androidTestImplementation("androidx.test:core:1.7.0")
