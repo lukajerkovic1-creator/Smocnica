@@ -254,13 +254,19 @@ fun StocksScreen(
         requestCatalogLookup = lookup::lookup,
         continueManually = lookup::continueManually,
         onAddExisting = { item, shelf, quantity, done ->
-            viewModel.adjustStock(item.product.id, shelf, quantity) {
-                done(true)
-                scope.launch {
-                    val result = snackbar.showSnackbar("${item.product.name}: dodano $quantity kom.", "Poništi")
-                    if (result == SnackbarResult.ActionPerformed) viewModel.adjustStock(item.product.id, shelf, -quantity)
-                }
-            }
+            viewModel.adjustStock(
+                item.product.id,
+                shelf,
+                quantity,
+                onAdjusted = {
+                    done(true)
+                    scope.launch {
+                        val result = snackbar.showSnackbar("${item.product.name}: dodano $quantity kom.", "Poništi")
+                        if (result == SnackbarResult.ActionPerformed) viewModel.adjustStock(item.product.id, shelf, -quantity)
+                    }
+                },
+                onFailure = { done(false) },
+            )
         },
         onRestoreDeleted = { item, shelf, quantity, done ->
             viewModel.restoreProductAndAddStock(
@@ -576,6 +582,7 @@ fun ProductEditor(
     var showInventoryMatch by rememberSaveable { mutableStateOf(showInventoryMatchInitially) }
     var lookupAttempted by rememberSaveable { mutableStateOf(false) }
     var submitting by rememberSaveable { mutableStateOf(false) }
+    var operationError by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var selectedPhoto by rememberSaveable { mutableStateOf<ByteArray?>(null) }
@@ -692,6 +699,9 @@ fun ProductEditor(
                 if (lookupAttempted && !catalogLookup.isLoading && missingRequired.isNotEmpty()) item {
                     Text("Još ispunite obvezna polja: ${missingRequired.joinToString()}.", color = MaterialTheme.colorScheme.error)
                 }
+                if (!showInventoryMatch) {
+                    operationError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
+                }
                 item { OutlinedTextField(minimum, { minimum = it.filter(Char::isDigit) }, label = { Text("Minimalna količina") }, modifier = Modifier.fillMaxWidth()) }
                 item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Automatski dodaj na kupnju", Modifier.weight(1f)); Switch(autoShopping, { autoShopping = it }) } }
                 if (isNew) {
@@ -707,6 +717,7 @@ fun ProductEditor(
                         showInventoryMatch = true
                         return@Button
                     }
+                    operationError = null
                     submitting = true
                     val now = System.currentTimeMillis()
                     onSave(
@@ -727,7 +738,7 @@ fun ProductEditor(
                         selectedSource,
                     ) { success ->
                         submitting = false
-                        if (success) onDismiss()
+                        if (success) onDismiss() else operationError = "Spremanje nije uspjelo. Pokušajte ponovno."
                     }
                 },
                 enabled = !submitting && !catalogLookup.isLoading && name.trim().length in 1..100 && category.isNotBlank() &&
@@ -749,11 +760,13 @@ fun ProductEditor(
             initialShelfId = shelfId,
             dismiss = { if (!submitting) showInventoryMatch = false },
             submitting = submitting,
+            errorMessage = operationError,
         ) { selectedShelfId, selectedQuantity ->
+            operationError = null
             submitting = true
             val done: (Boolean) -> Unit = { success ->
                 submitting = false
-                if (success) onDismiss()
+                if (success) onDismiss() else operationError = "Dodavanje količine nije uspjelo. Pokušajte ponovno."
             }
             when (inventoryMatch) {
                 is BarcodeInventoryMatch.Active -> onAddExisting(inventoryMatch.item, selectedShelfId, selectedQuantity, done)
@@ -770,6 +783,7 @@ private fun ExistingBarcodeDialog(
     initialShelfId: String,
     dismiss: () -> Unit,
     submitting: Boolean,
+    errorMessage: String?,
     confirm: (String, Int) -> Unit,
 ) {
     val item = match.item
@@ -810,6 +824,7 @@ private fun ExistingBarcodeDialog(
                         IconButton({ if (quantity < 1_000_000) quantity++ }, enabled = !submitting) { Icon(Icons.Outlined.Add, "Povećaj količinu") }
                     }
                 }
+                errorMessage?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
             }
         },
         confirmButton = {
