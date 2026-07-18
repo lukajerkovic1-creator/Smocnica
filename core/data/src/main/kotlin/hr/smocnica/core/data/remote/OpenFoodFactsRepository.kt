@@ -39,12 +39,12 @@ class OpenFoodFactsRepository @Inject constructor(private val api: OpenFoodFacts
         val product = response.product.takeIf { response.status == 1 } ?: return null
         val name = product.croatianName?.trim().takeUnless { it.isNullOrBlank() }
             ?: product.name?.trim().takeUnless { it.isNullOrBlank() }
-            ?: return null
+            ?: ""
         val category = product.categories.firstOrNull()
             ?.substringAfter(':')
             ?.replace('-', ' ')
             ?.replaceFirstChar(Char::titlecase)
-            ?: "Ostalo"
+            .orEmpty()
         return CatalogProduct(
             barcode = normalized,
             name = name,

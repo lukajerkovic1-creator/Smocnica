@@ -84,6 +84,7 @@ fun MainNavigation(
                     is ScannerCompletion.StockAdjusted -> viewModel.adjustStock(result.productId, result.shelfId, -result.delta)
                     is ScannerCompletion.StockMoved -> viewModel.moveStock(result.productId, result.toShelfId, result.fromShelfId, result.quantity)
                     is ScannerCompletion.ProductCreated -> viewModel.deleteProduct(result.product)
+                    is ScannerCompletion.ProductRestored -> viewModel.undoRestoreProductAndAddStock(result.product, result.shelfId, result.quantity)
                 }
             }
         }

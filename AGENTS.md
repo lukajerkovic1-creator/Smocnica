@@ -25,3 +25,4 @@
 - Za novu mutaciju dodati: domenski test, repository test i barem jedan negativni sigurnosni test ako mijenja ovlasti.
 - Migracije baze su aditivne gdje je moguće i uvijek imaju test. Nadogradnja aplikacije ne briše Room podatke.
 - Raditi male, koherentne promjene i ne prepisivati nevezane korisničke izmjene.
+- Promjenu Android aplikacije ne predstavljati korisniku kao završenu dok nije objavljena kao potpisani GitHub Release s većim `versionCode`, provjerenim APK-om i izravnim javnim linkom za nadogradnju. Ako objava nije moguća, jasno navesti da promjena još nije dostupna na mobitelu.

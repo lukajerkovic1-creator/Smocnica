@@ -54,6 +54,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -74,6 +75,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -87,6 +89,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
@@ -114,12 +117,15 @@ fun StocksScreen(
     initialFilter: String = "",
     scan: () -> Unit,
     openProduct: (String) -> Unit,
+    lookup: ScannerLookupViewModel = hiltViewModel(),
 ) {
     val products by viewModel.products.collectAsStateWithLifecycle()
     val allProducts by viewModel.allProducts.collectAsStateWithLifecycle()
+    val deletedProducts by viewModel.deletedProducts.collectAsStateWithLifecycle()
     val shelves by viewModel.shelves.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     val sync by viewModel.syncSummary.collectAsStateWithLifecycle()
+    val catalogLookup by lookup.state.collectAsStateWithLifecycle()
     var activeFilter by remember(initialShelfId, initialFilter) {
         mutableStateOf(
             ProductFilter(
@@ -131,7 +137,7 @@ fun StocksScreen(
     }
     var showFilters by remember { mutableStateOf(false) }
     var showEditor by remember { mutableStateOf<Product?>(null) }
-    var creating by remember { mutableStateOf(initialAction == "new") }
+    var creating by rememberSaveable(initialAction) { mutableStateOf(initialAction == "new") }
     var movingProduct by remember { mutableStateOf<ProductWithStock?>(null) }
     var moveDestinationId by remember { mutableStateOf("") }
     var chooseMoveProduct by remember { mutableStateOf(initialAction == "move") }
@@ -236,10 +242,63 @@ fun StocksScreen(
             if (products.isEmpty()) item { ContextEmptyState("Nema artikala za odabrane filtre.", scan, { creating = true }, if (selectedShelf != null) ({ chooseMoveProduct = true }) else null) }
         }
     }
-    if (creating) ProductEditor(null, shelves, categories, onDismiss = { creating = false }, initialShelfId = initialShelfId) { product, shelf, quantity, photo, source ->
-        viewModel.createProductAndStock(product, shelf, quantity, photo, source); creating = false
+    if (creating) ProductEditor(
+        current = null,
+        shelves = shelves,
+        categories = categories,
+        onDismiss = { creating = false },
+        initialShelfId = initialShelfId,
+        activeProducts = allProducts,
+        deletedProducts = deletedProducts,
+        catalogLookup = catalogLookup,
+        requestCatalogLookup = lookup::lookup,
+        continueManually = lookup::continueManually,
+        onAddExisting = { item, shelf, quantity, done ->
+            viewModel.adjustStock(item.product.id, shelf, quantity) {
+                done(true)
+                scope.launch {
+                    val result = snackbar.showSnackbar("${item.product.name}: dodano $quantity kom.", "Poništi")
+                    if (result == SnackbarResult.ActionPerformed) viewModel.adjustStock(item.product.id, shelf, -quantity)
+                }
+            }
+        },
+        onRestoreDeleted = { item, shelf, quantity, done ->
+            viewModel.restoreProductAndAddStock(
+                item.product.id,
+                shelf,
+                quantity,
+                onRestored = {
+                    done(true)
+                    scope.launch {
+                        val result = snackbar.showSnackbar("${item.product.name}: vraćen iz koša i dodan na policu.", "Poništi")
+                        if (result == SnackbarResult.ActionPerformed) viewModel.undoRestoreProductAndAddStock(item.product, shelf, quantity)
+                    }
+                },
+                onFailure = { done(false) },
+            )
+        },
+    ) { product, shelf, quantity, photo, source, done ->
+        viewModel.createProductAndStock(
+            product,
+            shelf,
+            quantity,
+            photo,
+            source,
+            onCreated = { created ->
+                done(true)
+                scope.launch {
+                    val result = snackbar.showSnackbar("${created.name}: dodano na policu.", "Poništi")
+                    if (result == SnackbarResult.ActionPerformed) viewModel.deleteProduct(created)
+                }
+            },
+            onFailure = { done(false) },
+        )
     }
-    showEditor?.let { current -> ProductEditor(current, shelves, categories, onDismiss = { showEditor = null }) { product, _, _, photo, source -> viewModel.saveProduct(product, photo, source); showEditor = null } }
+    showEditor?.let { current ->
+        ProductEditor(current, shelves, categories, onDismiss = { showEditor = null }) { product, _, _, photo, source, done ->
+            viewModel.saveProduct(product, photo, source, onSaved = { done(true) }, onFailure = { done(false) })
+        }
+    }
     movingProduct?.let { item ->
         val preferredSource = if (moveDestinationId.isNotBlank()) {
             item.stocks.firstOrNull { it.quantity > 0 && it.shelfId != moveDestinationId }?.shelfId.orEmpty()
@@ -491,47 +550,130 @@ fun ProductEditor(
     categories: List<Category>,
     onDismiss: () -> Unit,
     initialShelfId: String = "",
-    onSave: (Product, String, Int, ByteArray?, PhotoSource?) -> Unit,
+    activeProducts: List<ProductWithStock> = emptyList(),
+    deletedProducts: List<ProductWithStock> = emptyList(),
+    catalogLookup: CatalogLookupState = CatalogLookupState(),
+    requestCatalogLookup: (String) -> Unit = {},
+    continueManually: () -> Unit = {},
+    showInventoryMatchInitially: Boolean = false,
+    barcodeScanner: (@Composable ((String) -> Unit, () -> Unit) -> Unit)? = null,
+    onAddExisting: (ProductWithStock, String, Int, (Boolean) -> Unit) -> Unit = { _, _, _, done -> done(false) },
+    onRestoreDeleted: (ProductWithStock, String, Int, (Boolean) -> Unit) -> Unit = { _, _, _, done -> done(false) },
+    onSave: (Product, String, Int, ByteArray?, PhotoSource?, (Boolean) -> Unit) -> Unit,
 ) {
     val isNew = current == null || current.id.isBlank()
-    var name by remember { mutableStateOf(current?.name.orEmpty()) }
-    var barcode by remember { mutableStateOf(current?.barcode.orEmpty()) }
-    var description by remember { mutableStateOf(current?.description.orEmpty()) }
-    var category by remember { mutableStateOf(current?.category ?: categories.firstOrNull()?.name ?: "Ostalo") }
-    var minimum by remember { mutableStateOf((current?.minimumQuantity ?: 0).toString()) }
-    var autoShopping by remember { mutableStateOf(current?.autoShopping ?: true) }
-    var shelfId by remember(initialShelfId, shelves) { mutableStateOf(initialShelfId.takeIf { id -> shelves.any { it.id == id } } ?: shelves.firstOrNull()?.id.orEmpty()) }
-    var quantity by remember { mutableStateOf("1") }
+    var name by rememberSaveable(current?.id) { mutableStateOf(current?.name.orEmpty()) }
+    var barcode by rememberSaveable(current?.id) { mutableStateOf(current?.barcode.orEmpty()) }
+    var description by rememberSaveable(current?.id) { mutableStateOf(current?.description.orEmpty()) }
+    var category by rememberSaveable(current?.id) { mutableStateOf(current?.category.orEmpty()) }
+    var minimum by rememberSaveable(current?.id) { mutableStateOf((current?.minimumQuantity ?: 0).toString()) }
+    var autoShopping by rememberSaveable(current?.id) { mutableStateOf(current?.autoShopping ?: true) }
+    var shelfId by rememberSaveable(initialShelfId) { mutableStateOf(initialShelfId) }
+    var quantity by rememberSaveable(current?.id) { mutableStateOf("1") }
+    var remotePhotoUri by rememberSaveable(current?.id) { mutableStateOf(current?.photoUri) }
+    var remotePhotoSource by rememberSaveable(current?.id) { mutableStateOf(current?.photoSource?.name ?: PhotoSource.NONE.name) }
+    var showBarcodeScanner by rememberSaveable { mutableStateOf(false) }
+    var showInventoryMatch by rememberSaveable { mutableStateOf(showInventoryMatchInitially) }
+    var lookupAttempted by rememberSaveable { mutableStateOf(false) }
+    var submitting by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var selectedPhoto by remember { mutableStateOf<ByteArray?>(null) }
-    var selectedSource by remember { mutableStateOf<PhotoSource?>(null) }
-    var photoError by remember { mutableStateOf<String?>(null) }
-    val cameraUri = remember {
-        FileProvider.getUriForFile(context, "${context.packageName}.files", File.createTempFile("product-photo-", ".jpg", context.cacheDir))
+    var selectedPhoto by rememberSaveable { mutableStateOf<ByteArray?>(null) }
+    var selectedSourceName by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedSource = selectedSourceName?.let(PhotoSource::valueOf)
+    var photoError by rememberSaveable { mutableStateOf<String?>(null) }
+    val cameraUriString = rememberSaveable {
+        FileProvider.getUriForFile(context, "${context.packageName}.files", File.createTempFile("product-photo-", ".jpg", context.cacheDir)).toString()
     }
+    val cameraUri = cameraUriString.toUri()
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) scope.launch { runCatching { resizeJpeg(context, uri) }.onSuccess { selectedPhoto = it; selectedSource = PhotoSource.GALLERY; photoError = null }.onFailure { photoError = it.message } }
+        if (uri != null) scope.launch { runCatching { resizeJpeg(context, uri) }.onSuccess { selectedPhoto = it; selectedSourceName = PhotoSource.GALLERY.name; photoError = null }.onFailure { photoError = it.message } }
     }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        if (success) scope.launch { runCatching { resizeJpeg(context, cameraUri) }.onSuccess { selectedPhoto = it; selectedSource = PhotoSource.CAMERA; photoError = null }.onFailure { photoError = it.message } }
+        if (success) scope.launch { runCatching { resizeJpeg(context, cameraUri) }.onSuccess { selectedPhoto = it; selectedSourceName = PhotoSource.CAMERA.name; photoError = null }.onFailure { photoError = it.message } }
     }
-    var cameraPermissionDenied by remember { mutableStateOf(false) }
+    var cameraPermissionDenied by rememberSaveable { mutableStateOf(false) }
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         cameraPermissionDenied = !granted
         if (granted) camera.launch(cameraUri) else photoError = "Kamera nije dopuštena. Omogućite je u postavkama aplikacije."
     }
+    LaunchedEffect(shelves, initialShelfId) {
+        if (shelves.none { it.id == shelfId }) {
+            shelfId = initialShelfId.takeIf { id -> shelves.any { it.id == id } } ?: shelves.firstOrNull()?.id.orEmpty()
+        }
+    }
+    LaunchedEffect(catalogLookup.barcode, catalogLookup.outcome, catalogLookup.product) {
+        val catalog = catalogLookup.product
+        if (catalogLookup.barcode == barcode && catalogLookup.outcome == CatalogLookupOutcome.SUCCESS && catalog != null) {
+            val merged = ProductEntryDraft(name, barcode, description, category, remotePhotoUri, PhotoSource.valueOf(remotePhotoSource))
+                .mergeEmptyFields(catalog)
+            name = merged.name
+            description = merged.description
+            category = merged.category
+            remotePhotoUri = merged.photoUri
+            remotePhotoSource = merged.photoSource.name
+        }
+    }
+    val inventoryMatch = remember(barcode, activeProducts, deletedProducts, current?.id) {
+        findBarcodeInventoryMatch(barcode, activeProducts, deletedProducts, current?.id)
+    }
+    val missingRequired = ProductEntryDraft(name = name, category = category).missingRequiredFields
+
+    fun acceptScannedBarcode(code: String) {
+        barcode = code
+        lookupAttempted = true
+        showBarcodeScanner = false
+        val match = findBarcodeInventoryMatch(code, activeProducts, deletedProducts, current?.id)
+        if (match != null) showInventoryMatch = true else requestCatalogLookup(code)
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (isNew) "Novi artikl" else "Uredi artikl") },
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item { OutlinedTextField(name, { name = it.take(100) }, label = { Text("Naziv *") }, modifier = Modifier.fillMaxWidth()) }
-                item { OutlinedTextField(barcode, { barcode = it.filter(Char::isDigit) }, label = { Text("Barkod (opcionalno)") }, modifier = Modifier.fillMaxWidth()) }
+                item {
+                    OutlinedTextField(
+                        barcode,
+                        {
+                            barcode = it.filter(Char::isDigit)
+                            lookupAttempted = false
+                        },
+                        label = { Text("Barkod (opcionalno)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        trailingIcon = if (isNew) ({
+                            IconButton({ showBarcodeScanner = true }, enabled = !submitting) {
+                                Icon(Icons.Outlined.QrCodeScanner, "Skeniraj barkod")
+                            }
+                        }) else null,
+                    )
+                }
+                if (catalogLookup.barcode == barcode && catalogLookup.isLoading) item {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                        Text("Dohvaćam podatke iz Open Food Factsa…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(continueManually) { Text("Nastavi ručno") }
+                    }
+                }
+                if (catalogLookup.barcode == barcode && catalogLookup.outcome in setOf(CatalogLookupOutcome.TIMEOUT, CatalogLookupOutcome.ERROR, CatalogLookupOutcome.EMPTY)) item {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            when (catalogLookup.outcome) {
+                                CatalogLookupOutcome.TIMEOUT -> "Open Food Facts nije odgovorio na vrijeme. Barkod je sačuvan."
+                                CatalogLookupOutcome.EMPTY -> "Proizvod nije pronađen u Open Food Factsu. Barkod je sačuvan."
+                                else -> "Podatke nije moguće dohvatiti. Barkod je sačuvan."
+                            },
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        TextButton(continueManually) { Text("Nastavi ručno") }
+                    }
+                }
                 item { OutlinedTextField(description, { description = it.take(500) }, label = { Text("Pakiranje / opis") }, modifier = Modifier.fillMaxWidth()) }
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        current?.photoUri?.let { ProductPhoto(it, current.updatedAt, "Fotografija artikla", Modifier.fillMaxWidth().height(120.dp)) }
+                        remotePhotoUri?.let { ProductPhoto(it, current?.updatedAt ?: 0, "Fotografija artikla", Modifier.fillMaxWidth().height(120.dp)) }
                         selectedPhoto?.let { Text("Odabrana je nova fotografija (${it.size / 1024} KiB).", color = MaterialTheme.colorScheme.primary) }
                         photoError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         if (cameraPermissionDenied) OutlinedButton({
@@ -546,7 +688,10 @@ fun ProductEditor(
                         }
                     }
                 }
-                item { SimpleDropdown("Kategorija", category, (categories.map { it.name } + "Ostalo").distinct(), { category = it }) }
+                item { SimpleDropdown("Kategorija *", category, (categories.map { it.name } + "Ostalo").distinct(), { category = it }) }
+                if (lookupAttempted && !catalogLookup.isLoading && missingRequired.isNotEmpty()) item {
+                    Text("Još ispunite obvezna polja: ${missingRequired.joinToString()}.", color = MaterialTheme.colorScheme.error)
+                }
                 item { OutlinedTextField(minimum, { minimum = it.filter(Char::isDigit) }, label = { Text("Minimalna količina") }, modifier = Modifier.fillMaxWidth()) }
                 item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Automatski dodaj na kupnju", Modifier.weight(1f)); Switch(autoShopping, { autoShopping = it }) } }
                 if (isNew) {
@@ -558,6 +703,11 @@ fun ProductEditor(
         confirmButton = {
             Button(
                 onClick = {
+                    if (inventoryMatch != null) {
+                        showInventoryMatch = true
+                        return@Button
+                    }
+                    submitting = true
                     val now = System.currentTimeMillis()
                     onSave(
                         (current ?: Product("", "", name, createdAt = now, updatedAt = now)).copy(
@@ -565,6 +715,8 @@ fun ProductEditor(
                             barcode = barcode.ifBlank { null },
                             description = description,
                             category = category,
+                            photoUri = remotePhotoUri,
+                            photoSource = PhotoSource.valueOf(remotePhotoSource),
                             minimumQuantity = minimum.toIntOrNull() ?: 0,
                             autoShopping = autoShopping,
                             updatedAt = now,
@@ -573,12 +725,103 @@ fun ProductEditor(
                         quantity.toIntOrNull() ?: 0,
                         selectedPhoto,
                         selectedSource,
-                    )
+                    ) { success ->
+                        submitting = false
+                        if (success) onDismiss()
+                    }
                 },
-                enabled = name.trim().length in 1..100 && (barcode.isBlank() || hr.smocnica.core.domain.BarcodePolicy.isSupported(barcode)) && (!isNew || shelves.isNotEmpty()),
-            ) { Text("Spremi") }
+                enabled = !submitting && !catalogLookup.isLoading && name.trim().length in 1..100 && category.isNotBlank() &&
+                    (barcode.isBlank() || hr.smocnica.core.domain.BarcodePolicy.isSupported(barcode)) && (!isNew || shelves.isNotEmpty()),
+            ) { Text(if (submitting) "Spremanje…" else "Spremi") }
         },
-        dismissButton = { TextButton(onDismiss) { Text("Odustani") } },
+        dismissButton = { TextButton(onDismiss, enabled = !submitting) { Text("Odustani") } },
+    )
+
+    if (showBarcodeScanner) {
+        val scanner = barcodeScanner
+        if (scanner == null) SharedBarcodeScannerDialog("Skeniraj barkod artikla", { showBarcodeScanner = false }, ::acceptScannedBarcode)
+        else scanner(::acceptScannedBarcode) { showBarcodeScanner = false }
+    }
+    if (showInventoryMatch && inventoryMatch != null) {
+        ExistingBarcodeDialog(
+            match = inventoryMatch,
+            shelves = shelves,
+            initialShelfId = shelfId,
+            dismiss = { if (!submitting) showInventoryMatch = false },
+            submitting = submitting,
+        ) { selectedShelfId, selectedQuantity ->
+            submitting = true
+            val done: (Boolean) -> Unit = { success ->
+                submitting = false
+                if (success) onDismiss()
+            }
+            when (inventoryMatch) {
+                is BarcodeInventoryMatch.Active -> onAddExisting(inventoryMatch.item, selectedShelfId, selectedQuantity, done)
+                is BarcodeInventoryMatch.Deleted -> onRestoreDeleted(inventoryMatch.item, selectedShelfId, selectedQuantity, done)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExistingBarcodeDialog(
+    match: BarcodeInventoryMatch,
+    shelves: List<Shelf>,
+    initialShelfId: String,
+    dismiss: () -> Unit,
+    submitting: Boolean,
+    confirm: (String, Int) -> Unit,
+) {
+    val item = match.item
+    var shelfId by rememberSaveable(item.product.id) {
+        mutableStateOf(initialShelfId.takeIf { id -> shelves.any { it.id == id } } ?: shelves.firstOrNull()?.id.orEmpty())
+    }
+    var quantity by rememberSaveable(item.product.id) { mutableIntStateOf(1) }
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text(if (match is BarcodeInventoryMatch.Deleted) "Artikl je u košu" else "Artikl već postoji") },
+        text = {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        item.product.photoUri?.let { ProductPhoto(it, item.product.updatedAt, item.product.name, Modifier.size(72.dp)) }
+                        Column {
+                            Text(item.product.name, fontWeight = FontWeight.Bold)
+                            if (item.product.description.isNotBlank()) Text(item.product.description)
+                            Text("Ukupno: ${item.totalQuantity} kom")
+                        }
+                    }
+                }
+                item {
+                    val locations = item.stocks.filter { it.quantity > 0 }.joinToString("\n") { stock ->
+                        "${shelves.firstOrNull { it.id == stock.shelfId }?.name ?: "Polica"}: ${stock.quantity} kom"
+                    }
+                    Text(locations.ifBlank { "Artikl trenutačno nema količinu ni na jednoj polici." })
+                }
+                item {
+                    SimpleDropdown("Polica", shelves.firstOrNull { it.id == shelfId }?.name.orEmpty(), shelves.map { it.name }) { selected ->
+                        shelfId = shelves.first { it.name == selected }.id
+                    }
+                }
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton({ if (quantity > 1) quantity-- }, enabled = !submitting) { Icon(Icons.Outlined.Remove, "Smanji količinu") }
+                        Text("$quantity kom", Modifier.padding(horizontal = 12.dp), fontWeight = FontWeight.Bold)
+                        IconButton({ if (quantity < 1_000_000) quantity++ }, enabled = !submitting) { Icon(Icons.Outlined.Add, "Povećaj količinu") }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button({ confirm(shelfId, quantity) }, enabled = !submitting && shelfId.isNotBlank() && quantity > 0) {
+                Text(
+                    if (submitting) "Spremanje…"
+                    else if (match is BarcodeInventoryMatch.Deleted) "Vrati artikl iz koša i dodaj količinu"
+                    else "Dodaj količinu postojećem artiklu",
+                )
+            }
+        },
+        dismissButton = { TextButton(dismiss, enabled = !submitting) { Text("Nastavi ručno") } },
     )
 }
 

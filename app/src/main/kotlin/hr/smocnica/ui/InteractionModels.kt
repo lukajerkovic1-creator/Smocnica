@@ -35,6 +35,13 @@ sealed interface ScannerCompletion {
         val product: Product,
         override val message: String,
     ) : ScannerCompletion
+
+    data class ProductRestored(
+        val product: Product,
+        val shelfId: String,
+        val quantity: Int,
+        override val message: String,
+    ) : ScannerCompletion
 }
 
 fun scannerRoute(context: ScannerContext): String = buildString {

@@ -18,6 +18,7 @@ import hr.smocnica.core.model.PantrySnapshot
 import hr.smocnica.core.model.Product
 import hr.smocnica.core.model.SyncState
 import hr.smocnica.core.model.AggregateType
+import hr.smocnica.core.model.ActivityType
 import hr.smocnica.core.model.OperationPayload
 import hr.smocnica.core.model.OperationState
 import hr.smocnica.core.data.remote.ApplyResult
@@ -174,5 +175,56 @@ class LocalInventoryRepositoryTest {
         assertEquals(OperationState.PENDING, rebased.state)
         val payload = json.decodeFromString(OperationPayload.serializer(), rebased.payloadJson) as OperationPayload.ReorderShelves
         assertEquals(listOf("s1", "s2"), payload.orderedShelfIds)
+    }
+
+    @Test
+    fun deletedBarcodeCannotBeReplacedByANewProduct() = runTest {
+        val barcode = "4006381333931"
+        val original = repository.upsertProduct(
+            Product("", "p1", "Original", barcode = barcode, createdAt = 1, updatedAt = 1),
+            "u1",
+            "Test uređaj",
+        )
+        repository.deleteProduct(original, "u1", "Test uređaj")
+
+        val result = runCatching {
+            repository.upsertProduct(
+                Product("", "p1", "Duplikat", barcode = barcode, createdAt = 1, updatedAt = 1),
+                "u1",
+                "Test uređaj",
+            )
+        }
+
+        assertTrue(result.isFailure)
+        val preserved = database.productDao().get(original.id)
+        assertEquals("Original", preserved?.name)
+        assertTrue(preserved?.deletedAt != null)
+    }
+
+    @Test
+    fun restoringDeletedProductAndAddingStockIsOneLocalTransaction() = runTest {
+        val product = repository.upsertProduct(
+            Product("", "p1", "Sok", barcode = "4006381333931", createdAt = 1, updatedAt = 1),
+            "u1",
+            "Test uređaj",
+        )
+        repository.adjustStock(product.id, "s1", 2, "u1", "Test uređaj")
+        repository.deleteProduct(product, "u1", "Test uređaj")
+
+        repository.restoreProductAndAdjustStock("p1", product.id, "s1", 3, "u1", "Test uređaj")
+
+        repository.observeProducts("p1").test {
+            val restored = awaitItem().single()
+            assertEquals(5, restored.totalQuantity)
+            assertEquals(null, restored.product.deletedAt)
+            cancelAndIgnoreRemainingEvents()
+        }
+        val pending = database.operationDao().next()
+        val lastPayloads = pending.takeLast(2).map { json.decodeFromString(OperationPayload.serializer(), it.payloadJson) }
+        assertTrue(lastPayloads[0] is OperationPayload.Restore)
+        assertTrue(lastPayloads[1] is OperationPayload.AdjustStock)
+        val activityTypes = database.activityDao().listSince("p1", 0).map { it.type }
+        assertTrue(ActivityType.ITEM_RESTORED.name in activityTypes)
+        assertTrue(ActivityType.STOCK_ADDED.name in activityTypes)
     }
 }

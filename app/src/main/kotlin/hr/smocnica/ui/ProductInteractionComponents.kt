@@ -284,7 +284,9 @@ fun ProductDetailScreen(
             }
             moving = false
         }
-        if (editing) ProductEditor(item.product, shelves, categories, { editing = false }) { product, _, _, photo, source -> viewModel.saveProduct(product, photo, source); editing = false }
+        if (editing) ProductEditor(item.product, shelves, categories, { editing = false }) { product, _, _, photo, source, done ->
+            viewModel.saveProduct(product, photo, source, onSaved = { done(true) }, onFailure = { done(false) })
+        }
         if (deleting) ConfirmDialog("Obrisati ${item.product.name}?", "Artikl se može vratiti iz koša tijekom 30 dana.", { deleting = false }) { viewModel.deleteProduct(item.product); deleting = false; close() }
     }
 }
