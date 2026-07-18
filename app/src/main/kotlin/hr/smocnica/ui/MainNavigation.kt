@@ -16,10 +16,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
@@ -34,6 +39,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import hr.smocnica.ui.theme.ThemeMode
+import kotlinx.coroutines.launch
 
 private data class Destination(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
 
@@ -67,6 +73,21 @@ fun MainNavigation(
         return
     }
     val navController = rememberNavController()
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    fun completeScanner(result: ScannerCompletion, returnToSource: Boolean) {
+        if (returnToSource) navController.popBackStack()
+        scope.launch {
+            val response = snackbar.showSnackbar(result.message, actionLabel = "Poništi")
+            if (response == SnackbarResult.ActionPerformed) {
+                when (result) {
+                    is ScannerCompletion.StockAdjusted -> viewModel.adjustStock(result.productId, result.shelfId, -result.delta)
+                    is ScannerCompletion.StockMoved -> viewModel.moveStock(result.productId, result.toShelfId, result.fromShelfId, result.quantity)
+                    is ScannerCompletion.ProductCreated -> viewModel.deleteProduct(result.product)
+                }
+            }
+        }
+    }
     LaunchedEffect(requestedRoute) {
         requestedRoute?.takeIf { route -> route in setOf("shopping", "stocks") }?.let { route ->
             navController.navigate(route) { launchSingleTop = true }
@@ -75,6 +96,7 @@ fun MainNavigation(
     }
     val current by navController.currentBackStackEntryAsState()
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
             NavigationBar {
                 bottomDestinations.forEach { destination ->
@@ -100,18 +122,85 @@ fun MainNavigation(
     ) { padding ->
         NavHost(navController, startDestination = "home", modifier = Modifier) {
             composable("home") { DashboardScreen(viewModel, padding, navController::navigate) }
-            composable("scanner") { ScannerScreen(viewModel, padding) }
-            composable("shopping") { ShoppingScreen(viewModel, padding) }
-            composable("shelves") {
-                ShelvesScreen(viewModel, padding) { shelfId ->
-                    navController.navigate("stocks?shelfId=${Uri.encode(shelfId)}") { launchSingleTop = true }
+            composable("scanner") { ScannerScreen(viewModel, padding, onCompleted = { completeScanner(it, false) }) }
+            composable(
+                route = "scanner/context?source={source}&shelfId={shelfId}&productId={productId}&shoppingItemId={shoppingItemId}&mode={mode}",
+                arguments = listOf(
+                    navArgument("source") { type = NavType.StringType; defaultValue = "Skeniranje" },
+                    navArgument("shelfId") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("productId") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("shoppingItemId") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("mode") { type = NavType.StringType; defaultValue = ScannerMode.DEFAULT.name },
+                ),
+            ) { entry ->
+                val context = ScannerContext(
+                    sourceLabel = entry.arguments?.getString("source").orEmpty().ifBlank { "Skeniranje" },
+                    shelfId = entry.arguments?.getString("shelfId").orEmpty(),
+                    productId = entry.arguments?.getString("productId").orEmpty(),
+                    shoppingItemId = entry.arguments?.getString("shoppingItemId").orEmpty(),
+                    mode = runCatching { ScannerMode.valueOf(entry.arguments?.getString("mode").orEmpty()) }.getOrDefault(ScannerMode.DEFAULT),
+                )
+                ScannerScreen(viewModel, padding, context, onCompleted = { completeScanner(it, true) })
+            }
+            composable("shopping") {
+                ShoppingScreen(viewModel, padding) { item ->
+                    navController.navigate(scannerRoute(ScannerContext("Popis za kupnju", shoppingItemId = item.id, productId = item.productId.orEmpty(), mode = ScannerMode.ADD)))
                 }
+            }
+            composable("shelves") {
+                ShelvesScreen(
+                    viewModel = viewModel,
+                    padding = padding,
+                    openShelf = { shelfId -> navController.navigate(stocksRoute(shelfId)) { launchSingleTop = true } },
+                    scan = { shelfId ->
+                        val shelfName = viewModel.shelves.value.firstOrNull { it.id == shelfId }?.name
+                        navController.navigate(scannerRoute(ScannerContext(shelfName?.let { "Polica: $it" } ?: "Police", shelfId = shelfId)))
+                    },
+                    addManual = { shelfId -> navController.navigate(stocksRoute(shelfId, action = "new")) },
+                    moveExisting = { shelfId -> navController.navigate(stocksRoute(shelfId, action = "move")) },
+                )
             }
             composable("menu") { MenuScreen(viewModel, padding, navController::navigate, themeMode, onThemeModeChange) }
             composable(
-                route = "stocks?shelfId={shelfId}",
-                arguments = listOf(navArgument("shelfId") { type = NavType.StringType; defaultValue = "" }),
-            ) { entry -> StocksScreen(viewModel, padding, entry.arguments?.getString("shelfId").orEmpty()) }
+                route = "stocks?shelfId={shelfId}&action={action}&filter={filter}",
+                arguments = listOf(
+                    navArgument("shelfId") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("action") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("filter") { type = NavType.StringType; defaultValue = "" },
+                ),
+            ) { entry ->
+                val shelfId = entry.arguments?.getString("shelfId").orEmpty()
+                StocksScreen(
+                    viewModel,
+                    padding,
+                    initialShelfId = shelfId,
+                    initialAction = entry.arguments?.getString("action").orEmpty(),
+                    initialFilter = entry.arguments?.getString("filter").orEmpty(),
+                    scan = {
+                        val source = viewModel.shelves.value.firstOrNull { it.id == shelfId }?.name?.let { "Polica: $it" } ?: "Sve zalihe"
+                        navController.navigate(scannerRoute(ScannerContext(source, shelfId = shelfId)))
+                    },
+                    openProduct = { productId -> navController.navigate("product/${Uri.encode(productId)}?shelfId=${Uri.encode(shelfId)}") },
+                )
+            }
+            composable(
+                route = "product/{productId}?shelfId={shelfId}",
+                arguments = listOf(
+                    navArgument("productId") { type = NavType.StringType },
+                    navArgument("shelfId") { type = NavType.StringType; defaultValue = "" },
+                ),
+            ) { entry ->
+                val productId = entry.arguments?.getString("productId").orEmpty()
+                val shelfId = entry.arguments?.getString("shelfId").orEmpty()
+                ProductDetailScreen(
+                    viewModel,
+                    padding,
+                    productId,
+                    shelfId,
+                    scan = { mode -> navController.navigate(scannerRoute(ScannerContext("Detalj artikla", shelfId, productId, mode = mode))) },
+                    close = { navController.popBackStack() },
+                )
+            }
             composable("inventory") { InventoryScreen(viewModel, padding) }
             composable("history") { HistoryScreen(viewModel, padding) }
             composable("categories") { CategoriesScreen(viewModel, padding) }

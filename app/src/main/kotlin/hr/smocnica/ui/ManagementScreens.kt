@@ -1,6 +1,8 @@
 package hr.smocnica.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -31,7 +33,9 @@ import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.WarningAmber
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -40,6 +44,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -52,6 +57,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -65,9 +72,17 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun ShelvesScreen(viewModel: MainViewModel, padding: PaddingValues, openShelf: (String) -> Unit = {}) {
+fun ShelvesScreen(
+    viewModel: MainViewModel,
+    padding: PaddingValues,
+    openShelf: (String) -> Unit,
+    scan: (String) -> Unit,
+    addManual: (String) -> Unit,
+    moveExisting: (String) -> Unit,
+) {
     val shelves by viewModel.shelves.collectAsStateWithLifecycle()
     val products by viewModel.allProducts.collectAsStateWithLifecycle()
+    val sync by viewModel.syncSummary.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<Shelf?>(null) }
     var moving by remember { mutableStateOf<Shelf?>(null) }
     var deleting by remember { mutableStateOf<Shelf?>(null) }
@@ -78,6 +93,13 @@ fun ShelvesScreen(viewModel: MainViewModel, padding: PaddingValues, openShelf: (
     ) { inner ->
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = inner.calculateTopPadding() + 12.dp, bottom = 100.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { ScreenTitle("Police", "Artikle možete rasporediti na više lokacija") }
+            item { OperationSyncState(sync) }
+            item {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button({ scan("") }) { Icon(Icons.Outlined.QrCodeScanner, null); Text("Skeniraj artikl", Modifier.padding(start = 6.dp)) }
+                    OutlinedButton({ addManual("") }) { Icon(Icons.Outlined.Add, null); Text("Dodaj ručno", Modifier.padding(start = 6.dp)) }
+                }
+            }
             items(shelves, key = { it.id }) { shelf ->
                 val index = shelves.indexOfFirst { it.id == shelf.id }
                 val count = products.sumOf { product -> product.stocks.firstOrNull { it.shelfId == shelf.id }?.quantity ?: 0 }
@@ -99,9 +121,12 @@ fun ShelvesScreen(viewModel: MainViewModel, padding: PaddingValues, openShelf: (
                     onMoveStock = { moving = shelf },
                     onEdit = { editing = shelf },
                     onDelete = { deleting = shelf },
+                    onScan = { scan(shelf.id) },
+                    onAdd = { addManual(shelf.id) },
+                    onMoveHere = { moveExisting(shelf.id) },
                 )
             }
-            if (shelves.isEmpty()) item { EmptyState("Dodajte prvu policu za raspodjelu zalihe.") }
+            if (shelves.isEmpty()) item { ContextEmptyState("Dodajte prvu policu za raspodjelu zalihe.", { scan("") }, { showNew = true }) }
         }
     }
     if (showNew) NameDialog("Nova polica", "Naziv police", { showNew = false }) { viewModel.createShelf(it); showNew = false }
@@ -132,15 +157,39 @@ internal fun ShelfCard(
     onMoveStock: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onScan: () -> Unit,
+    onAdd: () -> Unit,
+    onMoveHere: () -> Unit,
 ) {
-    Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+    Card(
+        onClick = onOpen,
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { contentDescription = "Otvori ${shelf.name}" },
+    ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(shelf.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(
-                "$count komada",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onOpen)
+                    .padding(bottom = 6.dp),
+            ) {
+                Text(shelf.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "$count komada",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                AssistChip(onScan, { Text("Skeniraj") }, leadingIcon = { Icon(Icons.Outlined.QrCodeScanner, null) })
+                AssistChip(onAdd, { Text("Dodaj") }, leadingIcon = { Icon(Icons.Outlined.Add, null) })
+                AssistChip(onMoveHere, { Text("Premjesti ovamo") }, leadingIcon = { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) })
+            }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,

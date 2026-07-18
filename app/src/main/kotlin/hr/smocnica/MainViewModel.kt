@@ -210,7 +210,14 @@ class MainViewModel @Inject constructor(
             inventory.upsertProduct(saved.copy(photoUri = url, photoSource = source), uid, deviceIdentity.displayName)
         }
     }
-    fun createProductAndStock(product: Product, shelfId: String, quantity: Int, photo: ByteArray? = null, source: hr.smocnica.core.model.PhotoSource? = null) = withActor { pantry, uid ->
+    fun createProductAndStock(
+        product: Product,
+        shelfId: String,
+        quantity: Int,
+        photo: ByteArray? = null,
+        source: hr.smocnica.core.model.PhotoSource? = null,
+        onCreated: ((Product) -> Unit)? = null,
+    ) = actorAction({ pantry, uid ->
         val created = inventory.upsertProduct(product.copy(pantryId = pantry.id), uid, deviceIdentity.displayName)
         if (quantity > 0) inventory.adjustStock(created.id, shelfId, quantity, uid, deviceIdentity.displayName)
         if (photo != null && source != null) {
@@ -219,9 +226,34 @@ class MainViewModel @Inject constructor(
             val url = photos.uploadJpeg(pantry.id, created.id, photo)
             inventory.upsertProduct(created.copy(photoUri = url, photoSource = source), uid, deviceIdentity.displayName)
         }
-    }
+        created
+    }) { created -> onCreated?.invoke(created) }
     fun deleteProduct(product: Product) = withActor { _, uid -> inventory.deleteProduct(product, uid, deviceIdentity.displayName) }
-    fun adjustStock(productId: String, shelfId: String, delta: Int) = withActor { _, uid -> inventory.adjustStock(productId, shelfId, delta, uid, deviceIdentity.displayName) }
+    fun adjustStock(productId: String, shelfId: String, delta: Int, onAdjusted: (() -> Unit)? = null) = actorAction({ _, uid ->
+        inventory.adjustStock(productId, shelfId, delta, uid, deviceIdentity.displayName)
+    }) { onAdjusted?.invoke() }
+    fun moveStock(productId: String, fromShelfId: String, toShelfId: String, quantity: Int, onMoved: (() -> Unit)? = null) = actorAction({ _, uid ->
+        inventory.moveStock(productId, fromShelfId, toShelfId, quantity, uid, deviceIdentity.displayName)
+    }) { onMoved?.invoke() }
+    fun changeProductsCategory(products: List<ProductWithStock>, category: String) = withActor { _, uid ->
+        val now = System.currentTimeMillis()
+        products.forEach { item -> inventory.upsertProduct(item.product.copy(category = category, updatedAt = now), uid, deviceIdentity.displayName) }
+    }
+    fun addProductsToShopping(products: List<ProductWithStock>) = withActor { pantry, uid ->
+        products.forEach { item ->
+            inventory.addManualShoppingItem(pantry.id, item.product.name, item.product.category, 1, uid, deviceIdentity.displayName)
+        }
+    }
+    fun deleteProducts(products: List<ProductWithStock>) = withActor { _, uid ->
+        products.forEach { item -> inventory.deleteProduct(item.product, uid, deviceIdentity.displayName) }
+    }
+    fun moveProducts(products: List<ProductWithStock>, fromShelfId: String, toShelfId: String) = withActor { _, uid ->
+        require(fromShelfId != toShelfId) { "Odaberite različite police." }
+        products.forEach { item ->
+            val quantity = item.stocks.firstOrNull { it.shelfId == fromShelfId }?.quantity ?: 0
+            if (quantity > 0) inventory.moveStock(item.product.id, fromShelfId, toShelfId, quantity, uid, deviceIdentity.displayName)
+        }
+    }
     fun addShopping(name: String, category: String, quantity: Int) = withActor { pantry, uid -> inventory.addManualShoppingItem(pantry.id, name, category, quantity, uid, deviceIdentity.displayName) }
     fun setChecked(item: ShoppingItem, checked: Boolean) = withActor { _, uid -> inventory.setShoppingChecked(item, checked, uid, deviceIdentity.displayName) }
     fun saveCategory(category: Category) = withActor { pantry, uid -> inventory.upsertCategory(category.copy(pantryId = pantry.id), uid, deviceIdentity.displayName) }
@@ -311,6 +343,29 @@ class MainViewModel @Inject constructor(
         block(pantry, uid)
         val result = sync.synchronize()
         if (result.conflicts > 0) _messages.emit("Potrebno je riješiti ${result.conflicts} konflikata sinkronizacije.")
+    }
+
+    private fun <T> actorAction(block: suspend (Pantry, String) -> T, onSuccess: (T) -> Unit) {
+        viewModelScope.launch {
+            val pantry = selectedPantry.value ?: run {
+                _messages.emit("Smočnica nije odabrana.")
+                return@launch
+            }
+            val uid = session.value?.uid ?: run {
+                _messages.emit("Korisnik nije prijavljen.")
+                return@launch
+            }
+            runCatching { block(pantry, uid) }
+                .onSuccess { value ->
+                    onSuccess(value)
+                    runCatching { sync.synchronize() }
+                        .onSuccess { result ->
+                            if (result.conflicts > 0) _messages.emit("Potrebno je riješiti ${result.conflicts} konflikata sinkronizacije.")
+                        }
+                        .onFailure { _messages.emit("Promjena je spremljena na uređaju i čeka sinkronizaciju.") }
+                }
+                .onFailure { _messages.emit(it.message ?: "Radnja nije uspjela.") }
+        }
     }
 
     private fun action(block: suspend () -> Any?) {

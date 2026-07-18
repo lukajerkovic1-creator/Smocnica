@@ -4,8 +4,8 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.Intent
-import android.net.Uri
 import android.provider.Settings
+import android.view.SoundEffectConstants
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
@@ -51,10 +51,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -94,13 +98,22 @@ class ScannerLookupViewModel @Inject constructor(private val catalog: ProductCat
 }
 
 @Composable
-fun ScannerScreen(viewModel: MainViewModel, padding: PaddingValues, lookup: ScannerLookupViewModel = hiltViewModel()) {
+fun ScannerScreen(
+    viewModel: MainViewModel,
+    padding: PaddingValues,
+    scannerContext: ScannerContext = ScannerContext(),
+    onCompleted: (ScannerCompletion) -> Unit,
+    lookup: ScannerLookupViewModel = hiltViewModel(),
+) {
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
+    val view = LocalView.current
     val products by viewModel.allProducts.collectAsStateWithLifecycle()
     val shelves by viewModel.shelves.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     val catalog by lookup.result.collectAsStateWithLifecycle()
     val loading by lookup.loading.collectAsStateWithLifecycle()
+    val shopping by viewModel.shopping.collectAsStateWithLifecycle()
     var permission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
     var permissionDenied by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permission = it; permissionDenied = !it }
@@ -110,16 +123,26 @@ fun ScannerScreen(viewModel: MainViewModel, padding: PaddingValues, lookup: Scan
     var camera by remember { mutableStateOf<Camera?>(null) }
     var cameraError by remember { mutableStateOf<String?>(null) }
     val local = detected?.let { code -> products.firstOrNull { it.product.barcode == code } }
+    fun acceptBarcode(code: String) {
+        val matched = products.firstOrNull { it.product.barcode == code }
+        if (scannerContext.productId.isNotBlank() && matched?.product?.id != scannerContext.productId) {
+            cameraError = "Skenirani barkod ne pripada odabranom artiklu."
+            return
+        }
+        cameraError = null
+        detected = code
+        if (matched == null) lookup.lookup(code)
+    }
 
     Column(Modifier.fillMaxSize().padding(padding).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ScreenTitle("Skeniraj proizvod", "EAN-8, EAN-13, UPC-A i UPC-E")
+        ScreenTitle("Skeniraj proizvod", "${scannerContext.sourceLabel} · EAN-8, EAN-13, UPC-A i UPC-E")
         if (!permission) {
             Box(Modifier.fillMaxWidth().height(360.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Outlined.QrCodeScanner, null)
                     Text("Za skeniranje je potreban pristup kameri.", Modifier.padding(12.dp))
                     Button({
-                        if (permissionDenied) context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
+                        if (permissionDenied) context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
                         else permissionLauncher.launch(Manifest.permission.CAMERA)
                     }) { Text(if (permissionDenied) "Otvori postavke" else "Dopusti kameru") }
                 }
@@ -132,7 +155,7 @@ fun ScannerScreen(viewModel: MainViewModel, padding: PaddingValues, lookup: Scan
                     formats = intArrayOf(Barcode.FORMAT_EAN_8, Barcode.FORMAT_EAN_13, Barcode.FORMAT_UPC_A, Barcode.FORMAT_UPC_E),
                     accepts = BarcodePolicy::isSupported,
                     onError = { cameraError = it },
-                    onBarcode = { code -> detected = code; if (products.none { it.product.barcode == code }) lookup.lookup(code) },
+                    onBarcode = ::acceptBarcode,
                 )
                 IconButton(
                     onClick = { flash = !flash; camera?.cameraControl?.enableTorch(flash) },
@@ -144,7 +167,7 @@ fun ScannerScreen(viewModel: MainViewModel, padding: PaddingValues, lookup: Scan
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(manual, { manual = it.filter(Char::isDigit) }, label = { Text("Ručni unos barkoda") }, modifier = Modifier.weight(1f), singleLine = true)
             Button(
-                onClick = { val code = BarcodePolicy.requireSupported(manual); detected = code; if (products.none { it.product.barcode == code }) lookup.lookup(code) },
+                onClick = { acceptBarcode(BarcodePolicy.requireSupported(manual)) },
                 enabled = BarcodePolicy.isSupported(manual),
                 modifier = Modifier.padding(start = 8.dp),
             ) { Text("Potvrdi") }
@@ -152,9 +175,30 @@ fun ScannerScreen(viewModel: MainViewModel, padding: PaddingValues, lookup: Scan
     }
     detected?.let { code ->
         when {
-            local != null -> ScannerStockDialog(local, shelves.map { it.id to it.name }, { detected = null }) { shelfId, delta ->
-                viewModel.adjustStock(local.product.id, shelfId, delta); detected = null
-            }
+            local != null -> ScannerStockDialog(
+                item = local,
+                shelves = shelves.map { it.id to it.name },
+                initialShelfId = scannerContext.shelfId,
+                initialMode = scannerContext.mode,
+                initialQuantity = shopping.firstOrNull { it.id == scannerContext.shoppingItemId }?.requiredQuantity ?: 1,
+                dismiss = { detected = null },
+                adjust = { shelfId, delta ->
+                    viewModel.adjustStock(local.product.id, shelfId, delta) {
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        view.playSoundEffect(SoundEffectConstants.CLICK)
+                        onCompleted(ScannerCompletion.StockAdjusted(local.product.id, shelfId, delta, "${local.product.name}: stanje je ažurirano."))
+                    }
+                    detected = null
+                },
+                move = { fromShelfId, toShelfId, quantity ->
+                    viewModel.moveStock(local.product.id, fromShelfId, toShelfId, quantity) {
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        view.playSoundEffect(SoundEffectConstants.CLICK)
+                        onCompleted(ScannerCompletion.StockMoved(local.product.id, fromShelfId, toShelfId, quantity, "${local.product.name}: premješteno $quantity kom."))
+                    }
+                    detected = null
+                },
+            )
             loading -> AlertDialog(onDismissRequest = { detected = null }, confirmButton = { TextButton({ detected = null }) { Text("Odustani") } }, title = { Text("Dohvat proizvoda") }, text = { Text("Provjeravam Open Food Facts…") })
             else -> {
                 val now = System.currentTimeMillis()
@@ -165,8 +209,13 @@ fun ScannerScreen(viewModel: MainViewModel, padding: PaddingValues, lookup: Scan
                     photoSource = if (catalog?.imageUrl != null) hr.smocnica.core.model.PhotoSource.OPEN_FOOD_FACTS else hr.smocnica.core.model.PhotoSource.NONE,
                     createdAt = now, updatedAt = now,
                 )
-                ProductEditor(suggested, shelves, categories, { detected = null }) { product, shelf, quantity, photo, source ->
-                    viewModel.createProductAndStock(product, shelf, quantity, photo, source); detected = null
+                ProductEditor(suggested, shelves, categories, { detected = null }, initialShelfId = scannerContext.shelfId) { product, shelf, quantity, photo, source ->
+                    viewModel.createProductAndStock(product, shelf, quantity, photo, source) { created ->
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        view.playSoundEffect(SoundEffectConstants.CLICK)
+                        onCompleted(ScannerCompletion.ProductCreated(created, "${created.name}: dodano u smočnicu."))
+                    }
+                    detected = null
                 }
             }
         }
@@ -174,17 +223,54 @@ fun ScannerScreen(viewModel: MainViewModel, padding: PaddingValues, lookup: Scan
 }
 
 @Composable
-private fun ScannerStockDialog(item: ProductWithStock, shelves: List<Pair<String, String>>, dismiss: () -> Unit, apply: (String, Int) -> Unit) {
-    var shelfId by remember { mutableStateOf(item.stocks.firstOrNull { it.quantity > 0 }?.shelfId ?: shelves.firstOrNull()?.first.orEmpty()) }
-    var adding by remember { mutableStateOf(true) }
-    var quantity by remember { mutableIntStateOf(1) }
+private fun ScannerStockDialog(
+    item: ProductWithStock,
+    shelves: List<Pair<String, String>>,
+    initialShelfId: String,
+    initialMode: ScannerMode,
+    initialQuantity: Int,
+    dismiss: () -> Unit,
+    adjust: (String, Int) -> Unit,
+    move: (String, String, Int) -> Unit,
+) {
+    var shelfId by remember { mutableStateOf(initialShelfId.takeIf { id -> shelves.any { it.first == id } } ?: item.stocks.firstOrNull { it.quantity > 0 }?.shelfId ?: shelves.firstOrNull()?.first.orEmpty()) }
+    var targetShelfId by remember { mutableStateOf(shelves.firstOrNull { it.first != shelfId }?.first.orEmpty()) }
+    var mode by remember { mutableStateOf(initialMode.takeUnless { it == ScannerMode.DEFAULT } ?: ScannerMode.ADD) }
+    var quantity by remember { mutableIntStateOf(initialQuantity.coerceAtLeast(1)) }
+    var confirmRiskyAction by remember { mutableStateOf(false) }
     val available = item.stocks.firstOrNull { it.shelfId == shelfId }?.quantity ?: 0
     AlertDialog(onDismissRequest = dismiss, title = { Text(item.product.name) }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Button({ adding = true }) { Text("Dodaj u smočnicu") }; Button({ adding = false }) { Text("Izvadi") } }
-        SimpleScannerShelfPicker(shelves, shelfId) { shelfId = it }
-        OutlinedTextField(quantity.toString(), { quantity = it.filter(Char::isDigit).toIntOrNull() ?: 1 }, label = { Text("Količina") })
-        if (!adding) Text("Dostupno: $available kom")
-    } }, confirmButton = { Button({ apply(shelfId, if (adding) quantity else -quantity) }, enabled = shelfId.isNotBlank() && quantity > 0 && (adding || quantity <= available)) { Text("Potvrdi") } }, dismissButton = { TextButton(dismiss) { Text("Odustani") } })
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button({ mode = ScannerMode.ADD; confirmRiskyAction = false }) { Text("Dodaj") }
+            Button({ mode = ScannerMode.REMOVE; confirmRiskyAction = false }) { Text("Izvadi") }
+            Button({ mode = ScannerMode.MOVE; confirmRiskyAction = false }, enabled = item.totalQuantity > 0 && shelves.size > 1) { Text("Premjesti") }
+        }
+        SimpleScannerShelfPicker(shelves, shelfId) { selected ->
+            shelfId = selected
+            if (targetShelfId == selected) targetShelfId = shelves.firstOrNull { it.first != selected }?.first.orEmpty()
+            confirmRiskyAction = false
+        }
+        if (mode == ScannerMode.MOVE) SimpleScannerShelfPicker(shelves.filterNot { it.first == shelfId }, targetShelfId) { targetShelfId = it }
+        OutlinedTextField(quantity.toString(), { quantity = it.filter(Char::isDigit).toIntOrNull() ?: 1; confirmRiskyAction = false }, label = { Text("Količina") })
+        if (mode != ScannerMode.ADD) Text("Dostupno: $available kom")
+        if (confirmRiskyAction) Text(
+            if (mode == ScannerMode.REMOVE) "Vadite zadnji komad. Ponovno pritisnite Potvrdi."
+            else "Premještate veću ili cijelu količinu. Ponovno pritisnite Potvrdi.",
+            color = MaterialTheme.colorScheme.error,
+        )
+    } }, confirmButton = {
+        Button(
+            onClick = {
+                val risky = mode == ScannerMode.REMOVE && quantity == item.totalQuantity ||
+                    mode == ScannerMode.MOVE && (quantity == available || quantity >= 5)
+                if (risky && !confirmRiskyAction) confirmRiskyAction = true
+                else if (mode == ScannerMode.MOVE) move(shelfId, targetShelfId, quantity)
+                else adjust(shelfId, if (mode == ScannerMode.ADD) quantity else -quantity)
+            },
+            enabled = shelfId.isNotBlank() && quantity > 0 && (mode == ScannerMode.ADD || quantity <= available) &&
+                (mode != ScannerMode.MOVE || targetShelfId.isNotBlank() && targetShelfId != shelfId),
+        ) { Text("Potvrdi") }
+    }, dismissButton = { TextButton(dismiss) { Text("Odustani") } })
 }
 
 @Composable
@@ -202,7 +288,7 @@ internal fun BarcodeCamera(
     onCamera: ((Camera) -> Unit)? = null,
     formats: IntArray,
     accepts: (String) -> Boolean,
-    onError: (String) -> Unit = {},
+    onError: (String) -> Unit,
     onBarcode: (String) -> Unit,
 ) {
     val context = LocalContext.current

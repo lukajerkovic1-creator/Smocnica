@@ -52,6 +52,7 @@ fun InventoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
     val shelves by viewModel.shelves.collectAsStateWithLifecycle()
     val products by viewModel.allProducts.collectAsStateWithLifecycle()
     val savedDraft by viewModel.inventoryDraft.collectAsStateWithLifecycle()
+    val sync by viewModel.syncSummary.collectAsStateWithLifecycle()
     var shelfId by remember { mutableStateOf(shelves.firstOrNull()?.id.orEmpty()) }
     val counts = remember { mutableStateMapOf<String, Int>() }
     var preview by remember { mutableStateOf<InventorySession?>(null) }
@@ -66,6 +67,7 @@ fun InventoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item { ScreenTitle("Inventura", "Promjene se primjenjuju tek nakon završne potvrde") }
+        item { OperationSyncState(sync) }
         savedDraft?.let { draft ->
             item {
                 androidx.compose.material3.Card(Modifier.fillMaxWidth()) {
@@ -93,16 +95,18 @@ fun InventoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
         }
         item {
             Button({
-                counts.clear()
-                products.forEach { counts[it.product.id] = 0 }
-                started = true
+                if (!started) {
+                    counts.clear()
+                    products.forEach { counts[it.product.id] = 0 }
+                    started = true
+                    viewModel.persistInventoryDraft(shelfId, counts.toMap())
+                }
                 scanning = true
                 lastScan = null
                 scanError = null
-                viewModel.persistInventoryDraft(shelfId, counts.toMap())
             }, enabled = shelfId.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Outlined.QrCodeScanner, null)
-                Text("Započni inventuru skeniranjem", Modifier.padding(start = 8.dp))
+                Text(if (started) "Nastavi skeniranje" else "Započni inventuru skeniranjem", Modifier.padding(start = 8.dp))
             }
         }
         if (started) item { Text("Skenirano: ${counts.values.sum()} kom. Za količinske ispravke koristite +/−.", color = MaterialTheme.colorScheme.primary) }
