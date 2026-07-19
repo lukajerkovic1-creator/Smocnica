@@ -30,8 +30,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
@@ -210,11 +208,16 @@ fun ProductDetailScreen(
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
 
-    Scaffold(modifier = Modifier.padding(padding), snackbarHost = { SnackbarHost(snackbar) }) { inner ->
+    SecondaryScreenScaffold(
+        title = item?.product?.name ?: "Detalj artikla",
+        outerPadding = padding,
+        onBack = close,
+        snackbarHostState = snackbar,
+    ) { inner ->
         if (item == null) {
             Column(Modifier.fillMaxSize().padding(inner).padding(20.dp)) {
-                ScreenTitle("Artikl nije dostupan", "Možda je obrisan ili još nije sinkroniziran.")
-                OutlinedButton(close) { Text("Natrag") }
+                Text("Artikl nije dostupan", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text("Možda je obrisan ili još nije sinkroniziran.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyColumn(
@@ -223,7 +226,7 @@ fun ProductDetailScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 item {
-                    ScreenTitle(item.product.name, item.product.description.ifBlank { item.product.category })
+                    Text(item.product.description.ifBlank { item.product.category }, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     item.product.photoUri?.let { ProductPhoto(it, item.product.updatedAt, item.product.name, Modifier.fillMaxWidth().height(220.dp)) }
                 }
                 item { OperationSyncState(sync) }

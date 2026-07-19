@@ -78,7 +78,7 @@ fun MainNavigation(
     val availableUpdate by viewModel.latestUpdate.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.checkUpdate(BuildConfig.VERSION_CODE.toLong()) }
     if (availableUpdate?.isMandatory(BuildConfig.VERSION_CODE.toLong()) == true) {
-        UpdateScreen(viewModel, PaddingValues())
+        UpdateScreen(viewModel, PaddingValues(), onBack = null)
         return
     }
     val navController = rememberNavController()
@@ -208,14 +208,14 @@ fun MainNavigation(
                 )
             }
             composable("inventory") { InventoryScreen(viewModel, padding) }
-            composable("history") { HistoryScreen(viewModel, padding) }
-            composable("categories") { CategoriesScreen(viewModel, padding) }
-            composable("members") { MembersScreen(viewModel, padding) }
-            composable("trash") { TrashScreen(viewModel, padding) }
-            composable("backup") { BackupScreen(viewModel, padding) }
-            composable("update") { UpdateScreen(viewModel, padding) }
+            composable("history") { HistoryScreen(viewModel, padding) { navController.popBackStack() } }
+            composable("categories") { CategoriesScreen(viewModel, padding) { navController.popBackStack() } }
+            composable("members") { MembersScreen(viewModel, padding) { navController.popBackStack() } }
+            composable("trash") { TrashScreen(viewModel, padding) { navController.popBackStack() } }
+            composable("backup") { BackupScreen(viewModel, padding) { navController.popBackStack() } }
+            composable("update") { UpdateScreen(viewModel, padding) { navController.popBackStack() } }
             composable("about") { AboutScreen(padding) }
-            composable("conflicts") { ConflictsScreen(viewModel, padding) }
+            composable("conflicts") { ConflictsScreen(viewModel, padding) { navController.popBackStack() } }
         }
     }
 }
