@@ -632,10 +632,20 @@ fun ProductEditor(
         pendingCameraPath = capture.absolutePath
         camera.launch(FileProvider.getUriForFile(context, "${context.packageName}.files", capture))
     }
+    var cameraPermissionGranted by rememberCameraPermissionState {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    }
     var cameraPermissionDenied by rememberSaveable { mutableStateOf(false) }
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        cameraPermissionGranted = granted
         cameraPermissionDenied = !granted
         if (granted) launchCameraCapture() else photoError = "Kamera nije dopuštena. Omogućite je u postavkama aplikacije."
+    }
+    LaunchedEffect(cameraPermissionGranted) {
+        if (cameraPermissionGranted) {
+            cameraPermissionDenied = false
+            if (photoError == "Kamera nije dopuštena. Omogućite je u postavkama aplikacije.") photoError = null
+        }
     }
     LaunchedEffect(shelves, initialShelfId) {
         if (shelves.none { it.id == shelfId }) {
@@ -732,7 +742,7 @@ fun ProductEditor(
                         }) { Text("Otvori postavke aplikacije") }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton({
-                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) launchCameraCapture()
+                                if (cameraPermissionGranted) launchCameraCapture()
                                 else cameraPermission.launch(Manifest.permission.CAMERA)
                             }) { Text("Snimi") }
                             OutlinedButton({ gallery.launch("image/*") }) { Text("Odaberi") }
