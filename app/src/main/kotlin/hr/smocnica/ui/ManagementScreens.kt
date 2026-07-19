@@ -206,13 +206,14 @@ internal fun ShelfCard(
 }
 
 @Composable
-fun CategoriesScreen(viewModel: MainViewModel, padding: PaddingValues) {
+fun CategoriesScreen(viewModel: MainViewModel, padding: PaddingValues, onBack: () -> Unit) {
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     var showNew by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<Category?>(null) }
     var deleting by remember { mutableStateOf<Category?>(null) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = padding.calculateTopPadding() + 12.dp, bottom = padding.calculateBottomPadding() + 80.dp)) {
-        item { ScreenTitle("Kategorije", "Upravljajte grupama hrane i kućnih potrepština") }
+    SecondaryScreenScaffold("Kategorije", padding, onBack) { inner ->
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = inner.calculateTopPadding() + 12.dp, bottom = inner.calculateBottomPadding() + 80.dp)) {
+        item { Text("Upravljajte grupama hrane i kućnih potrepština", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         item { Button({ showNew = true }) { Icon(Icons.Outlined.Add, null); Text("Dodaj kategoriju", Modifier.padding(start = 8.dp)) } }
         items(categories, key = { it.id }) { category ->
             val index = categories.indexOfFirst { it.id == category.id }
@@ -232,6 +233,7 @@ fun CategoriesScreen(viewModel: MainViewModel, padding: PaddingValues) {
             }
             HorizontalDivider()
         }
+    }
     }
     if (showNew) NameDialog("Nova kategorija", "Naziv", { showNew = false }) { name ->
         viewModel.saveCategory(Category("", "", name, categories.size))
@@ -289,7 +291,7 @@ private fun SimpleManagementPicker(label: String, selected: String, options: Lis
 }
 
 @Composable
-fun HistoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
+fun HistoryScreen(viewModel: MainViewModel, padding: PaddingValues, onBack: () -> Unit) {
     val activities by viewModel.activities.collectAsStateWithLifecycle()
     val products by viewModel.allProducts.collectAsStateWithLifecycle()
     val deletedProducts by viewModel.deletedProducts.collectAsStateWithLifecycle()
@@ -297,8 +299,9 @@ fun HistoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
     val productNames = (products + deletedProducts).associate { it.product.id to it.product.name }
     val shelfNames = shelves.associate { it.id to it.name }
     val formatter = remember { SimpleDateFormat("dd. MM. yyyy. HH:mm", Locale.forLanguageTag("hr-HR")) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = padding.calculateTopPadding() + 12.dp, bottom = padding.calculateBottomPadding() + 40.dp)) {
-        item { ScreenTitle("Povijest aktivnosti", "Promjene u posljednjih 12 mjeseci") }
+    SecondaryScreenScaffold("Povijest aktivnosti", padding, onBack) { inner ->
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = inner.calculateTopPadding() + 12.dp, bottom = inner.calculateBottomPadding() + 40.dp)) {
+        item { Text("Promjene u posljednjih 12 mjeseci", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         items(activities, key = { it.id }) { activity ->
             Column(Modifier.padding(vertical = 10.dp)) {
                 Text(activityDisplayLabel(activity, productNames), fontWeight = FontWeight.Bold)
@@ -308,6 +311,7 @@ fun HistoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
             HorizontalDivider()
         }
         if (activities.isEmpty()) item { EmptyState("Povijest je prazna.") }
+    }
     }
 }
 
@@ -366,10 +370,11 @@ fun MenuScreen(
 }
 
 @Composable
-fun ConflictsScreen(viewModel: MainViewModel, padding: PaddingValues) {
+fun ConflictsScreen(viewModel: MainViewModel, padding: PaddingValues, onBack: () -> Unit) {
     val conflicts by viewModel.conflicts.collectAsStateWithLifecycle()
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = padding.calculateTopPadding() + 12.dp, bottom = padding.calculateBottomPadding() + 50.dp)) {
-        item { ScreenTitle("Problemi sinkronizacije", "Pregledajte promjene koje nisu mogle biti automatski usklađene") }
+    SecondaryScreenScaffold("Problemi sinkronizacije", padding, onBack) { inner ->
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = inner.calculateTopPadding() + 12.dp, bottom = inner.calculateBottomPadding() + 50.dp)) {
+        item { Text("Pregledajte promjene koje nisu mogle biti automatski usklađene", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         items(conflicts, key = { it.operationId }) { conflict ->
             Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -383,6 +388,7 @@ fun ConflictsScreen(viewModel: MainViewModel, padding: PaddingValues) {
             }
         }
         if (conflicts.isEmpty()) item { EmptyState("Nema problema za rješavanje.") }
+    }
     }
 }
 

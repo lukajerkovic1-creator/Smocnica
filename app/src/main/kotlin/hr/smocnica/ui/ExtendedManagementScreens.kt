@@ -67,7 +67,7 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun MembersScreen(viewModel: MainViewModel, padding: PaddingValues) {
+fun MembersScreen(viewModel: MainViewModel, padding: PaddingValues, onBack: () -> Unit) {
     val members by viewModel.members.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
     val invitation by viewModel.invitation.collectAsStateWithLifecycle()
@@ -75,8 +75,9 @@ fun MembersScreen(viewModel: MainViewModel, padding: PaddingValues) {
     var removeUid by remember { mutableStateOf<String?>(null) }
     var transferUid by remember { mutableStateOf<String?>(null) }
     var deletePantry by remember { mutableStateOf(false) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = padding.calculateTopPadding() + 12.dp, bottom = padding.calculateBottomPadding() + 50.dp)) {
-        item { ScreenTitle("Članovi", "Vlasnik upravlja članstvom i vlasništvom") }
+    SecondaryScreenScaffold("Članovi", padding, onBack) { inner ->
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = inner.calculateTopPadding() + 12.dp, bottom = inner.calculateBottomPadding() + 50.dp)) {
+        item { Text("Vlasnik upravlja članstvom i vlasništvom", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         if (isOwner) item {
             Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -110,6 +111,7 @@ fun MembersScreen(viewModel: MainViewModel, padding: PaddingValues) {
                 Text("Obriši cijelu smočnicu", Modifier.padding(start = 8.dp))
             }
         }
+        }
     }
     removeUid?.let { uid -> ConfirmDialog("Ukloniti člana?", "Uklonjeni član odmah gubi pristup zajedničkoj smočnici.", { removeUid = null }) { viewModel.removeMember(uid); removeUid = null } }
     transferUid?.let { uid -> ConfirmDialog("Prenijeti vlasništvo?", "Postat ćete običan član, a odabrani član novi vlasnik.", { transferUid = null }) { viewModel.transferOwnership(uid); transferUid = null } }
@@ -131,11 +133,12 @@ fun AboutScreen(padding: PaddingValues) {
 }
 
 @Composable
-fun TrashScreen(viewModel: MainViewModel, padding: PaddingValues) {
+fun TrashScreen(viewModel: MainViewModel, padding: PaddingValues, onBack: () -> Unit) {
     val trash by viewModel.trashItems.collectAsStateWithLifecycle()
     var purge by remember { mutableStateOf<TrashItem?>(null) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = padding.calculateTopPadding() + 12.dp, bottom = padding.calculateBottomPadding() + 50.dp)) {
-        item { ScreenTitle("Koš", "Zapisi se automatski trajno brišu nakon 30 dana") }
+    SecondaryScreenScaffold("Koš", padding, onBack) { inner ->
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = inner.calculateTopPadding() + 12.dp, bottom = inner.calculateBottomPadding() + 50.dp)) {
+        item { Text("Zapisi se automatski trajno brišu nakon 30 dana", color = MaterialTheme.colorScheme.onSurfaceVariant) }
         items(trash, key = { "${it.type}_${it.id}" }) { item ->
             Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -148,12 +151,13 @@ fun TrashScreen(viewModel: MainViewModel, padding: PaddingValues) {
             HorizontalDivider()
         }
         if (trash.isEmpty()) item { EmptyState("Koš je prazan.") }
+        }
     }
     purge?.let { item -> ConfirmDialog("Trajno obrisati?", "Ovu radnju nije moguće poništiti. Fotografija će također biti obrisana.", { purge = null }) { viewModel.purgeTrash(item); purge = null } }
 }
 
 @Composable
-fun BackupScreen(viewModel: MainViewModel, padding: PaddingValues) {
+fun BackupScreen(viewModel: MainViewModel, padding: PaddingValues, onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var exportBytes by remember { mutableStateOf<ByteArray?>(null) }
@@ -176,13 +180,15 @@ fun BackupScreen(viewModel: MainViewModel, padding: PaddingValues) {
                 .onFailure { error = it.message ?: "Uvoz nije uspio." }
         }
     }
-    Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        ScreenTitle("Sigurnosna kopija", "Izvoz ostaje lokalno na uređaju")
+    SecondaryScreenScaffold("Sigurnosna kopija", padding, onBack) { inner ->
+    Column(Modifier.fillMaxSize().padding(inner).verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("Izvoz ostaje lokalno na uređaju", color = MaterialTheme.colorScheme.onSurfaceVariant)
         Button({ scope.launch { runCatching { viewModel.exportJson() }.onSuccess { exportBytes = it; error = null; jsonLauncher.launch("smocnica-backup.json") }.onFailure { error = it.message ?: "JSON izvoz nije uspio." } } }, Modifier.fillMaxWidth()) { Text("Izvezi JSON") }
         OutlinedButton({ scope.launch { runCatching { viewModel.exportCsv() }.onSuccess { exportBytes = it; error = null; csvLauncher.launch("smocnica-zalihe.csv") }.onFailure { error = it.message ?: "CSV izvoz nije uspio." } } }, Modifier.fillMaxWidth()) { Text("Izvezi CSV za Excel") }
         OutlinedButton({ importLauncher.launch(arrayOf("application/json", "text/json")) }, Modifier.fillMaxWidth()) { Text("Uvezi JSON sigurnosnu kopiju") }
         Text("Uvoz uvijek prvo prikazuje pregled. Opcija „zamijeni” šalje postojeće zapise u koš prije atomarne sinkronizacije.", color = MaterialTheme.colorScheme.onSurfaceVariant)
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    }
     }
     preview?.let { value ->
         AlertDialog(
@@ -196,14 +202,15 @@ fun BackupScreen(viewModel: MainViewModel, padding: PaddingValues) {
 }
 
 @Composable
-fun UpdateScreen(viewModel: MainViewModel, padding: PaddingValues) {
+fun UpdateScreen(viewModel: MainViewModel, padding: PaddingValues, onBack: (() -> Unit)?) {
     val context = LocalContext.current
     val update by viewModel.latestUpdate.collectAsStateWithLifecycle()
     var verifiedUri by remember { mutableStateOf<Uri?>(null) }
     LaunchedEffect(Unit) { viewModel.checkUpdate(BuildConfig.VERSION_CODE.toLong()) }
     LaunchedEffect(Unit) { viewModel.verifiedApk.collect { verifiedUri = Uri.parse(it.contentUri) } }
-    Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        ScreenTitle("Ažuriranje aplikacije", "Instalirana verzija ${BuildConfig.VERSION_NAME}")
+    SecondaryScreenScaffold("Ažuriranje aplikacije", padding, onBack) { inner ->
+    Column(Modifier.fillMaxSize().padding(inner).verticalScroll(rememberScrollState()).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Text("Instalirana verzija ${BuildConfig.VERSION_NAME}", color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (update == null) Text("Nema novijeg provjerenog izdanja ili GitHub Releases još nije konfiguriran.")
         update?.let { available ->
             Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
@@ -221,6 +228,7 @@ fun UpdateScreen(viewModel: MainViewModel, padding: PaddingValues) {
             Text("SHA-256 i certifikat potpisnika uspješno su provjereni.", color = MaterialTheme.colorScheme.primary)
         }
         OutlinedButton({ viewModel.checkUpdate(BuildConfig.VERSION_CODE.toLong()) }, Modifier.fillMaxWidth()) { Text("Provjeri ponovno") }
+    }
     }
 }
 
