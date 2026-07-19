@@ -1,11 +1,6 @@
 package hr.smocnica.ui
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
 import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Inventory2
@@ -38,8 +33,6 @@ import hr.smocnica.MainViewModel
 import hr.smocnica.BuildConfig
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.ContextCompat
 import hr.smocnica.ui.theme.ThemeMode
 import kotlinx.coroutines.launch
 
@@ -68,13 +61,6 @@ fun MainNavigation(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     onThemeModeChange: (ThemeMode) -> Unit = {},
 ) {
-    val context = LocalContext.current
-    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-    }
     val availableUpdate by viewModel.latestUpdate.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.checkUpdate(BuildConfig.VERSION_CODE.toLong()) }
     if (availableUpdate?.isMandatory(BuildConfig.VERSION_CODE.toLong()) == true) {

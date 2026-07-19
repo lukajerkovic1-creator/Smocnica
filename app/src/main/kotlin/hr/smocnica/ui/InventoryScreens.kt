@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -564,6 +565,8 @@ fun ProductEditor(
     barcodeScanner: (@Composable ((String) -> Unit, () -> Unit) -> Unit)? = null,
     onAddExisting: (ProductWithStock, String, Int, (Boolean) -> Unit) -> Unit = { _, _, _, done -> done(false) },
     onRestoreDeleted: (ProductWithStock, String, Int, (Boolean) -> Unit) -> Unit = { _, _, _, done -> done(false) },
+    notificationPermissionRequiredOverride: Boolean? = null,
+    requestNotificationPermissionOverride: (() -> Unit)? = null,
     onSave: (Product, String, Int, String?, PhotoSource?, (Boolean) -> Unit) -> Unit,
 ) {
     val isNew = current == null || current.id.isBlank()
@@ -583,8 +586,23 @@ fun ProductEditor(
     var lookupAttempted by rememberSaveable { mutableStateOf(false) }
     var submitting by rememberSaveable { mutableStateOf(false) }
     var operationError by rememberSaveable { mutableStateOf<String?>(null) }
+    var notificationExplanationShown by rememberSaveable(current?.id) { mutableStateOf(false) }
+    var showNotificationExplanation by rememberSaveable(current?.id) { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    var notificationPermissionGranted by remember {
+        mutableStateOf(
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        notificationPermissionGranted = granted
+    }
+    val notificationPermissionRequired = notificationPermissionRequiredOverride
+        ?: (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !notificationPermissionGranted)
+    val requestNotificationPermission = requestNotificationPermissionOverride
+        ?: { notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }
     var selectedPhotoPath by rememberProductPhotoDraftPath(current?.id)
     var selectedSourceName by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedSource = selectedSourceName?.let(PhotoSource::valueOf)
@@ -782,8 +800,41 @@ fun ProductEditor(
                 if (!showInventoryMatch) {
                     operationError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
                 }
-                item { OutlinedTextField(minimum, { minimum = it.filter(Char::isDigit) }, label = { Text("Minimalna količina") }, modifier = Modifier.fillMaxWidth()) }
-                item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Automatski dodaj na kupnju", Modifier.weight(1f)); Switch(autoShopping, { autoShopping = it }) } }
+                item {
+                    OutlinedTextField(
+                        minimum,
+                        { value ->
+                            val filtered = value.filter(Char::isDigit)
+                            if (shouldExplainNotificationPermission(minimum, filtered, notificationPermissionRequired, notificationExplanationShown)) {
+                                notificationExplanationShown = true
+                                showNotificationExplanation = true
+                            }
+                            minimum = filtered
+                        },
+                        label = { Text("Minimalna količina") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Automatski dodaj na kupnju", Modifier.weight(1f))
+                        Switch(autoShopping, { enabled ->
+                            if (enabled && !autoShopping && (minimum.toIntOrNull() ?: 0) > 0 &&
+                                notificationPermissionRequired && !notificationExplanationShown
+                            ) {
+                                notificationExplanationShown = true
+                                showNotificationExplanation = true
+                            }
+                            autoShopping = enabled
+                        })
+                    }
+                }
+                if (notificationPermissionRequired && (minimum.toIntOrNull() ?: 0) > 0) item {
+                    TextButton({
+                        notificationExplanationShown = true
+                        showNotificationExplanation = true
+                    }) { Text("Uključi obavijesti o minimalnoj zalihi") }
+                }
                 if (isNew) {
                     item { SimpleDropdown("Početna polica", shelves.firstOrNull { it.id == shelfId }?.name.orEmpty(), shelves.map { it.name }, { selected -> shelfId = shelves.first { it.name == selected }.id }) }
                     item { OutlinedTextField(quantity, { quantity = it.filter(Char::isDigit) }, label = { Text("Početna količina") }, modifier = Modifier.fillMaxWidth()) }
@@ -834,6 +885,15 @@ fun ProductEditor(
         val scanner = barcodeScanner
         if (scanner == null) SharedBarcodeScannerDialog("Skeniraj barkod artikla", { showBarcodeScanner = false }, ::acceptScannedBarcode)
         else scanner(::acceptScannedBarcode) { showBarcodeScanner = false }
+    }
+    if (showNotificationExplanation) {
+        NotificationPermissionExplanationDialog(
+            requestPermission = {
+                showNotificationExplanation = false
+                requestNotificationPermission()
+            },
+            dismiss = { showNotificationExplanation = false },
+        )
     }
     if (showInventoryMatch && inventoryMatch != null) {
         ExistingBarcodeDialog(

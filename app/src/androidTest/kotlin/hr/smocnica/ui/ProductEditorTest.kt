@@ -24,6 +24,7 @@ import hr.smocnica.core.model.Stock
 import hr.smocnica.core.model.Category
 import hr.smocnica.ui.theme.SmocnicaTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
@@ -39,6 +40,34 @@ class ProductEditorTest {
         Category("cat-snacks", "p1", "Grickalice", 7),
         Category("cat-other", "p1", "Ostalo", 9, isDefault = true),
     )
+
+    @Test
+    fun notificationPermissionIsExplainedOnlyAfterMinimumIsEnabled() {
+        var permissionRequested = false
+        compose.setContent {
+            SmocnicaTheme {
+                ProductEditor(
+                    current = Product("", "p1", "", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
+                    shelves = shelves,
+                    categories = categories,
+                    onDismiss = {},
+                    notificationPermissionRequiredOverride = true,
+                    requestNotificationPermissionOverride = { permissionRequested = true },
+                    onSave = { _, _, _, _, _, _ -> },
+                )
+            }
+        }
+
+        compose.onNodeWithText("Obavijesti o minimalnoj zalihi").assertDoesNotExist()
+        assertFalse(permissionRequested)
+
+        compose.onNodeWithText("Minimalna količina").performTextInput("1")
+        compose.onNodeWithText("Obavijesti o minimalnoj zalihi").assertExists()
+        assertFalse(permissionRequested)
+
+        compose.onNodeWithText("Dopusti obavijesti").performClick()
+        compose.runOnIdle { assertEquals(true, permissionRequested) }
+    }
 
     @Test
     fun productCannotBeSavedWithoutNameAndCapturesPackageData() {
