@@ -21,6 +21,7 @@ import hr.smocnica.core.model.Product
 import hr.smocnica.core.model.ProductWithStock
 import hr.smocnica.core.model.Shelf
 import hr.smocnica.core.model.Stock
+import hr.smocnica.core.model.Category
 import hr.smocnica.ui.theme.SmocnicaTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -34,6 +35,10 @@ class ProductEditorTest {
         Shelf("s1", "p1", "Polica 1", 0, createdAt = 1, updatedAt = 1),
         Shelf("s2", "p1", "Polica 2", 1, createdAt = 1, updatedAt = 1),
     )
+    private val categories = listOf(
+        Category("cat-snacks", "p1", "Grickalice", 7),
+        Category("cat-other", "p1", "Ostalo", 9, isDefault = true),
+    )
 
     @Test
     fun productCannotBeSavedWithoutNameAndCapturesPackageData() {
@@ -41,9 +46,9 @@ class ProductEditorTest {
         compose.setContent {
             SmocnicaTheme {
                 ProductEditor(
-                    current = Product("", "p1", "", category = "Ostalo", createdAt = 1, updatedAt = 1),
+                    current = Product("", "p1", "", category = "Ostalo", createdAt = 1, updatedAt = 1, categoryId = "cat-other"),
                     shelves = shelves,
-                    categories = emptyList(),
+                    categories = categories,
                     onDismiss = {},
                     onSave = { product, _, _, _, _, done -> saved = product; done(true) },
                 )
@@ -65,7 +70,7 @@ class ProductEditorTest {
                 ProductEditor(
                     current = Product("", "p1", "", barcode = "4006381333932", createdAt = 1, updatedAt = 1),
                     shelves = shelves,
-                    categories = emptyList(),
+                    categories = categories,
                     onDismiss = {},
                     onSave = { _, _, _, _, _, _ -> error("Neispravan barkod ne smije biti spremljen.") },
                 )
@@ -82,7 +87,7 @@ class ProductEditorTest {
                 ProductEditor(
                     current = null,
                     shelves = shelves,
-                    categories = emptyList(),
+                    categories = categories,
                     onDismiss = {},
                     barcodeScanner = { _, dismiss ->
                         AlertDialog(
@@ -111,7 +116,7 @@ class ProductEditorTest {
                 ProductEditor(
                     current = null,
                     shelves = shelves,
-                    categories = emptyList(),
+                    categories = categories,
                     onDismiss = {},
                     catalogLookup = lookup,
                     requestCatalogLookup = { code ->
@@ -151,7 +156,7 @@ class ProductEditorTest {
                 ProductEditor(
                     current = null,
                     shelves = shelves,
-                    categories = emptyList(),
+                    categories = categories,
                     onDismiss = {},
                     catalogLookup = lookup,
                     requestCatalogLookup = { code -> lookup = CatalogLookupState(code, CatalogLookupOutcome.TIMEOUT) },
@@ -182,7 +187,7 @@ class ProductEditorTest {
                 ProductEditor(
                     current = null,
                     shelves = shelves,
-                    categories = emptyList(),
+                    categories = categories,
                     onDismiss = {},
                     initialShelfId = "s2",
                     activeProducts = listOf(existing),
@@ -220,7 +225,7 @@ class ProductEditorTest {
                 ProductEditor(
                     current = null,
                     shelves = shelves,
-                    categories = emptyList(),
+                    categories = categories,
                     onDismiss = {},
                     initialShelfId = "s1",
                     activeProducts = listOf(existing),

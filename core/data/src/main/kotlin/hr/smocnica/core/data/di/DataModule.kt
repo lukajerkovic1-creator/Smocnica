@@ -12,6 +12,7 @@ import hr.smocnica.core.data.Clock
 import hr.smocnica.core.data.IdGenerator
 import hr.smocnica.core.data.local.SmocnicaDatabase
 import hr.smocnica.core.data.local.MIGRATION_1_2
+import hr.smocnica.core.data.local.MIGRATION_2_3
 import hr.smocnica.core.data.remote.FirebaseOperationGateway
 import hr.smocnica.core.data.remote.OpenFoodFactsApi
 import hr.smocnica.core.data.remote.OpenFoodFactsRepository
@@ -49,7 +50,7 @@ object DataProviders {
     @Singleton
     fun database(@ApplicationContext context: Context): SmocnicaDatabase =
         Room.databaseBuilder(context, SmocnicaDatabase::class.java, "smocnica.db")
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
             .build()
 

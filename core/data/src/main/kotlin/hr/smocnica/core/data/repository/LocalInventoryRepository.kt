@@ -191,7 +191,7 @@ class LocalInventoryRepository @Inject constructor(
                 syncState = SyncState.PENDING,
             )
             if (existing != null && existing.name != persisted.name) {
-                categories.reassignProducts(category.pantryId, existing.name, persisted.name, now)
+                categories.reassignProducts(category.pantryId, existing.id, existing.name, persisted.id, persisted.name, now)
                 shopping.reassignCategory(category.pantryId, existing.name, persisted.name, now)
             }
             categories.upsert(persisted.entity())
@@ -231,7 +231,7 @@ class LocalInventoryRepository @Inject constructor(
             val replacement = categories.get(replacementCategoryId) ?: error("Odaberite postojeću zamjensku kategoriju.")
             require(replacement.pantryId == category.pantryId && replacement.deletedAt == null) { "Zamjenska kategorija nije dostupna." }
             val now = clock.now()
-            categories.reassignProducts(category.pantryId, current.name, replacement.name, now)
+            categories.reassignProducts(category.pantryId, current.id, current.name, replacement.id, replacement.name, now)
             shopping.reassignCategory(category.pantryId, current.name, replacement.name, now)
             categories.upsert(current.copy(deletedAt = now, purgeAfter = now + THIRTY_DAYS, syncState = SyncState.PENDING))
             enqueue(category.pantryId, AggregateType.CATEGORY, category.id, current.revision, OperationPayload.DeleteCategory(category.id, replacementCategoryId), actorUid, deviceName, now)
@@ -247,13 +247,22 @@ class LocalInventoryRepository @Inject constructor(
             val barcode = product.barcode?.takeIf(String::isNotBlank)?.let(BarcodePolicy::requireSupported)
             val duplicate = barcode?.let { products.findAnyBarcode(product.pantryId, it) }
             require(duplicate == null || duplicate.id == product.id) { "Ovaj barkod već je povezan s drugim artiklom." }
+            val activeCategories = categories.listActive(product.pantryId)
+            val canonicalCategory = if (product.categoryId.isNotBlank()) {
+                activeCategories.firstOrNull { it.id == product.categoryId }
+            } else {
+                activeCategories.firstOrNull { it.name.equals(product.category.trim(), ignoreCase = true) }
+                    ?: activeCategories.firstOrNull { it.isDefault }
+            }
+            require(canonicalCategory != null) { "Odaberite postojeću aktivnu kategoriju." }
             val now = clock.now()
             val existing = product.id.takeIf(String::isNotBlank)?.let { products.get(it) }
             val persisted = product.copy(
                 id = product.id.ifBlank { ids.next() },
                 name = cleanName,
                 barcode = barcode,
-                category = requireName(product.category, "Kategorija"),
+                category = canonicalCategory.name,
+                categoryId = canonicalCategory.id,
                 createdAt = existing?.createdAt ?: now,
                 updatedAt = now,
                 syncState = SyncState.PENDING,

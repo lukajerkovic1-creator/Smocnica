@@ -273,9 +273,15 @@ class MainViewModel @Inject constructor(
     fun moveStock(productId: String, fromShelfId: String, toShelfId: String, quantity: Int, onMoved: (() -> Unit)? = null) = actorAction({ _, uid ->
         inventory.moveStock(productId, fromShelfId, toShelfId, quantity, uid, deviceIdentity.displayName)
     }, { onMoved?.invoke() })
-    fun changeProductsCategory(products: List<ProductWithStock>, category: String) = withActor { _, uid ->
+    fun changeProductsCategory(products: List<ProductWithStock>, category: Category) = withActor { _, uid ->
         val now = System.currentTimeMillis()
-        products.forEach { item -> inventory.upsertProduct(item.product.copy(category = category, updatedAt = now), uid, deviceIdentity.displayName) }
+        products.forEach { item ->
+            inventory.upsertProduct(
+                item.product.copy(category = category.name, categoryId = category.id, updatedAt = now),
+                uid,
+                deviceIdentity.displayName,
+            )
+        }
     }
     fun addProductsToShopping(products: List<ProductWithStock>) = withActor { pantry, uid ->
         products.forEach { item ->

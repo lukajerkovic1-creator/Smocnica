@@ -2,6 +2,7 @@ package hr.smocnica.ui
 
 import hr.smocnica.core.domain.CatalogProduct
 import hr.smocnica.core.model.PhotoSource
+import hr.smocnica.core.model.Category
 import hr.smocnica.core.model.Product
 import hr.smocnica.core.model.ProductWithStock
 import org.junit.Assert.assertEquals
@@ -16,6 +17,7 @@ class ProductEntryFlowTest {
             barcode = "4006381333931",
             description = "",
             category = "Moja kategorija",
+            categoryId = "moja-kategorija",
             photoUri = "content://moja-slika",
             photoSource = PhotoSource.CAMERA,
         )
@@ -29,6 +31,18 @@ class ProductEntryFlowTest {
         assertEquals("Moja kategorija", merged.category)
         assertEquals("content://moja-slika", merged.photoUri)
         assertEquals(PhotoSource.CAMERA, merged.photoSource)
+        assertEquals("moja-kategorija", merged.categoryId)
+    }
+
+    @Test
+    fun catalogCategoryIsStoredOnlyThroughTheMappedLocalCategoryId() {
+        val local = Category(id = "cat-snacks", pantryId = "p", name = "Grickalice", sortOrder = 7)
+        val merged = ProductEntryDraft(barcode = "4006381333931")
+            .mergeEmptyFields(CatalogProduct("4006381333931", "Čips", "100 g", "Grickalice", null), local)
+
+        assertEquals("Grickalice", merged.category)
+        assertEquals("cat-snacks", merged.categoryId)
+        assertTrue(merged.missingRequiredFields.isEmpty())
     }
 
     @Test

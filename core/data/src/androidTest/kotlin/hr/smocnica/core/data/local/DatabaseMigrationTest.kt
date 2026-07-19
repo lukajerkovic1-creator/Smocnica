@@ -46,7 +46,32 @@ class DatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migration2To3BackfillsCanonicalCategoryId() {
+        helper.createDatabase(CATEGORY_DB, 2).apply {
+            execSQL("INSERT INTO categories (id, pantryId, name, sortOrder, isDefault, revision, deletedAt, purgeAfter, syncState) VALUES ('c1', 'p1', 'Ostalo', 9, 1, 1, NULL, NULL, 'SYNCED')")
+            execSQL(
+                """
+                INSERT INTO products (id, pantryId, name, normalizedName, barcode, description, category,
+                    photoUri, photoSource, minimumQuantity, autoShopping, revision, createdAt, updatedAt,
+                    deletedAt, purgeAfter, syncState)
+                VALUES ('a', 'p1', 'Test', 'test', NULL, '', 'Ostalo', NULL, 'NONE', 0, 1, 1, 1, 1, NULL, NULL, 'SYNCED')
+                """.trimIndent(),
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(CATEGORY_DB, 3, true, MIGRATION_2_3).use { database ->
+            database.query("SELECT category, categoryId FROM products WHERE id = 'a'").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("Ostalo", cursor.getString(0))
+                assertEquals("c1", cursor.getString(1))
+            }
+        }
+    }
+
     private companion object {
         const val TEST_DB = "activity-migration-test"
+        const val CATEGORY_DB = "category-migration-test"
     }
 }

@@ -329,8 +329,11 @@ fun StocksScreen(
     if (bulkMove) BulkMoveDialog(allProducts.filter { it.product.id in selectedIds }, shelves, initialShelfId, { bulkMove = false }) { from, to ->
         viewModel.moveProducts(allProducts.filter { it.product.id in selectedIds }, from, to); selectedIds = emptySet(); selecting = false; bulkMove = false
     }
-    if (bulkCategory) BulkCategoryDialog(categories.map { it.name }.ifEmpty { listOf("Ostalo") }, { bulkCategory = false }) { category ->
-        viewModel.changeProductsCategory(allProducts.filter { it.product.id in selectedIds }, category); selectedIds = emptySet(); selecting = false; bulkCategory = false
+    if (bulkCategory) BulkCategoryDialog(categories.map { it.name }, { bulkCategory = false }) { categoryName ->
+        categories.firstOrNull { it.name == categoryName }?.let { category ->
+            viewModel.changeProductsCategory(allProducts.filter { it.product.id in selectedIds }, category)
+            selectedIds = emptySet(); selecting = false; bulkCategory = false
+        }
     }
     if (bulkDelete) ConfirmDialog("Obrisati ${selectedIds.size} artikala?", "Artikli će biti premješteni u koš na 30 dana.", { bulkDelete = false }) {
         viewModel.deleteProducts(allProducts.filter { it.product.id in selectedIds }); selectedIds = emptySet(); selecting = false; bulkDelete = false
@@ -568,6 +571,7 @@ fun ProductEditor(
     var barcode by rememberSaveable(current?.id) { mutableStateOf(current?.barcode.orEmpty()) }
     var description by rememberSaveable(current?.id) { mutableStateOf(current?.description.orEmpty()) }
     var category by rememberSaveable(current?.id) { mutableStateOf(current?.category.orEmpty()) }
+    var categoryId by rememberSaveable(current?.id) { mutableStateOf(current?.categoryId.orEmpty()) }
     var minimum by rememberSaveable(current?.id) { mutableStateOf((current?.minimumQuantity ?: 0).toString()) }
     var autoShopping by rememberSaveable(current?.id) { mutableStateOf(current?.autoShopping ?: true) }
     var shelfId by rememberSaveable(initialShelfId) { mutableStateOf(initialShelfId) }
@@ -652,14 +656,29 @@ fun ProductEditor(
             shelfId = initialShelfId.takeIf { id -> shelves.any { it.id == id } } ?: shelves.firstOrNull()?.id.orEmpty()
         }
     }
+    LaunchedEffect(categories, current?.id) {
+        val canonical = categories.firstOrNull { it.id == categoryId }
+            ?: categories.firstOrNull { it.name.equals(category, ignoreCase = true) }
+        if (canonical != null) {
+            categoryId = canonical.id
+            category = canonical.name
+        }
+    }
     LaunchedEffect(catalogLookup.barcode, catalogLookup.outcome, catalogLookup.product) {
         val catalog = catalogLookup.product
         if (catalogLookup.barcode == barcode && catalogLookup.outcome == CatalogLookupOutcome.SUCCESS && catalog != null) {
-            val merged = ProductEntryDraft(name, barcode, description, category, remotePhotoUri, PhotoSource.valueOf(remotePhotoSource))
-                .mergeEmptyFields(catalog)
+            val mappedCategory = categories.firstOrNull { it.name.equals(catalog.category, ignoreCase = true) }
+                ?: categories.firstOrNull { it.isDefault }
+                ?: categories.firstOrNull { it.name == "Ostalo" }
+            val merged = ProductEntryDraft(
+                name = name, barcode = barcode, description = description, category = category,
+                categoryId = categoryId, photoUri = remotePhotoUri,
+                photoSource = PhotoSource.valueOf(remotePhotoSource),
+            ).mergeEmptyFields(catalog, mappedCategory)
             name = merged.name
             description = merged.description
             category = merged.category
+            categoryId = merged.categoryId
             remotePhotoUri = merged.photoUri
             remotePhotoSource = merged.photoSource.name
         }
@@ -667,7 +686,7 @@ fun ProductEditor(
     val inventoryMatch = remember(barcode, activeProducts, deletedProducts, current?.id) {
         findBarcodeInventoryMatch(barcode, activeProducts, deletedProducts, current?.id)
     }
-    val missingRequired = ProductEntryDraft(name = name, category = category).missingRequiredFields
+    val missingRequired = ProductEntryDraft(name = name, category = category, categoryId = categoryId).missingRequiredFields
 
     fun acceptScannedBarcode(code: String) {
         barcode = code
@@ -749,7 +768,14 @@ fun ProductEditor(
                         }
                     }
                 }
-                item { SimpleDropdown("Kategorija *", category, (categories.map { it.name } + "Ostalo").distinct(), { category = it }) }
+                item {
+                    SimpleDropdown("Kategorija *", category, categories.map { it.name }) { selected ->
+                        categories.firstOrNull { it.name == selected }?.let {
+                            category = it.name
+                            categoryId = it.id
+                        }
+                    }
+                }
                 if (lookupAttempted && !catalogLookup.isLoading && missingRequired.isNotEmpty()) item {
                     Text("Još ispunite obvezna polja: ${missingRequired.joinToString()}.", color = MaterialTheme.colorScheme.error)
                 }
@@ -780,6 +806,7 @@ fun ProductEditor(
                             barcode = barcode.ifBlank { null },
                             description = description,
                             category = category,
+                            categoryId = categoryId,
                             photoUri = remotePhotoUri,
                             photoSource = PhotoSource.valueOf(remotePhotoSource),
                             minimumQuantity = minimum.toIntOrNull() ?: 0,
@@ -795,7 +822,8 @@ fun ProductEditor(
                         if (success) finishEditor() else operationError = "Spremanje nije uspjelo. Pokušajte ponovno."
                     }
                 },
-                enabled = !submitting && !catalogLookup.isLoading && name.trim().length in 1..100 && category.isNotBlank() &&
+                enabled = !submitting && !catalogLookup.isLoading && name.trim().length in 1..100 &&
+                    categories.any { it.id == categoryId && it.name == category } &&
                     (barcode.isBlank() || hr.smocnica.core.domain.BarcodePolicy.isSupported(barcode)) && (!isNew || shelves.isNotEmpty()),
             ) { Text(if (submitting) "Spremanje…" else "Spremi") }
         },
