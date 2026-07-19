@@ -24,6 +24,7 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     batch.set(db.doc("pantries/p1/members/u1"), { role: "OWNER", active: true, joinedAt: new Date() });
     batch.set(db.doc("pantries/p1/members/u2"), { role: "MEMBER", active: true, joinedAt: new Date() });
     batch.set(db.doc("pantries/p1/shelves/s1"), { name: "Polica 1", sortOrder: 0, revision: 1, createdAt: new Date(), updatedAt: new Date() });
+    batch.set(db.doc("pantries/p1/shelves/s2"), { name: "Polica 2", sortOrder: 1, revision: 1, createdAt: new Date(), updatedAt: new Date() });
     batch.set(db.doc("pantries/p1/products/a"), { name: "Riža", category: "Namirnice", minimumQuantity: 5, autoShopping: true, totalQuantity: 5, revision: 1, createdAt: new Date(), updatedAt: new Date() });
     batch.set(db.doc("pantries/p1/stocks/a_s1"), { productId: "a", shelfId: "s1", quantity: 5, revision: 1, updatedAt: new Date() });
     await batch.commit();
@@ -68,6 +69,28 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
   it("never permits concurrent-style removal beyond available stock", async () => {
     await expect(invoke(operation("op-00000003", -6) as never)).rejects.toMatchObject({ code: "failed-precondition" });
     expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(5);
+  });
+
+  it("moves stock only while the product and both shelves are active", async () => {
+    await invoke(moveOperation("op-move-active") as never);
+    expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(3);
+    expect((await db.doc("pantries/p1/stocks/a_s2").get()).get("quantity")).toBe(2);
+  });
+
+  it.each([
+    ["missing product", async () => db.doc("pantries/p1/products/a").delete()],
+    ["deleted product", async () => db.doc("pantries/p1/products/a").update({ deletedAt: new Date() })],
+    ["missing source shelf", async () => db.doc("pantries/p1/shelves/s1").delete()],
+    ["deleted source shelf", async () => db.doc("pantries/p1/shelves/s1").update({ deletedAt: new Date() })],
+    ["missing target shelf", async () => db.doc("pantries/p1/shelves/s2").delete()],
+    ["deleted target shelf", async () => db.doc("pantries/p1/shelves/s2").update({ deletedAt: new Date() })],
+  ])("rejects move_stock for a %s without partial writes", async (_caseName, makeUnavailable) => {
+    await makeUnavailable();
+    await expect(invoke(moveOperation("op-move-unavailable") as never)).rejects.toMatchObject({ code: "not-found" });
+    expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(5);
+    expect((await db.doc("pantries/p1/stocks/a_s2").get()).exists).toBe(false);
+    expect((await db.doc("pantries/p1/operations/op-move-unavailable").get()).exists).toBe(false);
+    expect((await db.doc("pantries/p1/activities/op-move-unavailable").get()).exists).toBe(false);
   });
 
   it("notifies once when editing the minimum crosses the threshold and rearms above it", async () => {
@@ -221,6 +244,22 @@ function operation(operationId: string, delta: number) {
       deviceId: "device-0001",
       deviceDisplayName: "Testni uređaj",
     }, "u1");
+}
+
+function moveOperation(operationId: string) {
+  return callable({
+    operationId,
+    pantryId: "p1",
+    aggregateType: "STOCK",
+    aggregateId: "a_s1",
+    baseRevision: 1,
+    payload: {
+      type: "move_stock", productId: "a", fromShelfId: "s1", toShelfId: "s2", quantity: 2,
+      productName: "Riza", fromShelfName: "Polica 1", toShelfName: "Polica 2",
+    },
+    deviceId: "device-0001",
+    deviceDisplayName: "Testni uredaj",
+  }, "u1");
 }
 
 function callable(data: Record<string, unknown>, uid: string) {

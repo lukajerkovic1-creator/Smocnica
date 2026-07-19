@@ -307,12 +307,18 @@ async function moveStock({ tx, pantryRef, payload, timestamp }: HandlerContext):
   const toShelfId = safeId(text(payload, "toShelfId"));
   const quantity = integer(payload, "quantity", 1, 1_000_000);
   if (fromShelfId === toShelfId) throw new HttpsError("invalid-argument", "Police moraju biti različite.");
+  const productRef = pantryRef.collection("products").doc(productId);
+  const sourceShelfRef = pantryRef.collection("shelves").doc(fromShelfId);
+  const targetShelfRef = pantryRef.collection("shelves").doc(toShelfId);
   const fromRef = pantryRef.collection("stocks").doc(`${productId}_${fromShelfId}`);
   const toRef = pantryRef.collection("stocks").doc(`${productId}_${toShelfId}`);
-  const targetShelfRef = pantryRef.collection("shelves").doc(toShelfId);
-  const [from, to, target] = await Promise.all([tx.get(fromRef), tx.get(toRef), tx.get(targetShelfRef)]);
+  const [product, sourceShelf, targetShelf, from, to] = await Promise.all([
+    tx.get(productRef), tx.get(sourceShelfRef), tx.get(targetShelfRef), tx.get(fromRef), tx.get(toRef),
+  ]);
+  if (!product.exists || product.get("deletedAt")) throw new HttpsError("not-found", "Artikl nije dostupan.");
+  if (!sourceShelf.exists || sourceShelf.get("deletedAt")) throw new HttpsError("not-found", "Izvorna polica nije dostupna.");
+  if (!targetShelf.exists || targetShelf.get("deletedAt")) throw new HttpsError("not-found", "Odredišna polica nije dostupna.");
   if (!from.exists || Number(from.get("quantity") || 0) < quantity) throw new HttpsError("failed-precondition", "Nema dovoljno zalihe na izvornoj polici.");
-  if (!target.exists || target.get("deletedAt")) throw new HttpsError("not-found", "Odredišna polica nije dostupna.");
   const revision = Math.max(Number(from.get("revision") || 0), Number(to.get("revision") || 0)) + 1;
   tx.update(fromRef, { quantity: Number(from.get("quantity")) - quantity, revision, updatedAt: timestamp });
   tx.set(toRef, { productId, shelfId: toShelfId, quantity: Number(to.get("quantity") || 0) + quantity, revision, updatedAt: timestamp }, { merge: true });
