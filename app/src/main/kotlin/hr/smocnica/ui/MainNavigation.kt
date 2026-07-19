@@ -27,6 +27,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavType
+import androidx.navigation.NavOptions
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -50,6 +52,13 @@ private val bottomDestinations = listOf(
     Destination("shelves", "Police", Icons.Outlined.Inventory2),
     Destination("menu", "Izbornik", Icons.Outlined.Menu),
 )
+
+internal fun bottomNavigationOptions(startDestinationId: Int): NavOptions =
+    NavOptions.Builder()
+        .setPopUpTo(startDestinationId, inclusive = false, saveState = true)
+        .setLaunchSingleTop(true)
+        .setRestoreState(true)
+        .build()
 
 @Composable
 fun MainNavigation(
@@ -104,15 +113,11 @@ fun MainNavigation(
                     NavigationBarItem(
                         selected = current?.destination?.route == destination.route,
                         onClick = {
-                            if (destination.route == "home") {
-                                navController.popBackStack("home", inclusive = false)
-                            } else {
-                                navController.navigate(destination.route) {
-                                    popUpTo("home") { saveState = false }
-                                    launchSingleTop = true
-                                    restoreState = false
-                                }
-                            }
+                            val startDestinationId = navController.graph.findStartDestination().id
+                            navController.navigate(
+                                destination.route,
+                                bottomNavigationOptions(startDestinationId),
+                            )
                         },
                         icon = { Icon(destination.icon, destination.label) },
                         label = { Text(destination.label) },
