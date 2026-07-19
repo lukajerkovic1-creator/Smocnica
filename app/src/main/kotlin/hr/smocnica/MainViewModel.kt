@@ -207,16 +207,16 @@ class MainViewModel @Inject constructor(
     fun deleteShelf(shelf: Shelf) = withActor { _, uid -> inventory.deleteShelf(shelf, uid, deviceIdentity.displayName) }
     fun saveProduct(
         product: Product,
-        photo: ByteArray? = null,
+        photoPath: String? = null,
         source: hr.smocnica.core.model.PhotoSource? = null,
         onSaved: ((Product) -> Unit)? = null,
         onFailure: (() -> Unit)? = null,
     ) = actorAction({ pantry, uid ->
         val saved = inventory.upsertProduct(product.copy(pantryId = pantry.id), uid, deviceIdentity.displayName)
-        if (photo != null && source != null) {
+        if (photoPath != null && source != null) {
             val initialSync = sync.synchronize()
             require(initialSync.failed == 0 && initialSync.conflicts == 0) { "Artikl mora biti sinkroniziran prije prijenosa fotografije." }
-            val url = photos.uploadJpeg(pantry.id, saved.id, photo)
+            val url = photos.uploadJpeg(pantry.id, saved.id, photoPath)
             inventory.upsertProduct(saved.copy(photoUri = url, photoSource = source), uid, deviceIdentity.displayName)
         } else saved
     }, { saved -> onSaved?.invoke(saved) }, { onFailure?.invoke() })
@@ -224,17 +224,17 @@ class MainViewModel @Inject constructor(
         product: Product,
         shelfId: String,
         quantity: Int,
-        photo: ByteArray? = null,
+        photoPath: String? = null,
         source: hr.smocnica.core.model.PhotoSource? = null,
         onCreated: ((Product) -> Unit)? = null,
         onFailure: (() -> Unit)? = null,
     ) = actorAction({ pantry, uid ->
         val created = inventory.upsertProduct(product.copy(pantryId = pantry.id), uid, deviceIdentity.displayName)
         if (quantity > 0) inventory.adjustStock(created.id, shelfId, quantity, uid, deviceIdentity.displayName)
-        if (photo != null && source != null) {
+        if (photoPath != null && source != null) {
             val initialSync = sync.synchronize()
             require(initialSync.failed == 0 && initialSync.conflicts == 0) { "Artikl mora biti sinkroniziran prije prijenosa fotografije." }
-            val url = photos.uploadJpeg(pantry.id, created.id, photo)
+            val url = photos.uploadJpeg(pantry.id, created.id, photoPath)
             inventory.upsertProduct(created.copy(photoUri = url, photoSource = source), uid, deviceIdentity.displayName)
         }
         created
