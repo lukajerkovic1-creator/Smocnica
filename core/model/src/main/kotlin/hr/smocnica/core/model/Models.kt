@@ -167,6 +167,10 @@ data class Activity(
     val oldValue: String? = null,
     val newValue: String? = null,
     val createdAt: Long,
+    val productId: ProductId? = null,
+    val shelfId: ShelfId? = null,
+    val fromShelfId: ShelfId? = null,
+    val toShelfId: ShelfId? = null,
 )
 
 @Serializable

@@ -13,15 +13,16 @@ class DeviceRegistration @Inject constructor(
     private val identity: DeviceIdentity,
 ) {
     suspend fun registerCurrentToken() {
-        val token = FirebaseMessaging.getInstance().token.await()
+        val token = runCatching { FirebaseMessaging.getInstance().token.await() }.getOrNull()
+        val payload = mutableMapOf<String, Any>(
+            "deviceId" to identity.deviceId,
+            "deviceDisplayName" to identity.displayName,
+            "platform" to "ANDROID",
+        )
+        token?.let { payload["fcmToken"] = it }
         client.call(
             "registerDevice",
-            mapOf(
-                "deviceId" to identity.deviceId,
-                "deviceDisplayName" to identity.displayName,
-                "fcmToken" to token,
-                "platform" to "ANDROID",
-            ),
+            payload,
         )
     }
 

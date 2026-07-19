@@ -98,11 +98,15 @@ internal fun ActivityEntity.model() = Activity(
     oldValue = oldValue,
     newValue = newValue,
     createdAt = createdAt,
+    productId = productId,
+    shelfId = shelfId,
+    fromShelfId = fromShelfId,
+    toShelfId = toShelfId,
 )
 
 internal fun Activity.entity() = ActivityEntity(
     id, pantryId, type.name, aggregateId, displayLabel, quantityDelta, actorUid,
-    deviceId, deviceName, oldValue, newValue, createdAt,
+    deviceId, deviceName, oldValue, newValue, createdAt, productId, shelfId, fromShelfId, toShelfId,
 )
 
 internal fun InventorySession.entity(json: Json) = InventoryEntity(

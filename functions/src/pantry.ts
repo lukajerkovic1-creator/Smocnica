@@ -2,7 +2,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db, daysFromNow, now } from "./firebase";
-import { authUid, invitationCode, object, requireMember, requireOwner, safeId, sha256, text } from "./validation";
+import { authUid, invitationCode, object, optionalText, requireMember, requireOwner, safeId, sha256, text } from "./validation";
 
 const callable = { region: "europe-west1", enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== "true" } as const;
 
@@ -15,7 +15,8 @@ export const createPantry = onCall(callable, async (request) => {
   const uid = authUid(request);
   const data = object(request.data);
   const name = text(data, "name", 1, 60);
-  const deviceDisplayName = text(data, "deviceDisplayName", 2, 40);
+  const deviceId = safeId(text(data, "deviceId", 1, 128), "deviceId");
+  const deviceDisplayName = trustedDeviceName(await db.doc(`users/${uid}/devices/${deviceId}`).get());
   const pantryRef = db.collection("pantries").doc();
   const timestamp = now();
   const batch = db.batch();
@@ -45,7 +46,7 @@ export const createPantry = onCall(callable, async (request) => {
   });
   batch.create(pantryRef.collection("activities").doc(), {
     type: "PANTRY_CREATED", aggregateId: pantryRef.id, displayLabel: name,
-    actorUid: uid, deviceId: "initial", deviceDisplayName,
+    actorUid: uid, deviceId, deviceDisplayName,
     createdAt: timestamp, expiresAt: daysFromNow(365),
   });
   await batch.commit();
@@ -112,7 +113,7 @@ export const joinPantry = onCall(callable, async (request) => {
   const uid = authUid(request);
   const data = object(request.data);
   const code = text(data, "code", 6, 32).toUpperCase();
-  const deviceDisplayName = text(data, "deviceDisplayName", 2, 40);
+  const deviceId = safeId(text(data, "deviceId", 1, 128), "deviceId");
   const inviteRef = db.doc(`inviteCodes/${sha256(code)}`);
   const timestamp = now();
   const displayName = request.auth?.token.name?.toString() || "Korisnik";
@@ -129,8 +130,12 @@ export const joinPantry = onCall(callable, async (request) => {
     const pantryId = safeId(inviteData.pantryId, "pantryId");
     const pantryRef = db.doc(`pantries/${pantryId}`);
     const memberRef = pantryRef.collection("members").doc(uid);
-    const [pantry, existingMember] = await Promise.all([transaction.get(pantryRef), transaction.get(memberRef)]);
+    const deviceRef = db.doc(`users/${uid}/devices/${deviceId}`);
+    const [pantry, existingMember, device] = await Promise.all([
+      transaction.get(pantryRef), transaction.get(memberRef), transaction.get(deviceRef),
+    ]);
     if (!pantry.exists || pantry.get("deletedAt")) throw new HttpsError("not-found", "Smočnica više nije dostupna.");
+    const deviceDisplayName = trustedDeviceName(device);
     if (existingMember.exists && existingMember.get("active") === true) {
       throw new HttpsError("already-exists", "Već ste član ove smočnice.");
     }
@@ -142,7 +147,7 @@ export const joinPantry = onCall(callable, async (request) => {
     transaction.set(db.doc(`users/${uid}`), { displayName, photoUrl, createdAt: timestamp, lastSeenAt: timestamp }, { merge: true });
     transaction.create(pantryRef.collection("activities").doc(), {
       type: "MEMBER_JOINED", aggregateId: uid, displayLabel: "Novi uređaj pridružen",
-      actorUid: uid, deviceId: "join", deviceDisplayName, createdAt: timestamp, expiresAt: daysFromNow(365),
+      actorUid: uid, deviceId, deviceDisplayName, createdAt: timestamp, expiresAt: daysFromNow(365),
     });
     pantryResult = {
       id: pantry.id, name: pantry.get("name"), ownerUid: pantry.get("ownerUid"),
@@ -161,10 +166,12 @@ export const registerDevice = onCall(callable, async (request) => {
   const data = object(request.data);
   const deviceId = safeId(text(data, "deviceId", 1, 128), "deviceId");
   const deviceDisplayName = text(data, "deviceDisplayName", 2, 40);
-  const fcmToken = text(data, "fcmToken", 20, 4096);
-  await db.doc(`users/${uid}/devices/${deviceId}`).set({
-    name: deviceDisplayName, fcmToken, platform: "ANDROID", updatedAt: now(), active: true,
-  }, { merge: true });
+  const fcmToken = optionalText(data, "fcmToken", 4096);
+  const update: Record<string, unknown> = {
+    name: deviceDisplayName, platform: "ANDROID", updatedAt: now(), active: true,
+  };
+  if (fcmToken) update.fcmToken = fcmToken;
+  await db.doc(`users/${uid}/devices/${deviceId}`).set(update, { merge: true });
   return { status: "OK" };
 });
 
@@ -186,15 +193,16 @@ export const manageMember = onCall(callable, async (request) => {
   const pantryId = safeId(text(data, "pantryId"), "pantryId");
   const memberUid = safeId(text(data, "memberUid"), "memberUid");
   const deviceId = safeId(text(data, "deviceId", 1, 128), "deviceId");
-  const deviceDisplayName = text(data, "deviceDisplayName", 2, 40);
   if (data.action !== "REMOVE") throw new HttpsError("invalid-argument", "Nepodržana članska radnja.");
   await requireOwner(pantryId, uid);
   if (memberUid === uid) throw new HttpsError("failed-precondition", "Vlasnik prvo mora prenijeti vlasništvo.");
   const pantryRef = db.doc(`pantries/${pantryId}`);
   await db.runTransaction(async (transaction) => {
     const memberRef = pantryRef.collection("members").doc(memberUid);
-    const member = await transaction.get(memberRef);
+    const deviceRef = db.doc(`users/${uid}/devices/${deviceId}`);
+    const [member, device] = await Promise.all([transaction.get(memberRef), transaction.get(deviceRef)]);
     if (!member.exists || member.get("active") !== true) throw new HttpsError("not-found", "Član nije pronađen.");
+    const deviceDisplayName = trustedDeviceName(device);
     const timestamp = now();
     transaction.update(memberRef, { active: false, removedAt: timestamp, removedBy: uid });
     transaction.update(pantryRef, { memberUids: FieldValue.arrayRemove(memberUid), revision: FieldValue.increment(1), updatedAt: timestamp });
@@ -213,14 +221,15 @@ export const transferOwnership = onCall(callable, async (request) => {
   const pantryId = safeId(text(data, "pantryId"), "pantryId");
   const newOwnerUid = safeId(text(data, "newOwnerUid"), "newOwnerUid");
   const deviceId = safeId(text(data, "deviceId", 1, 128), "deviceId");
-  const deviceDisplayName = text(data, "deviceDisplayName", 2, 40);
   await requireOwner(pantryId, uid);
   if (uid === newOwnerUid) throw new HttpsError("failed-precondition", "Već ste vlasnik.");
   const pantryRef = db.doc(`pantries/${pantryId}`);
   await db.runTransaction(async (transaction) => {
     const targetRef = pantryRef.collection("members").doc(newOwnerUid);
-    const target = await transaction.get(targetRef);
+    const deviceRef = db.doc(`users/${uid}/devices/${deviceId}`);
+    const [target, device] = await Promise.all([transaction.get(targetRef), transaction.get(deviceRef)]);
     if (!target.exists || target.get("active") !== true) throw new HttpsError("not-found", "Novi vlasnik mora biti aktivan član.");
+    const deviceDisplayName = trustedDeviceName(device);
     const timestamp = now();
     transaction.update(targetRef, { role: "OWNER" });
     transaction.update(pantryRef.collection("members").doc(uid), { role: "MEMBER" });
@@ -239,8 +248,8 @@ export const deletePantry = onCall(callable, async (request) => {
   const data = object(request.data);
   const pantryId = safeId(text(data, "pantryId"), "pantryId");
   const deviceId = safeId(text(data, "deviceId", 1, 128), "deviceId");
-  const deviceDisplayName = text(data, "deviceDisplayName", 2, 40);
   await requireOwner(pantryId, uid);
+  const deviceDisplayName = trustedDeviceName(await db.doc(`users/${uid}/devices/${deviceId}`).get());
   const timestamp = now();
   const invitations = await db.collection("inviteCodes").where("pantryId", "==", pantryId).limit(100).get();
   const batch = db.batch();
@@ -255,6 +264,17 @@ export const deletePantry = onCall(callable, async (request) => {
   await batch.commit();
   return { status: "OK", purgeAfter: daysFromNow(30).toMillis() };
 });
+
+function trustedDeviceName(device: { exists: boolean; get(field: string): unknown }): string {
+  if (!device.exists || device.get("active") !== true) {
+    throw new HttpsError("permission-denied", "Uređaj nije registriran ili više nije aktivan.");
+  }
+  const name = device.get("name");
+  if (typeof name !== "string" || name.trim().length < 2 || name.trim().length > 40) {
+    throw new HttpsError("failed-precondition", "Registrirani uređaj nema ispravan naziv.");
+  }
+  return name.trim();
+}
 
 export const purgeTrash = onCall(callable, async (request) => {
   const uid = authUid(request);

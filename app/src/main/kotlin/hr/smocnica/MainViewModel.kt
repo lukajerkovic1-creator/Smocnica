@@ -146,9 +146,10 @@ class MainViewModel @Inject constructor(
         viewModelScope.launch {
             session.filterNotNull().collectLatest {
                 _isRestoringPantries.value = true
+                runCatching { deviceRegistration.registerCurrentToken() }
+                    .onFailure { _messages.emit(it.message ?: "Uređaj nije moguće registrirati. Provjerite mrežu i pokušajte ponovno.") }
                 runCatching { pantriesRepository.refreshPantries() }
                     .onFailure { _messages.emit(it.message ?: "Postojeću smočnicu nije moguće dohvatiti.") }
-                runCatching { deviceRegistration.registerCurrentToken() }
                 _isRestoringPantries.value = false
             }
         }
@@ -186,11 +187,17 @@ class MainViewModel @Inject constructor(
     }
     fun createPantry(name: String, deviceName: String) {
         deviceIdentity.displayName = deviceName
-        action { selectPantry(pantriesRepository.createPantry(name, deviceIdentity.displayName).id) }
+        action {
+            deviceRegistration.registerCurrentToken()
+            selectPantry(pantriesRepository.createPantry(name, deviceIdentity.deviceId).id)
+        }
     }
     fun joinPantry(code: String, deviceName: String) {
         deviceIdentity.displayName = deviceName
-        action { selectPantry(pantriesRepository.joinPantry(code, deviceIdentity.displayName).id) }
+        action {
+            deviceRegistration.registerCurrentToken()
+            selectPantry(pantriesRepository.joinPantry(code, deviceIdentity.deviceId).id)
+        }
     }
     fun createShelf(name: String) = withActor { pantry, uid -> inventory.createShelf(pantry.id, name, uid, deviceIdentity.displayName) }
     fun renameShelf(shelf: Shelf, name: String) = withActor { _, uid -> inventory.renameShelf(shelf, name, uid, deviceIdentity.displayName) }

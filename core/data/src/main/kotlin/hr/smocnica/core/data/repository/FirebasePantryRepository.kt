@@ -39,10 +39,10 @@ class FirebasePantryRepository @Inject constructor(
         else database.pantryDao().hideExcept(activeIds, System.currentTimeMillis())
     }
 
-    override suspend fun createPantry(name: String, deviceName: String): Pantry {
+    override suspend fun createPantry(name: String, deviceId: String): Pantry {
         val cleanName = name.trim()
         require(cleanName.length in 1..60) { "Naziv smočnice mora imati između 1 i 60 znakova." }
-        val result = client.call("createPantry", mapOf("name" to cleanName, "deviceDisplayName" to deviceName))
+        val result = client.call("createPantry", mapOf("name" to cleanName, "deviceId" to deviceId))
         return cachePantry(result)
     }
 
@@ -54,10 +54,10 @@ class FirebasePantryRepository @Inject constructor(
         )
     }
 
-    override suspend fun joinPantry(code: String, deviceName: String): Pantry {
+    override suspend fun joinPantry(code: String, deviceId: String): Pantry {
         val normalized = code.filter(Char::isLetterOrDigit).uppercase()
         require(normalized.length in 6..32) { "Pozivni kod nije ispravan." }
-        val result = client.call("joinPantry", mapOf("code" to normalized, "deviceDisplayName" to deviceName))
+        val result = client.call("joinPantry", mapOf("code" to normalized, "deviceId" to deviceId))
         return cachePantry(result)
     }
 

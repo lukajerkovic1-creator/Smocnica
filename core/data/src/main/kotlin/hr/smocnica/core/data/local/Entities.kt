@@ -139,6 +139,10 @@ data class ActivityEntity(
     val oldValue: String?,
     val newValue: String?,
     val createdAt: Long,
+    val productId: String? = null,
+    val shelfId: String? = null,
+    val fromShelfId: String? = null,
+    val toShelfId: String? = null,
 )
 
 @Entity(tableName = "inventory_sessions", primaryKeys = ["id"], indices = [Index("pantryId"), Index("shelfId")])

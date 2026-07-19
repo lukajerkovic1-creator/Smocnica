@@ -214,6 +214,10 @@ class RealtimePantrySynchronizer @Inject constructor(
         oldValue = getString("oldValue"),
         newValue = getString("newValue"),
         createdAt = epoch("createdAt"),
+        productId = getString("productId"),
+        shelfId = getString("shelfId"),
+        fromShelfId = getString("fromShelfId"),
+        toShelfId = getString("toShelfId"),
     )
 
     private fun DocumentSnapshot.string(name: String, fallback: String? = null): String =

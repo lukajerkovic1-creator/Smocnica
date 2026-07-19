@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import firebaseFunctionsTest from "firebase-functions-test";
 import { applyOperation } from "../src/operations";
-import { createInvitation, joinPantry, listMyPantries, manageMember, transferOwnership, unregisterDevice } from "../src/pantry";
+import { createInvitation, createPantry, joinPantry, listMyPantries, manageMember, registerDevice, transferOwnership, unregisterDevice } from "../src/pantry";
 import { db } from "../src/firebase";
 import { sha256 } from "../src/validation";
 
@@ -11,9 +11,11 @@ const invoke = testEnvironment.wrap(applyOperation);
 const invokeManageMember = testEnvironment.wrap(manageMember);
 const invokeListMyPantries = testEnvironment.wrap(listMyPantries);
 const invokeUnregisterDevice = testEnvironment.wrap(unregisterDevice);
+const invokeRegisterDevice = testEnvironment.wrap(registerDevice);
 const invokeCreateInvitation = testEnvironment.wrap(createInvitation);
 const invokeJoinPantry = testEnvironment.wrap(joinPantry);
 const invokeTransferOwnership = testEnvironment.wrap(transferOwnership);
+const invokeCreatePantry = testEnvironment.wrap(createPantry);
 
 describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", () => {
   afterAll(() => testEnvironment.cleanup());
@@ -23,6 +25,7 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     batch.set(db.doc("pantries/p1"), { name: "Test", ownerUid: "u1", memberUids: ["u1", "u2"], revision: 1, createdAt: new Date(), updatedAt: new Date() });
     batch.set(db.doc("pantries/p1/members/u1"), { role: "OWNER", active: true, joinedAt: new Date() });
     batch.set(db.doc("pantries/p1/members/u2"), { role: "MEMBER", active: true, joinedAt: new Date() });
+    batch.set(db.doc("users/u1/devices/device-0001"), { name: "Poslužiteljski telefon", active: true, platform: "ANDROID", updatedAt: new Date() });
     batch.set(db.doc("pantries/p1/shelves/s1"), { name: "Polica 1", sortOrder: 0, revision: 1, createdAt: new Date(), updatedAt: new Date() });
     batch.set(db.doc("pantries/p1/shelves/s2"), { name: "Polica 2", sortOrder: 1, revision: 1, createdAt: new Date(), updatedAt: new Date() });
     batch.set(db.doc("pantries/p1/products/a"), { name: "Riža", category: "Namirnice", minimumQuantity: 5, autoShopping: true, totalQuantity: 5, revision: 1, createdAt: new Date(), updatedAt: new Date() });
@@ -42,6 +45,9 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect(activity.get("displayLabel")).toBe("Riža");
     expect(activity.get("oldValue")).toBe("Polica 1");
     expect(activity.get("newValue")).toBe("Polica 1");
+    expect(activity.get("productId")).toBe("a");
+    expect(activity.get("shelfId")).toBe("s1");
+    expect(activity.get("deviceDisplayName")).toBe("Poslužiteljski telefon");
 
     await invoke(operation("op-00000002", -1) as never);
     expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(3);
@@ -71,10 +77,57 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(5);
   });
 
+  it("rejects unknown or inactive devices before applying a new operation", async () => {
+    const unknown = operation("op-device-unknown", 1);
+    unknown.data.deviceId = "unknown-device";
+    await expect(invoke(unknown as never)).rejects.toMatchObject({ code: "permission-denied" });
+
+    await db.doc("users/u1/devices/device-0001").update({ active: false });
+    await expect(invoke(operation("op-device-inactive", 1) as never)).rejects.toMatchObject({ code: "permission-denied" });
+
+    await db.doc("users/u2/devices/foreign-device").set({ name: "Tuđi uređaj", active: true });
+    const foreign = operation("op-device-foreign", 1);
+    foreign.data.deviceId = "foreign-device";
+    await expect(invoke(foreign as never)).rejects.toMatchObject({ code: "permission-denied" });
+    expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(5);
+  });
+
+  it("registers an active device even when an FCM token is temporarily unavailable", async () => {
+    await invokeRegisterDevice(callable({
+      deviceId: "device-no-token",
+      deviceDisplayName: "Telefon bez tokena",
+      platform: "ANDROID",
+    }, "u1") as never);
+    const device = await db.doc("users/u1/devices/device-no-token").get();
+    expect(device.get("active")).toBe(true);
+    expect(device.get("name")).toBe("Telefon bez tokena");
+    expect(device.get("fcmToken")).toBeUndefined();
+  });
+
   it("moves stock only while the product and both shelves are active", async () => {
     await invoke(moveOperation("op-move-active") as never);
     expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(3);
     expect((await db.doc("pantries/p1/stocks/a_s2").get()).get("quantity")).toBe(2);
+    const activity = await db.doc("pantries/p1/activities/op-move-active").get();
+    expect(activity.get("displayLabel")).toBe("Riža");
+    expect(activity.get("oldValue")).toBe("Polica 1");
+    expect(activity.get("newValue")).toBe("Polica 2");
+    expect(activity.get("productId")).toBe("a");
+    expect(activity.get("fromShelfId")).toBe("s1");
+    expect(activity.get("toShelfId")).toBe("s2");
+  });
+
+  it("records a deleted product with its server name and structured product id", async () => {
+    const request = operation("op-delete-product", 1);
+    request.data.aggregateType = "PRODUCT";
+    request.data.aggregateId = "a";
+    request.data.payload = {
+      type: "soft_delete", targetType: "PRODUCT", id: "a", displayLabel: "Krivotvoreni naziv",
+    };
+    await invoke(request as never);
+    const activity = await db.doc("pantries/p1/activities/op-delete-product").get();
+    expect(activity.get("displayLabel")).toBe("Riža");
+    expect(activity.get("productId")).toBe("a");
   });
 
   it.each([
@@ -206,7 +259,7 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     await invokeManageMember(callable({ pantryId: "p1", memberUid: "u2", action: "REMOVE", ...device }, "u1") as never);
     expect((await db.doc("pantries/p1/members/u2").get()).get("active")).toBe(false);
     const activity = (await db.collection("pantries/p1/activities").where("type", "==", "MEMBER_REMOVED").get()).docs[0];
-    expect(activity.get("deviceDisplayName")).toBe("Testni uređaj");
+    expect(activity.get("deviceDisplayName")).toBe("Poslužiteljski telefon");
   });
 
   it("consumes a hashed invitation exactly once", async () => {
@@ -214,9 +267,13 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect(invitation.code).toMatch(/^[A-Z2-9]{16}$/);
     expect((await db.doc(`inviteCodes/${sha256(invitation.code)}`).get()).exists).toBe(true);
     expect((await db.doc(`inviteCodes/${invitation.code}`).get()).exists).toBe(false);
-    await invokeJoinPantry(callable({ code: invitation.code, deviceDisplayName: "Telefon u3" }, "u3") as never);
+    await db.doc("users/u3/devices/device-u3").set({ name: "Telefon u3", active: true });
+    await invokeJoinPantry(callable({ code: invitation.code, deviceId: "device-u3", deviceDisplayName: "Lažni telefon" }, "u3") as never);
     expect((await db.doc("pantries/p1/members/u3").get()).get("active")).toBe(true);
-    await expect(invokeJoinPantry(callable({ code: invitation.code, deviceDisplayName: "Telefon u4" }, "u4") as never))
+    const activity = (await db.collection("pantries/p1/activities").where("type", "==", "MEMBER_JOINED").get()).docs[0];
+    expect(activity.get("deviceDisplayName")).toBe("Telefon u3");
+    expect(activity.get("deviceId")).toBe("device-u3");
+    await expect(invokeJoinPantry(callable({ code: invitation.code, deviceId: "missing-u4" }, "u4") as never))
       .rejects.toMatchObject({ code: "failed-precondition" });
   });
 
@@ -229,7 +286,16 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect((await db.doc("pantries/p1/members/u1").get()).get("role")).toBe("MEMBER");
     expect((await db.doc("pantries/p1/members/u2").get()).get("role")).toBe("OWNER");
     const activity = (await db.collection("pantries/p1/activities").where("type", "==", "OWNERSHIP_TRANSFERRED").get()).docs[0];
-    expect(activity.get("deviceDisplayName")).toBe("Vlasnikov telefon");
+    expect(activity.get("deviceDisplayName")).toBe("Poslužiteljski telefon");
+  });
+
+  it("attributes pantry creation to the registered device instead of the client label", async () => {
+    const result = await invokeCreatePantry(callable({
+      name: "Nova smočnica", deviceId: "device-0001", deviceDisplayName: "Lažni telefon",
+    }, "u1") as never);
+    const activity = (await db.collection(`pantries/${result.pantry.id}/activities`).get()).docs[0];
+    expect(activity.get("deviceId")).toBe("device-0001");
+    expect(activity.get("deviceDisplayName")).toBe("Poslužiteljski telefon");
   });
 });
 
@@ -240,7 +306,7 @@ function operation(operationId: string, delta: number) {
       aggregateType: "STOCK",
       aggregateId: "a_s1",
       baseRevision: 1,
-      payload: { type: "adjust_stock", productId: "a", shelfId: "s1", delta, productName: "Riža", shelfName: "Polica 1" },
+      payload: { type: "adjust_stock", productId: "a", shelfId: "s1", delta, productName: "Lažni artikl", shelfName: "Lažna polica" },
       deviceId: "device-0001",
       deviceDisplayName: "Testni uređaj",
     }, "u1");
@@ -255,7 +321,7 @@ function moveOperation(operationId: string) {
     baseRevision: 1,
     payload: {
       type: "move_stock", productId: "a", fromShelfId: "s1", toShelfId: "s2", quantity: 2,
-      productName: "Riza", fromShelfName: "Polica 1", toShelfName: "Polica 2",
+      productName: "Lažni artikl", fromShelfName: "Lažna izvorna", toShelfName: "Lažna odredišna",
     },
     deviceId: "device-0001",
     deviceDisplayName: "Testni uredaj",
