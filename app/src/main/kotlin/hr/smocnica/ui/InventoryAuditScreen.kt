@@ -201,7 +201,9 @@ fun InventoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
 @Composable
 private fun InventoryScannerDialog(lastScan: String?, error: String?, onError: (String) -> Unit, dismiss: () -> Unit, scanned: (String) -> Unit) {
     val context = LocalContext.current
-    var permission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
+    var permission by rememberCameraPermissionState {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permission = it }
     AlertDialog(
         onDismissRequest = dismiss,

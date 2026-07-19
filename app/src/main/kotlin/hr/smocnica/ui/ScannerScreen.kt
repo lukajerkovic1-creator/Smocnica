@@ -331,8 +331,8 @@ internal fun SharedBarcodeScannerContent(
     onBarcode: (String) -> Unit,
 ) {
     val context = LocalContext.current
-    var permission by rememberSaveable {
-        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+    var permission by rememberCameraPermissionState {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
     }
     var permissionDenied by rememberSaveable { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -342,7 +342,16 @@ internal fun SharedBarcodeScannerContent(
     var manual by rememberSaveable { mutableStateOf("") }
     var flash by rememberSaveable { mutableStateOf(false) }
     var camera by remember { mutableStateOf<Camera?>(null) }
+    var hasFlashUnit by remember { mutableStateOf(false) }
     var cameraError by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(permission) {
+        if (permission) permissionDenied = false
+        else {
+            flash = false
+            hasFlashUnit = false
+            camera = null
+        }
+    }
 
     Column(modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -366,16 +375,22 @@ internal fun SharedBarcodeScannerContent(
             Box(Modifier.fillMaxWidth().weight(1f)) {
                 BarcodeCamera(
                     modifier = Modifier.fillMaxSize(),
-                    onCamera = { camera = it; it.cameraControl.enableTorch(flash) },
+                    onCamera = {
+                        camera = it
+                        hasFlashUnit = it.cameraInfo.hasFlashUnit()
+                        if (hasFlashUnit) it.cameraControl.enableTorch(flash) else flash = false
+                    },
                     formats = intArrayOf(Barcode.FORMAT_EAN_8, Barcode.FORMAT_EAN_13, Barcode.FORMAT_UPC_A, Barcode.FORMAT_UPC_E),
                     accepts = BarcodePolicy::isSupported,
                     onError = { cameraError = it },
                     onBarcode = onBarcode,
                 )
-                IconButton(
-                    onClick = { flash = !flash; camera?.cameraControl?.enableTorch(flash) },
+                ScannerFlashButton(
+                    hasFlashUnit = hasFlashUnit,
+                    flash = flash,
+                    onToggle = { flash = !flash; camera?.cameraControl?.enableTorch(flash) },
                     modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).background(Color.Black.copy(alpha = .5f), RoundedCornerShape(50)),
-                ) { Icon(if (flash) Icons.Outlined.FlashOn else Icons.Outlined.FlashOff, "Bljeskalica", tint = Color.White) }
+                )
             }
         }
         (externalError ?: cameraError)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -393,6 +408,19 @@ internal fun SharedBarcodeScannerContent(
                 modifier = Modifier.padding(start = 8.dp),
             ) { Text("Potvrdi") }
         }
+    }
+}
+
+@Composable
+internal fun ScannerFlashButton(
+    hasFlashUnit: Boolean,
+    flash: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (!hasFlashUnit) return
+    IconButton(onClick = onToggle, modifier = modifier) {
+        Icon(if (flash) Icons.Outlined.FlashOn else Icons.Outlined.FlashOff, "Bljeskalica", tint = Color.White)
     }
 }
 
