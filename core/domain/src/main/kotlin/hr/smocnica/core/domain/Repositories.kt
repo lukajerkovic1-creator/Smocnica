@@ -111,7 +111,7 @@ interface ProductCatalogRepository {
 }
 
 interface ProductPhotoRepository {
-    suspend fun uploadJpeg(pantryId: String, productId: String, jpeg: ByteArray): String
+    suspend fun uploadJpeg(pantryId: String, productId: String, jpegPath: String): String
     suspend fun deleteMainPhoto(pantryId: String, productId: String)
 }
 

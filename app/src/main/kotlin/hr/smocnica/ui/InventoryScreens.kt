@@ -3,7 +3,6 @@ package hr.smocnica.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.content.Intent
-import android.graphics.ImageDecoder
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -102,10 +101,7 @@ import hr.smocnica.core.model.Shelf
 import hr.smocnica.core.model.ShoppingItem
 import hr.smocnica.core.model.PhotoSource
 import hr.smocnica.ui.theme.Purple
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 import java.io.File
 
 @Composable
@@ -565,7 +561,7 @@ fun ProductEditor(
     barcodeScanner: (@Composable ((String) -> Unit, () -> Unit) -> Unit)? = null,
     onAddExisting: (ProductWithStock, String, Int, (Boolean) -> Unit) -> Unit = { _, _, _, done -> done(false) },
     onRestoreDeleted: (ProductWithStock, String, Int, (Boolean) -> Unit) -> Unit = { _, _, _, done -> done(false) },
-    onSave: (Product, String, Int, ByteArray?, PhotoSource?, (Boolean) -> Unit) -> Unit,
+    onSave: (Product, String, Int, String?, PhotoSource?, (Boolean) -> Unit) -> Unit,
 ) {
     val isNew = current == null || current.id.isBlank()
     var name by rememberSaveable(current?.id) { mutableStateOf(current?.name.orEmpty()) }
@@ -585,24 +581,61 @@ fun ProductEditor(
     var operationError by rememberSaveable { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var selectedPhoto by rememberSaveable { mutableStateOf<ByteArray?>(null) }
+    var selectedPhotoPath by rememberProductPhotoDraftPath(current?.id)
     var selectedSourceName by rememberSaveable { mutableStateOf<String?>(null) }
     val selectedSource = selectedSourceName?.let(PhotoSource::valueOf)
     var photoError by rememberSaveable { mutableStateOf<String?>(null) }
-    val cameraUriString = rememberSaveable {
-        FileProvider.getUriForFile(context, "${context.packageName}.files", File.createTempFile("product-photo-", ".jpg", context.cacheDir)).toString()
+    var pendingCameraPath by rememberSaveable(current?.id) { mutableStateOf<String?>(null) }
+
+    fun replaceSelectedPhoto(path: String, source: PhotoSource) {
+        deleteTemporaryProductPhoto(context.cacheDir, selectedPhotoPath)
+        selectedPhotoPath = path
+        selectedSourceName = source.name
+        photoError = null
     }
-    val cameraUri = cameraUriString.toUri()
+
+    fun finishEditor() {
+        deleteTemporaryProductPhoto(context.cacheDir, selectedPhotoPath)
+        deleteTemporaryProductPhoto(context.cacheDir, pendingCameraPath)
+        selectedPhotoPath = null
+        pendingCameraPath = null
+        onDismiss()
+    }
+
+    fun dismissEditor() {
+        if (!submitting) finishEditor()
+    }
+
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) scope.launch { runCatching { resizeJpeg(context, uri) }.onSuccess { selectedPhoto = it; selectedSourceName = PhotoSource.GALLERY.name; photoError = null }.onFailure { photoError = it.message } }
+        if (uri != null) scope.launch {
+            runCatching { resizeJpegToTempFile(context, uri) }
+                .onSuccess { replaceSelectedPhoto(it.absolutePath, PhotoSource.GALLERY) }
+                .onFailure { photoError = it.message }
+        }
     }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        if (success) scope.launch { runCatching { resizeJpeg(context, cameraUri) }.onSuccess { selectedPhoto = it; selectedSourceName = PhotoSource.CAMERA.name; photoError = null }.onFailure { photoError = it.message } }
+        val capturePath = pendingCameraPath
+        if (success && capturePath != null) scope.launch {
+            runCatching { resizeJpegToTempFile(context, Uri.fromFile(File(capturePath))) }
+                .onSuccess { replaceSelectedPhoto(it.absolutePath, PhotoSource.CAMERA) }
+                .onFailure { photoError = it.message }
+            deleteTemporaryProductPhoto(context.cacheDir, capturePath)
+            pendingCameraPath = null
+        } else {
+            deleteTemporaryProductPhoto(context.cacheDir, capturePath)
+            pendingCameraPath = null
+        }
+    }
+    fun launchCameraCapture() {
+        deleteTemporaryProductPhoto(context.cacheDir, pendingCameraPath)
+        val capture = createProductPhotoCaptureFile(context.cacheDir)
+        pendingCameraPath = capture.absolutePath
+        camera.launch(FileProvider.getUriForFile(context, "${context.packageName}.files", capture))
     }
     var cameraPermissionDenied by rememberSaveable { mutableStateOf(false) }
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         cameraPermissionDenied = !granted
-        if (granted) camera.launch(cameraUri) else photoError = "Kamera nije dopuštena. Omogućite je u postavkama aplikacije."
+        if (granted) launchCameraCapture() else photoError = "Kamera nije dopuštena. Omogućite je u postavkama aplikacije."
     }
     LaunchedEffect(shelves, initialShelfId) {
         if (shelves.none { it.id == shelfId }) {
@@ -635,7 +668,7 @@ fun ProductEditor(
     }
 
     AlertDialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = ::dismissEditor,
         title = { Text(if (isNew) "Novi artikl" else "Uredi artikl") },
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -681,14 +714,25 @@ fun ProductEditor(
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         remotePhotoUri?.let { ProductPhoto(it, current?.updatedAt ?: 0, "Fotografija artikla", Modifier.fillMaxWidth().height(120.dp)) }
-                        selectedPhoto?.let { Text("Odabrana je nova fotografija (${it.size / 1024} KiB).", color = MaterialTheme.colorScheme.primary) }
+                        selectedPhotoPath?.let { path ->
+                            ProductPhoto(
+                                Uri.fromFile(File(path)).toString(),
+                                0,
+                                "Nova fotografija artikla",
+                                Modifier.fillMaxWidth().height(120.dp),
+                            )
+                            Text(
+                                "Odabrana je nova fotografija (${File(path).length() / 1024} KiB).",
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                         photoError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         if (cameraPermissionDenied) OutlinedButton({
                             context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
                         }) { Text("Otvori postavke aplikacije") }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton({
-                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) camera.launch(cameraUri)
+                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) launchCameraCapture()
                                 else cameraPermission.launch(Manifest.permission.CAMERA)
                             }) { Text("Snimi") }
                             OutlinedButton({ gallery.launch("image/*") }) { Text("Odaberi") }
@@ -734,18 +778,18 @@ fun ProductEditor(
                         ),
                         shelfId,
                         quantity.toIntOrNull() ?: 0,
-                        selectedPhoto,
+                        selectedPhotoPath,
                         selectedSource,
                     ) { success ->
                         submitting = false
-                        if (success) onDismiss() else operationError = "Spremanje nije uspjelo. Pokušajte ponovno."
+                        if (success) finishEditor() else operationError = "Spremanje nije uspjelo. Pokušajte ponovno."
                     }
                 },
                 enabled = !submitting && !catalogLookup.isLoading && name.trim().length in 1..100 && category.isNotBlank() &&
                     (barcode.isBlank() || hr.smocnica.core.domain.BarcodePolicy.isSupported(barcode)) && (!isNew || shelves.isNotEmpty()),
             ) { Text(if (submitting) "Spremanje…" else "Spremi") }
         },
-        dismissButton = { TextButton(onDismiss, enabled = !submitting) { Text("Odustani") } },
+        dismissButton = { TextButton(::dismissEditor, enabled = !submitting) { Text("Odustani") } },
     )
 
     if (showBarcodeScanner) {
@@ -766,7 +810,7 @@ fun ProductEditor(
             submitting = true
             val done: (Boolean) -> Unit = { success ->
                 submitting = false
-                if (success) onDismiss() else operationError = "Dodavanje količine nije uspjelo. Pokušajte ponovno."
+                if (success) finishEditor() else operationError = "Dodavanje količine nije uspjelo. Pokušajte ponovno."
             }
             when (inventoryMatch) {
                 is BarcodeInventoryMatch.Active -> onAddExisting(inventoryMatch.item, selectedShelfId, selectedQuantity, done)
@@ -838,20 +882,6 @@ private fun ExistingBarcodeDialog(
         },
         dismissButton = { TextButton(dismiss, enabled = !submitting) { Text("Nastavi ručno") } },
     )
-}
-
-private suspend fun resizeJpeg(context: android.content.Context, uri: Uri): ByteArray = withContext(Dispatchers.IO) {
-    val source = ImageDecoder.createSource(context.contentResolver, uri)
-    val bitmap = ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
-        val width = info.size.width
-        val height = info.size.height
-        val scale = minOf(1f, 2048f / maxOf(width, height).toFloat())
-        decoder.setTargetSize((width * scale).toInt().coerceAtLeast(1), (height * scale).toInt().coerceAtLeast(1))
-    }
-    ByteArrayOutputStream().use { output ->
-        check(bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, output)) { "Fotografiju nije moguće obraditi." }
-        output.toByteArray().also { require(it.size <= 5 * 1024 * 1024) { "Fotografija nakon obrade prelazi 5 MiB." } }
-    }
 }
 
 @Composable
