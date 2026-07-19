@@ -60,10 +60,14 @@ import java.util.Locale
 @Composable
 fun DashboardScreen(viewModel: MainViewModel, padding: PaddingValues, navigate: (String) -> Unit) {
     val products by viewModel.allProducts.collectAsStateWithLifecycle()
+    val deletedProducts by viewModel.deletedProducts.collectAsStateWithLifecycle()
+    val shelves by viewModel.shelves.collectAsStateWithLifecycle()
     val shopping by viewModel.shopping.collectAsStateWithLifecycle()
     val activities by viewModel.activities.collectAsStateWithLifecycle()
     val sync by viewModel.syncSummary.collectAsStateWithLifecycle()
     val below = products.count { it.isBelowMinimum }
+    val productNames = (products + deletedProducts).associate { it.product.id to it.product.name }
+    val shelfNames = shelves.associate { it.id to it.name }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = padding.calculateTopPadding() + 18.dp, bottom = padding.calculateBottomPadding() + 20.dp),
@@ -124,7 +128,11 @@ fun DashboardScreen(viewModel: MainViewModel, padding: PaddingValues, navigate: 
                         Text("Prikaži sve", Modifier.clickable { navigate("history") }, color = Purple, fontWeight = FontWeight.SemiBold)
                     }
                     activities.take(4).forEachIndexed { index, activity ->
-                        ActivityRow(activity)
+                        ActivityRow(
+                            activity,
+                            productNames = productNames,
+                            shelfNames = shelfNames,
+                        )
                         if (index < minOf(3, activities.lastIndex)) HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                     }
                     if (activities.isEmpty()) Text("Još nema zabilježenih aktivnosti.", Modifier.padding(start = 18.dp, end = 18.dp, bottom = 18.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -198,23 +206,28 @@ private fun DashboardTile(title: String, subtitle: String, icon: ImageVector, ro
 }
 
 @Composable
-private fun ActivityRow(activity: Activity) {
+private fun ActivityRow(activity: Activity, productNames: Map<String, String>, shelfNames: Map<String, String>) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primaryContainer) {
             Icon(Icons.Outlined.Inventory2, null, Modifier.padding(9.dp), tint = Purple)
         }
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            Text(activity.displayLabel, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            Text(activityDescription(activity), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(activityDisplayLabel(activity, productNames), fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Text(activityDescription(activity, shelfNames), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Text(SimpleDateFormat("HH:mm", Locale.forLanguageTag("hr-HR")).format(Date(activity.createdAt)), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
-internal fun activityDescription(activity: Activity): String {
+internal fun activityDisplayLabel(activity: Activity, productNames: Map<String, String> = emptyMap()): String =
+    activity.productId?.let(productNames::get) ?: activity.displayLabel
+
+internal fun activityDescription(activity: Activity, shelfNames: Map<String, String> = emptyMap()): String {
     val quantity = kotlin.math.abs(activity.quantityDelta ?: 0)
-    val oldShelf = activity.oldValue.asShelfName()
-    val newShelf = activity.newValue.asShelfName()
+    val oldShelfId = activity.fromShelfId ?: activity.shelfId
+    val newShelfId = activity.toShelfId ?: activity.shelfId
+    val oldShelf = oldShelfId?.let(shelfNames::get) ?: activity.oldValue.asShelfName()
+    val newShelf = newShelfId?.let(shelfNames::get) ?: activity.newValue.asShelfName()
     val action = when (activity.type) {
         ActivityType.STOCK_ADDED -> "Dodano $quantity kom${newShelf.orEmpty().withShelfPrefix()}"
         ActivityType.STOCK_REMOVED -> "Izvađeno $quantity kom${oldShelf.orEmpty().ifBlank { newShelf.orEmpty() }.withShelfPrefix(from = true)}"

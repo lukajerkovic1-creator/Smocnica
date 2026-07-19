@@ -22,6 +22,21 @@ class ActivityPresentationTest {
         assertFalse(text.contains("1 → 2"))
     }
 
+    @Test
+    fun structuredReferencesWinOverLegacyTextSnapshots() {
+        val activity = activity(ActivityType.STOCK_MOVED, 2, "Lažna izvorna", "Lažna odredišna").copy(
+            productId = "product1",
+            fromShelfId = "s1",
+            toShelfId = "s2",
+        )
+
+        assertEquals("Riža", activityDisplayLabel(activity, mapOf("product1" to "Riža")))
+        assertEquals(
+            "Premješteno 2 kom: Polica 1 → Polica 2 · Lukin mobitel",
+            activityDescription(activity, mapOf("s1" to "Polica 1", "s2" to "Polica 2")),
+        )
+    }
+
     private fun activity(type: ActivityType, delta: Int?, old: String?, new: String?) = Activity(
         id = "a1",
         pantryId = "p1",

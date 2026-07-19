@@ -322,6 +322,8 @@ class LocalInventoryRepository @Inject constructor(
                 delta,
                 old = shelf.name,
                 new = shelf.name,
+                productId = productId,
+                shelfId = shelfId,
                 now = now,
             )
         }
@@ -371,7 +373,8 @@ class LocalInventoryRepository @Inject constructor(
             )
             record(
                 stockOperationId, ActivityType.STOCK_ADDED, pantryId, productId, restored.name,
-                actorUid, deviceName, quantity, old = shelf.name, new = shelf.name, now = now,
+                actorUid, deviceName, quantity, old = shelf.name, new = shelf.name,
+                productId = productId, shelfId = shelfId, now = now,
             )
         }
     }
@@ -410,7 +413,11 @@ class LocalInventoryRepository @Inject constructor(
                 deviceName,
                 now,
             )
-            record(operationId, ActivityType.STOCK_MOVED, product.pantryId, productId, product.name, actorUid, deviceName, quantity, old = sourceShelf.name, new = targetShelf.name, now = now)
+            record(
+                operationId, ActivityType.STOCK_MOVED, product.pantryId, productId, product.name,
+                actorUid, deviceName, quantity, old = sourceShelf.name, new = targetShelf.name,
+                productId = productId, fromShelfId = fromShelfId, toShelfId = toShelfId, now = now,
+            )
         }
     }
 
@@ -628,6 +635,10 @@ class LocalInventoryRepository @Inject constructor(
         quantity: Int? = null,
         old: String? = null,
         new: String? = null,
+        productId: String? = null,
+        shelfId: String? = null,
+        fromShelfId: String? = null,
+        toShelfId: String? = null,
         now: Long,
     ) {
         activities.insert(
@@ -636,6 +647,8 @@ class LocalInventoryRepository @Inject constructor(
                 aggregateId = aggregateId, displayLabel = label, quantityDelta = quantity,
                 actorUid = actorUid, deviceId = deviceIdentity.deviceId, deviceName = deviceName,
                 oldValue = old, newValue = new, createdAt = now,
+                productId = productId, shelfId = shelfId,
+                fromShelfId = fromShelfId, toShelfId = toShelfId,
             ),
         )
     }

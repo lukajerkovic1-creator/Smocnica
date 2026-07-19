@@ -19,6 +19,18 @@ type HandlerContext = {
   timestamp: Timestamp;
 };
 
+type ActivityMetadata = {
+  productId?: string;
+  shelfId?: string;
+  fromShelfId?: string;
+  toShelfId?: string;
+  displayLabel?: string;
+  oldValue?: string | null;
+  newValue?: string | null;
+};
+
+type HandlerResult = number | { revision: number; activity: ActivityMetadata };
+
 export const applyOperation = onCall(callable, async (request) => {
   const uid = authUid(request);
   const data = object(request.data);
@@ -30,38 +42,46 @@ export const applyOperation = onCall(callable, async (request) => {
   const payload = object(data.payload, "payload");
   const type = text(payload, "type", 1, 40);
   const deviceId = safeId(text(data, "deviceId", 1, 128), "deviceId");
-  const deviceDisplayName = text(data, "deviceDisplayName", 2, 40);
   const pantryRef = db.doc(`pantries/${pantryId}`);
   const operationRef = pantryRef.collection("operations").doc(operationId);
+  const deviceRef = db.doc(`users/${uid}/devices/${deviceId}`);
   const timestamp = now();
 
   return db.runTransaction(async (tx) => {
-    const [operation, member, pantry] = await Promise.all([
+    const [operation, member, pantry, device] = await Promise.all([
       tx.get(operationRef),
       tx.get(pantryRef.collection("members").doc(uid)),
       tx.get(pantryRef),
+      tx.get(deviceRef),
     ]);
     if (operation.exists) {
       return { status: "ALREADY_APPLIED", revision: Number(operation.get("resultRevision") || baseRevision) };
     }
     if (!member.exists || member.get("active") !== true) throw new HttpsError("permission-denied", "Korisnik nije aktivan član smočnice.");
     if (!pantry.exists || pantry.get("deletedAt")) throw new HttpsError("not-found", "Smočnica nije dostupna.");
+    if (!device.exists || device.get("active") !== true) throw new HttpsError("permission-denied", "Uređaj nije aktivno registriran za prijavljenog korisnika.");
+    const deviceDisplayName = registeredDeviceName(device.get("name"));
     if (metadataTypes.has(type) && (type === "reorder_shelves" || type === "reorder_categories") && Number(pantry.get("revision") || 0) !== baseRevision) {
       return { status: "CONFLICT", revision: Number(pantry.get("revision") || 0) };
     }
 
-    const revision = await handle({ tx, pantryRef, pantryId, payload, baseRevision, operationId, uid, deviceId, deviceDisplayName, timestamp });
+    const handled = await handle({ tx, pantryRef, pantryId, payload, baseRevision, operationId, uid, deviceId, deviceDisplayName, timestamp });
+    const revision = typeof handled === "number" ? handled : handled.revision;
+    const metadata = typeof handled === "number" ? {} : handled.activity;
     tx.create(operationRef, {
       actorUid: uid, aggregateType, aggregateId, payloadType: type,
       resultRevision: revision, appliedAt: timestamp,
       resultDigest: sha256(JSON.stringify({ operationId, revision })),
     });
-    const values = activityValues(payload, type);
+    const values = activityValues(metadata);
+    const references = activityReferences(payload, type, metadata);
     tx.create(pantryRef.collection("activities").doc(operationId), {
       type: activityType(type, payload), aggregateId,
-      displayLabel: activityLabel(payload, type),
+      displayLabel: metadata.displayLabel || activityLabel(payload, type),
       quantityDelta: quantityDelta(payload, type),
       oldValue: values.oldValue, newValue: values.newValue,
+      productId: references.productId, shelfId: references.shelfId,
+      fromShelfId: references.fromShelfId, toShelfId: references.toShelfId,
       actorUid: uid, deviceId, deviceDisplayName,
       createdAt: timestamp, expiresAt: daysFromNow(365),
     });
@@ -69,7 +89,7 @@ export const applyOperation = onCall(callable, async (request) => {
   });
 });
 
-async function handle(context: HandlerContext): Promise<number> {
+async function handle(context: HandlerContext): Promise<HandlerResult> {
   const type = text(context.payload, "type");
   switch (type) {
     case "create_shelf": return createShelf(context);
@@ -91,26 +111,28 @@ async function handle(context: HandlerContext): Promise<number> {
   }
 }
 
-async function createShelf({ tx, pantryRef, payload, timestamp }: HandlerContext): Promise<number> {
+async function createShelf({ tx, pantryRef, payload, timestamp }: HandlerContext): Promise<HandlerResult> {
   const shelf = object(payload.shelf, "shelf");
   const id = safeId(text(shelf, "id"));
+  const name = text(shelf, "name", 1, 100);
   const ref = pantryRef.collection("shelves").doc(id);
   if ((await tx.get(ref)).exists) throw new HttpsError("already-exists", "Polica već postoji.");
   tx.create(ref, {
-    name: text(shelf, "name", 1, 100), sortOrder: integer(shelf, "sortOrder", 0, 10_000),
+    name, sortOrder: integer(shelf, "sortOrder", 0, 10_000),
     revision: 1, createdAt: timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
   });
-  return 1;
+  return { revision: 1, activity: { shelfId: id, displayLabel: name } };
 }
 
-async function renameShelf({ tx, pantryRef, payload, baseRevision, timestamp }: HandlerContext): Promise<number> {
+async function renameShelf({ tx, pantryRef, payload, baseRevision, timestamp }: HandlerContext): Promise<HandlerResult> {
   const id = safeId(text(payload, "shelfId"));
+  const name = text(payload, "name", 1, 100);
   const ref = pantryRef.collection("shelves").doc(id);
   const shelf = await tx.get(ref);
   assertRevision(shelf, baseRevision, "Polica");
   const revision = baseRevision + 1;
-  tx.update(ref, { name: text(payload, "name", 1, 100), revision, updatedAt: timestamp });
-  return revision;
+  tx.update(ref, { name, revision, updatedAt: timestamp });
+  return { revision, activity: { shelfId: id, displayLabel: name } };
 }
 
 async function reorderShelves({ tx, pantryRef, payload, baseRevision, timestamp }: HandlerContext): Promise<number> {
@@ -141,7 +163,7 @@ async function reorderCategories({ tx, pantryRef, payload, baseRevision, timesta
   return revision;
 }
 
-async function deleteShelf({ tx, pantryRef, payload, baseRevision, timestamp }: HandlerContext): Promise<number> {
+async function deleteShelf({ tx, pantryRef, payload, baseRevision, timestamp }: HandlerContext): Promise<HandlerResult> {
   const id = safeId(text(payload, "shelfId"));
   const ref = pantryRef.collection("shelves").doc(id);
   const [shelf, occupied] = await Promise.all([
@@ -152,7 +174,10 @@ async function deleteShelf({ tx, pantryRef, payload, baseRevision, timestamp }: 
   if (!occupied.empty) throw new HttpsError("failed-precondition", "Polica se može obrisati tek kada je prazna.");
   const revision = baseRevision + 1;
   tx.update(ref, { deletedAt: timestamp, purgeAfter: daysFromNow(30), revision, updatedAt: timestamp });
-  return revision;
+  return {
+    revision,
+    activity: { shelfId: id, displayLabel: serverActivityLabel(shelf.get("name"), "Polica") },
+  };
 }
 
 async function upsertCategory({ tx, pantryRef, payload, baseRevision, timestamp }: HandlerContext): Promise<number> {
@@ -210,7 +235,7 @@ async function deleteCategory({ tx, pantryRef, payload, baseRevision, timestamp 
   return revision;
 }
 
-async function upsertProduct(context: HandlerContext): Promise<number> {
+async function upsertProduct(context: HandlerContext): Promise<HandlerResult> {
   const { tx, pantryRef, pantryId, payload, baseRevision, operationId, timestamp } = context;
   const product = object(payload.product, "product");
   const id = safeId(text(product, "id"));
@@ -243,10 +268,11 @@ async function upsertProduct(context: HandlerContext): Promise<number> {
       (photoUri === null || !new RegExp(`^gs://[^/]+/pantries/${pantryId}/products/${id}/main\\.jpg$`).test(photoUri))) {
     throw new HttpsError("invalid-argument", "Privatna fotografija nema dopuštenu Storage putanju.");
   }
+  const name = text(product, "name", 1, 100);
   const totalQuantity = existing.exists ? Number(existing.get("totalQuantity") || 0) : 0;
   const revision = existing.exists ? baseRevision + 1 : 1;
   tx.set(ref, {
-    name: text(product, "name", 1, 100), normalizedName: text(product, "name", 1, 100).toLocaleLowerCase("hr"),
+    name, normalizedName: name.toLocaleLowerCase("hr"),
     barcode: code, description: typeof product.description === "string" ? product.description.slice(0, 500) : "",
     category: text(product, "category", 1, 100), categoryId: typeof product.categoryId === "string" ? product.categoryId : null,
     photoUrl: photoUri,
@@ -265,10 +291,10 @@ async function upsertProduct(context: HandlerContext): Promise<number> {
       required: Math.max(minimum - totalQuantity, 0), createdAt: timestamp,
     });
   }
-  return revision;
+  return { revision, activity: { productId: id, displayLabel: name } };
 }
 
-async function adjustStock(context: HandlerContext): Promise<number> {
+async function adjustStock(context: HandlerContext): Promise<HandlerResult> {
   const { tx, pantryRef, payload, operationId, timestamp } = context;
   const productId = safeId(text(payload, "productId"));
   const shelfId = safeId(text(payload, "shelfId"));
@@ -298,10 +324,19 @@ async function adjustStock(context: HandlerContext): Promise<number> {
       productId, name: product.get("name"), remaining: total, required: Math.max(minimum - total, 0), createdAt: timestamp,
     });
   }
-  return revision;
+  return {
+    revision,
+    activity: {
+      productId,
+      shelfId,
+      displayLabel: serverActivityLabel(product.get("name"), "Artikl"),
+      oldValue: serverActivityLabel(shelf.get("name"), "Polica"),
+      newValue: serverActivityLabel(shelf.get("name"), "Polica"),
+    },
+  };
 }
 
-async function moveStock({ tx, pantryRef, payload, timestamp }: HandlerContext): Promise<number> {
+async function moveStock({ tx, pantryRef, payload, timestamp }: HandlerContext): Promise<HandlerResult> {
   const productId = safeId(text(payload, "productId"));
   const fromShelfId = safeId(text(payload, "fromShelfId"));
   const toShelfId = safeId(text(payload, "toShelfId"));
@@ -322,7 +357,17 @@ async function moveStock({ tx, pantryRef, payload, timestamp }: HandlerContext):
   const revision = Math.max(Number(from.get("revision") || 0), Number(to.get("revision") || 0)) + 1;
   tx.update(fromRef, { quantity: Number(from.get("quantity")) - quantity, revision, updatedAt: timestamp });
   tx.set(toRef, { productId, shelfId: toShelfId, quantity: Number(to.get("quantity") || 0) + quantity, revision, updatedAt: timestamp }, { merge: true });
-  return revision;
+  return {
+    revision,
+    activity: {
+      productId,
+      fromShelfId,
+      toShelfId,
+      displayLabel: serverActivityLabel(product.get("name"), "Artikl"),
+      oldValue: serverActivityLabel(sourceShelf.get("name"), "Izvorna polica"),
+      newValue: serverActivityLabel(targetShelf.get("name"), "Odredišna polica"),
+    },
+  };
 }
 
 async function upsertShopping({ tx, pantryRef, payload, baseRevision, timestamp }: HandlerContext): Promise<number> {
@@ -355,7 +400,7 @@ async function upsertShopping({ tx, pantryRef, payload, baseRevision, timestamp 
   return revision;
 }
 
-async function applyInventory({ tx, pantryRef, payload, baseRevision, operationId, uid, deviceId, deviceDisplayName, timestamp }: HandlerContext): Promise<number> {
+async function applyInventory({ tx, pantryRef, payload, baseRevision, operationId, uid, deviceId, deviceDisplayName, timestamp }: HandlerContext): Promise<HandlerResult> {
   const session = object(payload.session, "session");
   const shelfId = safeId(text(session, "shelfId"));
   const differences = session.differences;
@@ -408,10 +453,13 @@ async function applyInventory({ tx, pantryRef, payload, baseRevision, operationI
     }),
     actorUid: uid, deviceId, deviceDisplayName, createdAt: timestamp, appliedAt: timestamp,
   }, { merge: true });
-  return baseRevision + 1;
+  return {
+    revision: baseRevision + 1,
+    activity: { shelfId, displayLabel: serverActivityLabel(shelf.get("name"), "Inventura") },
+  };
 }
 
-async function softDelete({ tx, pantryRef, payload, baseRevision, timestamp }: HandlerContext): Promise<number> {
+async function softDelete({ tx, pantryRef, payload, baseRevision, timestamp }: HandlerContext): Promise<HandlerResult> {
   const kind = text(payload, "targetType", 1, 30);
   const id = safeId(text(payload, "id"));
   const collection = collectionForAggregate(kind);
@@ -427,10 +475,17 @@ async function softDelete({ tx, pantryRef, payload, baseRevision, timestamp }: H
   if (shoppingRef && shopping?.exists) {
     tx.update(shoppingRef, { deletedAt: timestamp, updatedAt: timestamp });
   }
-  return revision;
+  return {
+    revision,
+    activity: {
+      productId: kind === "PRODUCT" ? id : undefined,
+      shelfId: kind === "SHELF" ? id : undefined,
+      displayLabel: serverActivityLabel(doc.get("name"), "Zapis"),
+    },
+  };
 }
 
-async function restore({ tx, pantryRef, payload, timestamp }: HandlerContext): Promise<number> {
+async function restore({ tx, pantryRef, payload, timestamp }: HandlerContext): Promise<HandlerResult> {
   const kind = text(payload, "targetType", 1, 30);
   const id = safeId(text(payload, "id"));
   const ref = pantryRef.collection(collectionForAggregate(kind)).doc(id);
@@ -455,7 +510,14 @@ async function restore({ tx, pantryRef, payload, timestamp }: HandlerContext): P
       doc.get("autoShopping") !== false, timestamp,
     );
   }
-  return revision;
+  return {
+    revision,
+    activity: {
+      productId: kind === "PRODUCT" ? id : undefined,
+      shelfId: kind === "SHELF" ? id : undefined,
+      displayLabel: serverActivityLabel(doc.get("name"), "Zapis"),
+    },
+  };
 }
 
 async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerContext): Promise<number> {
@@ -717,27 +779,40 @@ function activityType(type: string, payload: Data): string {
 function activityLabel(payload: Data, type: string): string {
   if (type === "upsert_product") return String(object(payload.product).name || "Artikl").slice(0, 100);
   if (type === "create_shelf") return String(object(payload.shelf).name || "Polica").slice(0, 100);
-  if (type === "adjust_stock" || type === "move_stock") return activityPayloadText(payload, "productName") || "Artikl";
   return type.replaceAll("_", " ").slice(0, 100);
 }
 
-function activityValues(payload: Data, type: string): { oldValue: string | null; newValue: string | null } {
-  if (type === "adjust_stock") {
-    const shelfName = activityPayloadText(payload, "shelfName");
-    return { oldValue: shelfName, newValue: shelfName };
-  }
-  if (type === "move_stock") {
-    return {
-      oldValue: activityPayloadText(payload, "fromShelfName"),
-      newValue: activityPayloadText(payload, "toShelfName"),
-    };
+function activityValues(metadata: ActivityMetadata): { oldValue: string | null; newValue: string | null } {
+  if (metadata.oldValue !== undefined || metadata.newValue !== undefined) {
+    return { oldValue: metadata.oldValue ?? null, newValue: metadata.newValue ?? null };
   }
   return { oldValue: null, newValue: null };
 }
 
-function activityPayloadText(payload: Data, key: string): string | null {
-  const value = payload[key];
-  return typeof value === "string" && value.trim() ? value.trim().slice(0, 100) : null;
+function activityReferences(payload: Data, type: string, metadata: ActivityMetadata): ActivityMetadata {
+  if (metadata.productId || metadata.shelfId || metadata.fromShelfId || metadata.toShelfId) return metadata;
+  if (type === "create_shelf") return { shelfId: safeId(text(object(payload.shelf), "id")) };
+  if (type === "rename_shelf" || type === "delete_shelf") return { shelfId: safeId(text(payload, "shelfId")) };
+  if (type === "upsert_product") return { productId: safeId(text(object(payload.product), "id")) };
+  if (type === "apply_inventory") return { shelfId: safeId(text(object(payload.session), "shelfId")) };
+  if (type === "soft_delete" || type === "restore") {
+    const aggregateType = text(payload, "targetType", 1, 30);
+    const id = safeId(text(payload, "id"));
+    if (aggregateType === "PRODUCT") return { productId: id };
+    if (aggregateType === "SHELF") return { shelfId: id };
+  }
+  return {};
+}
+
+function registeredDeviceName(value: unknown): string {
+  if (typeof value !== "string" || value.trim().length < 2 || value.trim().length > 40) {
+    throw new HttpsError("failed-precondition", "Registrirani uređaj nema ispravan naziv.");
+  }
+  return value.trim();
+}
+
+function serverActivityLabel(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value.trim().slice(0, 100) : fallback;
 }
 
 function quantityDelta(payload: Data, type: string): number | null {

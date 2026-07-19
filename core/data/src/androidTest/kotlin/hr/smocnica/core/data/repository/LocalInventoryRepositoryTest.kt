@@ -88,6 +88,8 @@ class LocalInventoryRepositoryTest {
         val activity = database.activityDao().listSince("p1", 0).first { it.aggregateId == product.id && it.quantityDelta == 1 }
         assertEquals("Polica 1", activity.oldValue)
         assertEquals("Polica 1", activity.newValue)
+        assertEquals(product.id, activity.productId)
+        assertEquals("s1", activity.shelfId)
     }
 
     @Test

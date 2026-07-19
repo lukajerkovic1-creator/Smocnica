@@ -26,9 +26,9 @@ interface PantryRepository {
     fun observePantries(): Flow<List<Pantry>>
     fun observeMembers(pantryId: String): Flow<List<Member>>
     suspend fun refreshPantries()
-    suspend fun createPantry(name: String, deviceName: String): Pantry
+    suspend fun createPantry(name: String, deviceId: String): Pantry
     suspend fun createInvitation(pantryId: String): Invitation
-    suspend fun joinPantry(code: String, deviceName: String): Pantry
+    suspend fun joinPantry(code: String, deviceId: String): Pantry
     suspend fun removeMember(pantryId: String, uid: String, deviceId: String, deviceName: String)
     suspend fun transferOwnership(pantryId: String, uid: String, deviceId: String, deviceName: String)
     suspend fun deletePantry(pantryId: String, deviceId: String, deviceName: String)

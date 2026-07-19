@@ -56,12 +56,15 @@ pantries/{pantryId}
     manual, revision, createdAt, updatedAt, deletedAt?
   inventorySessions/{inventoryId}: shelfId, status(APPLIED), expectedRevision,
     differences[], actorUid, deviceId, deviceDisplayName, createdAt, appliedAt
-  activities/{activityId}: type, aggregateId, quantityDelta?, oldValue?, newValue?,
-    deviceId, deviceDisplayName, actorUid, createdAt, expiresAt
+  activities/{activityId}: type, aggregateId, productId?, shelfId?, fromShelfId?,
+    toShelfId?, quantityDelta?, oldValue?, newValue?, deviceId,
+    deviceDisplayName, actorUid, createdAt, expiresAt
   operations/{operationId}: actorUid, resultRevision, appliedAt, resultDigest
 ```
 
 Globalni `barcodes/{sha256(pantryId:barcode)}` dokument rezervira barkod u transakciji i pokazuje na `productId`. `inviteCodes/{sha256(code)}` pokazuje na smočnicu bez otkrivanja koda u čistom obliku. Svi klijentski zapisi idu kroz callable funkcije; pravila dopuštaju izravan read aktivnim članovima, a write samo administrativnom SDK-u. Time se složene transakcijske invarijante ne mogu zaobići modificiranim klijentom.
+
+Za svaku novu operativnu mutaciju poslužitelj u istoj transakciji provjerava da je `deviceId` aktivan pod `users/{actorUid}/devices`. `deviceDisplayName`, naziv artikla i nazive polica izvodi isključivo iz poslužiteljskih dokumenata. Aktivnost čuva strukturirane identifikatore; Android generira opis iz trenutačnih lokalnih zapisa, uz poslužiteljski snapshot teksta samo kao kompatibilni prikaz starih aktivnosti. Room shema 2 dodaje te identifikatore aditivnom migracijom 1→2 bez brisanja podataka.
 
 Nacrti inventure ostaju u Roomu dok ih korisnik ne primijeni ili odbaci. Potvrđena inventura šalje jednu atomarnu operaciju s hashom trenutačnih količina police; poslužitelj u Firestore sprema samo sanitizirani zapis primijenjene inventure, nikada nedovršeni nacrt.
 

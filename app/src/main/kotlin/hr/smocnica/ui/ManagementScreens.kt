@@ -291,13 +291,18 @@ private fun SimpleManagementPicker(label: String, selected: String, options: Lis
 @Composable
 fun HistoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
     val activities by viewModel.activities.collectAsStateWithLifecycle()
+    val products by viewModel.allProducts.collectAsStateWithLifecycle()
+    val deletedProducts by viewModel.deletedProducts.collectAsStateWithLifecycle()
+    val shelves by viewModel.shelves.collectAsStateWithLifecycle()
+    val productNames = (products + deletedProducts).associate { it.product.id to it.product.name }
+    val shelfNames = shelves.associate { it.id to it.name }
     val formatter = remember { SimpleDateFormat("dd. MM. yyyy. HH:mm", Locale.forLanguageTag("hr-HR")) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = padding.calculateTopPadding() + 12.dp, bottom = padding.calculateBottomPadding() + 40.dp)) {
         item { ScreenTitle("Povijest aktivnosti", "Promjene u posljednjih 12 mjeseci") }
         items(activities, key = { it.id }) { activity ->
             Column(Modifier.padding(vertical = 10.dp)) {
-                Text(activity.displayLabel, fontWeight = FontWeight.Bold)
-                Text(activityDescription(activity), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(activityDisplayLabel(activity, productNames), fontWeight = FontWeight.Bold)
+                Text(activityDescription(activity, shelfNames), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(formatter.format(Date(activity.createdAt)), style = MaterialTheme.typography.bodySmall)
             }
             HorizontalDivider()
