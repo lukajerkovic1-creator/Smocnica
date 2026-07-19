@@ -48,7 +48,7 @@ pantries/{pantryId}
   members/{uid}: role(OWNER|MEMBER), joinedAt, invitedBy, active
   shelves/{shelfId}: name, sortOrder, revision, deletedAt?, purgeAfter?
   categories/{categoryId}: name, sortOrder, isDefault, revision, deletedAt?, purgeAfter?
-  products/{productId}: name, normalizedName, barcode?, description, category,
+  products/{productId}: name, normalizedName, barcode?, description, categoryId, category,
     photoUrl?, photoSource, minimumQuantity, autoShopping, totalQuantity, revision,
     createdAt, updatedAt, deletedAt?, purgeAfter?
   stocks/{productId_shelfId}: productId, shelfId, quantity, revision, updatedAt
@@ -65,6 +65,8 @@ pantries/{pantryId}
 Globalni `barcodes/{sha256(pantryId:barcode)}` dokument rezervira barkod u transakciji i pokazuje na `productId`. `inviteCodes/{sha256(code)}` pokazuje na smočnicu bez otkrivanja koda u čistom obliku. Svi klijentski zapisi idu kroz callable funkcije; pravila dopuštaju izravan read aktivnim članovima, a write samo administrativnom SDK-u. Time se složene transakcijske invarijante ne mogu zaobići modificiranim klijentom.
 
 Za svaku novu operativnu mutaciju poslužitelj u istoj transakciji provjerava da je `deviceId` aktivan pod `users/{actorUid}/devices`. `deviceDisplayName`, naziv artikla i nazive polica izvodi isključivo iz poslužiteljskih dokumenata. Aktivnost čuva strukturirane identifikatore; Android generira opis iz trenutačnih lokalnih zapisa, uz poslužiteljski snapshot teksta samo kao kompatibilni prikaz starih aktivnosti. Room shema 2 dodaje te identifikatore aditivnom migracijom 1→2 bez brisanja podataka.
+
+`categoryId` je kanonska veza artikla na aktivni dokument kategorije. Klijent može prikazivati naziv radi offline rada, ali `applyOperation` ignorira poslani naziv i ponovno ga dohvaća iz `categories/{categoryId}`. Room shema 3 aditivnom migracijom 2→3 popunjava ID iz postojeće kategorije istog naziva ili zadane kategorije. Open Food Facts taksonomija mapira se samo na deset lokalnih kategorija; udaljena javna fotografija dopuštena je samo preko HTTPS hosta `images.openfoodfacts.org` i puta `/images/products/`.
 
 Nacrti inventure ostaju u Roomu dok ih korisnik ne primijeni ili odbaci. Potvrđena inventura šalje jednu atomarnu operaciju s hashom trenutačnih količina police; poslužitelj u Firestore sprema samo sanitizirani zapis primijenjene inventure, nikada nedovršeni nacrt.
 

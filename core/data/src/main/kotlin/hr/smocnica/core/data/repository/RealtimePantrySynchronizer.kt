@@ -178,6 +178,7 @@ class RealtimePantrySynchronizer @Inject constructor(
         barcode = getString("barcode"),
         description = string("description", ""),
         category = string("category", "Ostalo"),
+        categoryId = getString("categoryId"),
         photoUri = getString("photoUrl") ?: getString("photoPath"),
         photoSource = string("photoSource", "NONE"),
         minimumQuantity = long("minimumQuantity").toInt(),

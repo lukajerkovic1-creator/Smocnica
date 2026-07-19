@@ -2,6 +2,7 @@ package hr.smocnica.ui
 
 import hr.smocnica.core.domain.CatalogProduct
 import hr.smocnica.core.model.PhotoSource
+import hr.smocnica.core.model.Category
 import hr.smocnica.core.model.ProductWithStock
 
 enum class CatalogLookupOutcome { IDLE, LOADING, SUCCESS, EMPTY, TIMEOUT, ERROR }
@@ -19,14 +20,16 @@ data class ProductEntryDraft(
     val barcode: String = "",
     val description: String = "",
     val category: String = "",
+    val categoryId: String = "",
     val photoUri: String? = null,
     val photoSource: PhotoSource = PhotoSource.NONE,
 ) {
-    fun mergeEmptyFields(catalog: CatalogProduct): ProductEntryDraft = copy(
+    fun mergeEmptyFields(catalog: CatalogProduct, mappedCategory: Category? = null): ProductEntryDraft = copy(
         name = name.ifBlank { catalog.name },
         barcode = barcode.ifBlank { catalog.barcode },
         description = description.ifBlank { catalog.description },
-        category = category.ifBlank { catalog.category },
+        category = category.ifBlank { mappedCategory?.name ?: catalog.category },
+        categoryId = categoryId.ifBlank { if (category.isBlank()) mappedCategory?.id.orEmpty() else "" },
         photoUri = photoUri ?: catalog.imageUrl,
         photoSource = if (photoUri == null && catalog.imageUrl != null) PhotoSource.OPEN_FOOD_FACTS else photoSource,
     )
@@ -35,6 +38,7 @@ data class ProductEntryDraft(
         get() = buildList {
             if (name.isBlank()) add("naziv")
             if (category.isBlank()) add("kategoriju")
+            else if (categoryId.isBlank()) add("valjanu kategoriju")
         }
 }
 

@@ -198,7 +198,7 @@ fun ScannerScreen(
                 val now = System.currentTimeMillis()
                 val suggested = Product(
                     id = "", pantryId = "", name = catalog?.name.orEmpty(), barcode = code,
-                    description = catalog?.description.orEmpty(), category = catalog?.category ?: "Ostalo",
+                    description = catalog?.description.orEmpty(), category = "",
                     photoUri = catalog?.imageUrl,
                     photoSource = if (catalog?.imageUrl != null) hr.smocnica.core.model.PhotoSource.OPEN_FOOD_FACTS else hr.smocnica.core.model.PhotoSource.NONE,
                     createdAt = now, updatedAt = now,

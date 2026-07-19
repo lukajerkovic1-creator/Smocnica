@@ -77,6 +77,7 @@ data class ProductEntity(
     val barcode: String?,
     val description: String,
     val category: String,
+    val categoryId: String?,
     val photoUri: String?,
     val photoSource: String,
     val minimumQuantity: Int,

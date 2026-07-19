@@ -16,7 +16,7 @@ import androidx.room.RoomDatabase
         InventoryEntity::class,
         PendingOperationEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class SmocnicaDatabase : RoomDatabase() {

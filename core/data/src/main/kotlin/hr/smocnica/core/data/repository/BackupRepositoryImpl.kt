@@ -9,6 +9,7 @@ import hr.smocnica.core.data.local.PendingOperationEntity
 import hr.smocnica.core.data.local.SmocnicaDatabase
 import hr.smocnica.core.data.local.entity
 import hr.smocnica.core.data.local.model
+import hr.smocnica.core.data.remote.sanitizeOpenFoodFactsImageUrl
 import hr.smocnica.core.domain.BackupRepository
 import hr.smocnica.core.domain.BarcodePolicy
 import hr.smocnica.core.domain.ImportPreview
@@ -115,16 +116,24 @@ class BackupRepositoryImpl @Inject constructor(
             val localPantry = database.pantryDao().get(targetPantryId)
                 ?: error("Najprije se prijavite i otvorite odgovarajuću zajedničku smočnicu.")
             val now = clock.now()
+            val categoriesById = source.categories.associateBy { it.id }
+            val defaultCategory = source.categories.firstOrNull { it.isDefault }
             val incoming = source.copy(
                 pantry = source.pantry.copy(id = targetPantryId, ownerUid = localPantry.ownerUid),
                 members = source.members.map { it.copy(pantryId = targetPantryId) },
                 shelves = source.shelves.map { it.copy(pantryId = targetPantryId) },
                 categories = source.categories.map { it.copy(pantryId = targetPantryId) },
                 products = source.products.map {
+                    val canonicalCategory = categoriesById[it.categoryId]
+                        ?: source.categories.firstOrNull { category -> category.name.equals(it.category, ignoreCase = true) }
+                        ?: defaultCategory
+                        ?: error("Artikl ${it.id} nema dostupnu kategoriju.")
                     val keepPublicPhoto = it.photoSource == hr.smocnica.core.model.PhotoSource.OPEN_FOOD_FACTS &&
-                        it.photoUri?.startsWith("https://") == true
+                        sanitizeOpenFoodFactsImageUrl(it.photoUri) != null
                     it.copy(
                         pantryId = targetPantryId,
+                        category = canonicalCategory.name,
+                        categoryId = canonicalCategory.id,
                         photoUri = it.photoUri.takeIf { keepPublicPhoto },
                         photoSource = if (keepPublicPhoto) it.photoSource else hr.smocnica.core.model.PhotoSource.NONE,
                     )
@@ -242,6 +251,7 @@ class BackupRepositoryImpl @Inject constructor(
         }
         val productIds = snapshot.products.map { it.id }.toSet()
         val shelfIds = snapshot.shelves.map { it.id }.toSet()
+        val categoriesById = snapshot.categories.associateBy { it.id }
         val barcodes = snapshot.products.mapNotNull { it.barcode }
         if (barcodes.size != barcodes.distinct().size) add("Popis artikala sadrži duple barkodove.")
         snapshot.products.forEach {
@@ -250,6 +260,13 @@ class BackupRepositoryImpl @Inject constructor(
                 add("Artikl ${it.id} ima neispravan naziv, kategoriju ili opis.")
             }
             if (it.minimumQuantity !in 0..1_000_000) add("Artikl ${it.id} ima neispravan minimum.")
+            if (categoriesById[it.categoryId] == null && snapshot.categories.none { category -> category.name.equals(it.category, ignoreCase = true) }) {
+                add("Artikl ${it.id} upućuje na nepostojeću kategoriju.")
+            }
+            if (it.photoSource == hr.smocnica.core.model.PhotoSource.OPEN_FOOD_FACTS &&
+                it.photoUri != null && sanitizeOpenFoodFactsImageUrl(it.photoUri) == null) {
+                add("Artikl ${it.id} ima nedopuštenu javnu fotografiju.")
+            }
             it.barcode?.let { code -> if (!BarcodePolicy.isSupported(code)) add("Artikl ${it.id} ima neispravan barkod.") }
         }
         val stockKeys = snapshot.stocks.map { it.productId to it.shelfId }

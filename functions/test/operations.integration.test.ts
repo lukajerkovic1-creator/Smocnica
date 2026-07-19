@@ -28,7 +28,8 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     batch.set(db.doc("users/u1/devices/device-0001"), { name: "Poslužiteljski telefon", active: true, platform: "ANDROID", updatedAt: new Date() });
     batch.set(db.doc("pantries/p1/shelves/s1"), { name: "Polica 1", sortOrder: 0, revision: 1, createdAt: new Date(), updatedAt: new Date() });
     batch.set(db.doc("pantries/p1/shelves/s2"), { name: "Polica 2", sortOrder: 1, revision: 1, createdAt: new Date(), updatedAt: new Date() });
-    batch.set(db.doc("pantries/p1/products/a"), { name: "Riža", category: "Namirnice", minimumQuantity: 5, autoShopping: true, totalQuantity: 5, revision: 1, createdAt: new Date(), updatedAt: new Date() });
+    batch.set(db.doc("pantries/p1/categories/c1"), { name: "Namirnice", sortOrder: 0, isDefault: true, revision: 1, createdAt: new Date(), updatedAt: new Date() });
+    batch.set(db.doc("pantries/p1/products/a"), { name: "Riža", category: "Namirnice", categoryId: "c1", minimumQuantity: 5, autoShopping: true, totalQuantity: 5, revision: 1, createdAt: new Date(), updatedAt: new Date() });
     batch.set(db.doc("pantries/p1/stocks/a_s1"), { productId: "a", shelfId: "s1", quantity: 5, revision: 1, updatedAt: new Date() });
     await batch.commit();
   });
@@ -150,7 +151,7 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     const updateMinimum = (operationId: string, baseRevision: number, minimumQuantity: number) => callable({
       operationId, pantryId: "p1", aggregateType: "PRODUCT", aggregateId: "a", baseRevision,
       payload: { type: "upsert_product", product: {
-        id: "a", name: "Riža", barcode: null, description: "", category: "Namirnice",
+        id: "a", name: "Riža", barcode: null, description: "", category: "Lažirani naziv", categoryId: "c1",
         photoUri: null, photoSource: "NONE", minimumQuantity, autoShopping: true,
       } },
       deviceId: "device-0001", deviceDisplayName: "Testni uređaj",
@@ -161,6 +162,36 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect((await db.doc("pantries/p1/shoppingItems/auto_a").get()).get("deletedAt")).toBeTruthy();
     await invoke(updateMinimum("op-minimum-up-2", 3, 6) as never);
     expect((await db.collection("pantries/p1/notifications").get()).size).toBe(2);
+  });
+
+  it("uses the active server category and rejects missing or deleted category ids", async () => {
+    await invoke(upsertProductOperation("op-category-ok", "c1", "Klijentska kategorija") as never);
+    const product = await db.doc("pantries/p1/products/a").get();
+    expect(product.get("categoryId")).toBe("c1");
+    expect(product.get("category")).toBe("Namirnice");
+
+    const legacy = upsertProductOperation("op-category-legacy", "c1", "Namirnice", 2);
+    delete (legacy.data.payload as any).product.categoryId;
+    await invoke(legacy as never);
+    expect((await db.doc("pantries/p1/products/a").get()).get("categoryId")).toBe("c1");
+
+    await expect(invoke(upsertProductOperation("op-category-missing", "missing", "Namirnice", 3) as never))
+      .rejects.toMatchObject({ code: "failed-precondition" });
+    await db.doc("pantries/p1/categories/c1").update({ deletedAt: new Date() });
+    await expect(invoke(upsertProductOperation("op-category-deleted", "c1", "Namirnice", 3) as never))
+      .rejects.toMatchObject({ code: "failed-precondition" });
+  });
+
+  it("accepts only canonical Open Food Facts image URLs", async () => {
+    const allowed = upsertProductOperation("op-photo-allowed", "c1", "Namirnice");
+    (allowed.data.payload as any).product.photoSource = "OPEN_FOOD_FACTS";
+    (allowed.data.payload as any).product.photoUri = "https://images.openfoodfacts.org/images/products/400/638/133/3931/front_en.3.400.jpg";
+    await invoke(allowed as never);
+
+    const foreign = upsertProductOperation("op-photo-foreign", "c1", "Namirnice", 2);
+    (foreign.data.payload as any).product.photoSource = "OPEN_FOOD_FACTS";
+    (foreign.data.payload as any).product.photoUri = "https://evil.example/images/products/a.jpg";
+    await expect(invoke(foreign as never)).rejects.toMatchObject({ code: "invalid-argument" });
   });
 
   it("imports stock totals and reserves imported barcodes atomically", async () => {
@@ -176,7 +207,7 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
           replaceExisting: false,
           snapshot: {
             shelves: [], categories: [], shoppingItems: [],
-            products: [{ id: "b", name: "Tjestenina", barcode: code, description: "500 g", category: "Namirnice", photoSource: "NONE", minimumQuantity: 2, autoShopping: true, revision: 0, createdAt: 1, updatedAt: 1 }],
+            products: [{ id: "b", name: "Tjestenina", barcode: code, description: "500 g", category: "Lažno", categoryId: "c1", photoSource: "NONE", minimumQuantity: 2, autoShopping: true, revision: 0, createdAt: 1, updatedAt: 1 }],
             stocks: [{ productId: "b", shelfId: "s1", quantity: 4, revision: 0, updatedAt: 1 }],
           },
         },
@@ -196,7 +227,7 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
           type: "import_snapshot", replaceExisting: false,
           snapshot: {
             shelves: [], categories: [],
-            products: [{ id: "bad", name: "Ulje", barcode: null, description: "", category: "Namirnice", photoSource: "NONE", minimumQuantity: 5, autoShopping: true }],
+            products: [{ id: "bad", name: "Ulje", barcode: null, description: "", category: "Namirnice", categoryId: "c1", photoSource: "NONE", minimumQuantity: 5, autoShopping: true }],
             stocks: [{ productId: "bad", shelfId: "s1", quantity: 1 }],
             shoppingItems: [{ id: "auto_bad", productId: "bad", name: "Ulje", category: "Namirnice", requiredQuantity: 999, checked: false, manual: false }],
           },
@@ -325,6 +356,17 @@ function moveOperation(operationId: string) {
     },
     deviceId: "device-0001",
     deviceDisplayName: "Testni uredaj",
+  }, "u1");
+}
+
+function upsertProductOperation(operationId: string, categoryId: string, category: string, baseRevision = 1) {
+  return callable({
+    operationId, pantryId: "p1", aggregateType: "PRODUCT", aggregateId: "a", baseRevision,
+    payload: { type: "upsert_product", product: {
+      id: "a", name: "Riža", barcode: null, description: "", category, categoryId,
+      photoUri: null, photoSource: "NONE", minimumQuantity: 5, autoShopping: true,
+    } },
+    deviceId: "device-0001", deviceDisplayName: "Klijentski naziv",
   }, "u1");
 }
 

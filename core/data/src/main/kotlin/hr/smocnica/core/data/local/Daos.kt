@@ -111,8 +111,21 @@ interface CategoryDao {
     @Query("SELECT COALESCE(MAX(sortOrder), -1) + 1 FROM categories WHERE pantryId = :pantryId AND deletedAt IS NULL")
     suspend fun nextSortOrder(pantryId: String): Int
 
-    @Query("UPDATE products SET category = :replacementName, updatedAt = :updatedAt WHERE pantryId = :pantryId AND category = :oldName AND deletedAt IS NULL")
-    suspend fun reassignProducts(pantryId: String, oldName: String, replacementName: String, updatedAt: Long)
+    @Query("""
+        UPDATE products
+        SET category = :replacementName, categoryId = :replacementId, updatedAt = :updatedAt
+        WHERE pantryId = :pantryId
+          AND (categoryId = :oldId OR (categoryId IS NULL AND category = :oldName))
+          AND deletedAt IS NULL
+    """)
+    suspend fun reassignProducts(
+        pantryId: String,
+        oldId: String,
+        oldName: String,
+        replacementId: String,
+        replacementName: String,
+        updatedAt: Long,
+    )
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: CategoryEntity)

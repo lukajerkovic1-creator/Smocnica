@@ -70,6 +70,7 @@ data class Product(
     val deletedAt: Long? = null,
     val purgeAfter: Long? = null,
     val syncState: SyncState = SyncState.SYNCED,
+    val categoryId: String = "",
 )
 
 @Serializable

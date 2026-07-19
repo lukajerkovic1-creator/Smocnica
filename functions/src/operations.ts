@@ -243,6 +243,23 @@ async function upsertProduct(context: HandlerContext): Promise<HandlerResult> {
   const shoppingRef = pantryRef.collection("shoppingItems").doc(`auto_${id}`);
   const [existing, currentShopping] = await Promise.all([tx.get(ref), tx.get(shoppingRef)]);
   if (existing.exists && Number(existing.get("revision") || 0) !== baseRevision) return conflict(Number(existing.get("revision") || 0));
+  let categoryId: string;
+  let categoryName: string;
+  if (typeof product.categoryId === "string" && product.categoryId.trim() !== "") {
+    categoryId = safeId(product.categoryId, "categoryId");
+    const categoryDocument = await tx.get(pantryRef.collection("categories").doc(categoryId));
+    if (!categoryDocument.exists || categoryDocument.get("deletedAt")) {
+      throw new HttpsError("failed-precondition", "Kategorija nije dostupna.");
+    }
+    categoryName = text({ name: categoryDocument.get("name") }, "name", 1, 100);
+  } else {
+    const legacyName = text(product, "category", 1, 100);
+    const matches = await tx.get(pantryRef.collection("categories").where("name", "==", legacyName).limit(2));
+    const active = matches.docs.filter((document) => !document.get("deletedAt"));
+    if (active.length !== 1) throw new HttpsError("failed-precondition", "Kategorija nije dostupna.");
+    categoryId = active[0]!.id;
+    categoryName = text({ name: active[0]!.get("name") }, "name", 1, 100);
+  }
   const code = barcode(product.barcode);
   const oldCode = existing.exists ? (existing.get("barcode") as string | null) : null;
   const newReservation = code ? db.doc(`barcodes/${sha256(`${pantryId}:${code}`)}`) : null;
@@ -258,9 +275,7 @@ async function upsertProduct(context: HandlerContext): Promise<HandlerResult> {
   if (!["NONE", "OPEN_FOOD_FACTS", "CAMERA", "GALLERY"].includes(photoSource)) {
     throw new HttpsError("invalid-argument", "Izvor fotografije nije ispravan.");
   }
-  if (photoSource === "OPEN_FOOD_FACTS" && photoUri !== null && !photoUri.startsWith("https://")) {
-    throw new HttpsError("invalid-argument", "Javna fotografija mora koristiti HTTPS.");
-  }
+  const publicPhotoUrl = photoSource === "OPEN_FOOD_FACTS" ? openFoodFactsImageUrl(photoUri) : null;
   if (photoSource === "NONE" && photoUri !== null) {
     throw new HttpsError("invalid-argument", "Artikl bez fotografije ne smije sadržavati URL.");
   }
@@ -274,15 +289,15 @@ async function upsertProduct(context: HandlerContext): Promise<HandlerResult> {
   tx.set(ref, {
     name, normalizedName: name.toLocaleLowerCase("hr"),
     barcode: code, description: typeof product.description === "string" ? product.description.slice(0, 500) : "",
-    category: text(product, "category", 1, 100), categoryId: typeof product.categoryId === "string" ? product.categoryId : null,
-    photoUrl: photoUri,
+    category: categoryName, categoryId,
+    photoUrl: publicPhotoUrl ?? photoUri,
     photoSource,
     minimumQuantity: minimum, autoShopping, totalQuantity, revision,
     createdAt: existing.get("createdAt") || timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
   }, { merge: true });
   if (newReservation) tx.set(newReservation, { pantryId, productId: id, barcode: code, updatedAt: timestamp });
   if (oldReservation) tx.delete(oldReservation);
-  reconcileShopping(tx, shoppingRef, currentShopping, { id, name: text(product, "name"), category: text(product, "category") }, minimum, totalQuantity, autoShopping, timestamp);
+  reconcileShopping(tx, shoppingRef, currentShopping, { id, name, category: categoryName }, minimum, totalQuantity, autoShopping, timestamp);
   const wasBelow = existing.exists && existing.get("autoShopping") !== false &&
     totalQuantity < Number(existing.get("minimumQuantity") || 0);
   if (autoShopping && !wasBelow && totalQuantity < minimum) {
@@ -539,7 +554,11 @@ async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerCont
     const value = object(raw); const id = safeId(text(value, "id"));
     return { value, id, name: text(value, "name", 1, 100), sortOrder: integer(value, "sortOrder", 0, 10_000), isDefault: boolean(value, "isDefault", false) };
   });
-  const productEntries = products.map((raw) => { const value = object(raw); return { value, id: safeId(text(value, "id")), code: barcode(value.barcode) }; });
+  const productEntries = products.map((raw) => {
+    const value = object(raw);
+    const categoryId = typeof value.categoryId === "string" && value.categoryId.trim() !== "" ? safeId(value.categoryId, "categoryId") : null;
+    return { value, id: safeId(text(value, "id")), code: barcode(value.barcode), categoryId, legacyCategory: text(value, "category", 1, 100) };
+  });
   const stockEntries = stocks.map((raw) => {
     const value = object(raw); const productId = safeId(text(value, "productId")); const shelfId = safeId(text(value, "shelfId"));
     return { value, productId, shelfId, id: `${productId}_${shelfId}`, quantity: integer(value, "quantity", 0, 1_000_000) };
@@ -586,6 +605,22 @@ async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerCont
   const existingCategories = new Map(existing[1].docs.map((document) => [document.id, document]));
   const existingStocks = new Map(existing[3].docs.map((document) => [document.id, document]));
   const existingShopping = new Map(existing[4].docs.map((document) => [document.id, document]));
+  const finalCategories = new Map<string, string>();
+  if (!replaceExisting) existing[1].docs.forEach((document) => {
+    if (!document.get("deletedAt")) finalCategories.set(document.id, text({ name: document.get("name") }, "name", 1, 100));
+  });
+  categoryEntries.forEach((entry) => finalCategories.set(entry.id, entry.name));
+  const resolvedCategoryIds = new Map<string, string>();
+  productEntries.forEach((entry) => {
+    if (entry.categoryId && finalCategories.has(entry.categoryId)) {
+      resolvedCategoryIds.set(entry.id, entry.categoryId);
+      return;
+    }
+    if (entry.categoryId) throw new HttpsError("failed-precondition", "Artikl upućuje na nepostojeću kategoriju.");
+    const matches = [...finalCategories.entries()].filter(([, name]) => name === entry.legacyCategory);
+    if (matches.length !== 1) throw new HttpsError("failed-precondition", "Artikl upućuje na nepostojeću kategoriju.");
+    resolvedCategoryIds.set(entry.id, matches[0]![0]);
+  });
   const reservationByCode = new Map(codes.map((code, index) => [code, reservations[index]]));
   const activeBarcodeOwners = new Map<string, string>();
   existing[2].docs.forEach((document) => {
@@ -594,7 +629,6 @@ async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerCont
   });
   productEntries.forEach((entry) => {
     text(entry.value, "name", 1, 100);
-    text(entry.value, "category", 1, 100);
     if (typeof entry.value.description === "string" && entry.value.description.length > 500) throw new HttpsError("invalid-argument", "Opis artikla je predugačak.");
     integer(entry.value, "minimumQuantity", 0, 1_000_000);
     boolean(entry.value, "autoShopping", true);
@@ -624,7 +658,7 @@ async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerCont
   const totals = new Map<string, number>();
   finalStocks.forEach((stock) => totals.set(stock.productId, (totals.get(stock.productId) || 0) + stock.quantity));
   const productById = new Map(productEntries.map((entry) => [entry.id, {
-    name: text(entry.value, "name", 1, 100), category: text(entry.value, "category", 1, 100),
+    name: text(entry.value, "name", 1, 100), category: finalCategories.get(resolvedCategoryIds.get(entry.id)!)!,
     minimum: integer(entry.value, "minimumQuantity", 0, 1_000_000), autoShopping: boolean(entry.value, "autoShopping", true),
   }]));
   shoppingEntries.filter((entry) => !entry.manual).forEach((entry) => {
@@ -671,14 +705,15 @@ async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerCont
   productEntries.forEach(({ value, id, code }) => {
     const existing = existingProducts.get(id);
     const name = text(value, "name", 1, 100);
+    const categoryId = resolvedCategoryIds.get(id)!;
     const imported = {
       name, normalizedName: name.toLocaleLowerCase("hr"), barcode: code,
       description: typeof value.description === "string" ? value.description : "",
-      category: text(value, "category", 1, 100),
-      photoSource: value.photoSource === "OPEN_FOOD_FACTS" && typeof value.photoUri === "string" && value.photoUri.startsWith("https://") ? "OPEN_FOOD_FACTS" : "NONE",
+      category: finalCategories.get(categoryId)!, categoryId,
+      photoSource: value.photoSource === "OPEN_FOOD_FACTS" && value.photoUri != null ? "OPEN_FOOD_FACTS" : "NONE",
       minimumQuantity: integer(value, "minimumQuantity", 0, 1_000_000),
       autoShopping: boolean(value, "autoShopping", true), totalQuantity: totals.get(id) || 0,
-      photoUrl: value.photoSource === "OPEN_FOOD_FACTS" && typeof value.photoUri === "string" && value.photoUri.startsWith("https://") ? value.photoUri.slice(0, 2048) : null,
+      photoUrl: value.photoSource === "OPEN_FOOD_FACTS" ? openFoodFactsImageUrl(value.photoUri) : null,
       revision: Number(existing?.get("revision") || 0) + 1,
       createdAt: existing?.get("createdAt") || timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
     };
@@ -809,6 +844,23 @@ function registeredDeviceName(value: unknown): string {
     throw new HttpsError("failed-precondition", "Registrirani uređaj nema ispravan naziv.");
   }
   return value.trim();
+}
+
+function openFoodFactsImageUrl(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string" || value.length > 2048) {
+    throw new HttpsError("invalid-argument", "Javna fotografija nije ispravna.");
+  }
+  let parsed: URL;
+  try { parsed = new URL(value); } catch {
+    throw new HttpsError("invalid-argument", "Javna fotografija nije ispravna.");
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname !== "images.openfoodfacts.org" ||
+      parsed.username !== "" || parsed.password !== "" ||
+      (parsed.port !== "" && parsed.port !== "443") || !parsed.pathname.startsWith("/images/products/")) {
+    throw new HttpsError("invalid-argument", "Dopuštene su samo fotografije s Open Food Facts poslužitelja.");
+  }
+  return parsed.toString();
 }
 
 function serverActivityLabel(value: unknown, fallback: string): string {

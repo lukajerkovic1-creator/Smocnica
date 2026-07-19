@@ -10,6 +10,7 @@ import hr.smocnica.core.data.IdGenerator
 import hr.smocnica.core.data.PrivacySafeCrashReporter
 import hr.smocnica.core.data.local.PantryEntity
 import hr.smocnica.core.data.local.ShelfEntity
+import hr.smocnica.core.data.local.CategoryEntity
 import hr.smocnica.core.data.local.SmocnicaDatabase
 import hr.smocnica.core.domain.ImportPreview
 import hr.smocnica.core.domain.ImportStrategy
@@ -54,6 +55,7 @@ class LocalInventoryRepositoryTest {
         backup = BackupRepositoryImpl(database, json, clock, ids, identity)
         database.pantryDao().upsert(PantryEntity("p1", "Test", "u1", 0, 1, 1, null, null, SyncState.SYNCED))
         database.shelfDao().upsert(ShelfEntity("s1", "p1", "Polica 1", 0, 0, 1, 1, null, null, SyncState.SYNCED))
+        database.categoryDao().upsert(CategoryEntity("cat-other", "p1", "Ostalo", 9, true, 1, null, null, SyncState.SYNCED))
     }
 
     @After fun tearDown() = database.close()
@@ -90,6 +92,24 @@ class LocalInventoryRepositoryTest {
         assertEquals("Polica 1", activity.newValue)
         assertEquals(product.id, activity.productId)
         assertEquals("s1", activity.shelfId)
+    }
+
+    @Test
+    fun productCategoryIsCanonicalizedFromTheActiveCategoryId() = runTest {
+        val product = repository.upsertProduct(
+            Product("", "p1", "Test", category = "Krivotvoren naziv", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
+            "u1", "Test uređaj",
+        )
+        assertEquals("cat-other", product.categoryId)
+        assertEquals("Ostalo", product.category)
+
+        val invalid = runCatching {
+            repository.upsertProduct(
+                Product("", "p1", "Nevaljan", category = "Ostalo", categoryId = "missing", createdAt = 1, updatedAt = 1),
+                "u1", "Test uređaj",
+            )
+        }
+        assertTrue(invalid.isFailure)
     }
 
     @Test
