@@ -15,8 +15,8 @@ Datum zadnje provjere: 20. srpnja 2026.
 | Runtime smoke | `adb install -r`, brisanje podataka, hladni start i `logcat` | instalacija i start uspješni; hrvatski login renderiran; nema fatalne iznimke |
 | Workflow sintaksa | parsiranje svih datoteka u `.github/workflows` Node YAML parserom | `android-instrumentation.yml`, `ci.yml`, `deploy-production-backend.yml` i `release.yml` valjani; sve vanjske Actions reference pinane na puni commit SHA; release posao ovisi o PASS rezultatu API 29/35 matrice |
 | Produkcijski backend | puni deploy Functions/rules/indexes/storage + produkcijski smoke | PASS; 15/15 funkcija ACTIVE iz commita `27e6009`, backend API 6 + `atomic-bulk-products:v1`, capability odgovor HTTP 200, 11/11 zaštićenih callable funkcija HTTP 401 bez vjerodajnice |
-| Potpisani GitHub Release | Actions run `29764569551` + anonimni ponovni download | PASS; RC26 je čekao ručno `production` odobrenje, rano brisanje tajni prošlo prije objave, a javni APK i manifest potvrđeni HTTP 200 |
-| APK manifest | `aapt dump badging` | debug `hr.smocnica.debug`, release `hr.smocnica`, `minSdk 29`, stabilni `targetSdk 36`, `versionCode 26`, `versionName 1.0.0-rc26` |
+| Potpisani GitHub Release | Actions run `29768861088` + anonimni ponovni download | PASS; RC27 je prije ručnog `production` odobrenja blokiran do PASS-a API 29 i API 35 instrumentacije; javni APK i manifest potvrđeni HTTP 200 |
+| APK manifest | `aapt dump badging` | debug `hr.smocnica.debug`, release `hr.smocnica`, `minSdk 29`, stabilni `targetSdk 36`, `versionCode 27`, `versionName 1.0.0-rc27` |
 
 Lint za aplikaciju i `core:data`, u debug i release varijantama, završava s 0 pogrešaka i 0 fatalnih nalaza. Preostala upozorenja su informativna (novije verzije ovisnosti/Gradlea, preporuka KTX API-ja i dinamički dohvat generirane update konfiguracije).
 
@@ -24,11 +24,11 @@ Lint za aplikaciju i `core:data`, u debug i release varijantama, završava s 0 p
 
 - debug: `app/build/outputs/apk/debug/app-debug.apk`, 116.899.859 bajta, SHA-256 `1DB1F70367F1785B34C47B1841DBF60DF50087B7FD7480A81D14BB7CB355F3FA`;
 - debug potpis: APK Signature Scheme v2, jedan potpisnik (razvojni debug certifikat);
-- javni release: `smocnica-1.0.0-rc26.apk`, 30.242.934 bajta, SHA-256 `30ABA97C7A9FF23309B2AE7ABFC9D1C4AB5495BC4B851070D5C0CA6ECA6E6A9F`;
+- javni release: `smocnica-1.0.0-rc27.apk`, 30.242.933 bajta, SHA-256 `94617F03B2C9A2F08BBD6D5F637EAC0476F5B33205826DE5E690E142AD930275`;
 - release potpis: APK Signature Scheme v3, jedan RSA-4096 potpisnik, certifikat SHA-256 `AAEDD1CFBA45A8E61F155EE6B43DF77648C82AB76408F3205D536A22EE678644`;
 - provjereni emulator: Android API 35.
 
-Release APK iz GitHub Releasea potpisan je trajnim produkcijskim ključem iz zaštićenog Environment Secreta; nakon anonimnog ponovnog preuzimanja `apksigner verify --verbose --print-certs` potvrđuje isti očekivani certifikat. Manifestov SHA-256 jednak je stvarnom hashu preuzetog APK-a. RC26 workflow dokazano briše dekodirani keystore i produkcijski `google-services.json` prije generiranja manifesta i objave. Nadogradnja prethodne instalacije i očuvanje podataka i dalje zahtijevaju stvarni uređaj.
+Release APK iz GitHub Releasea potpisan je trajnim produkcijskim ključem iz zaštićenog Environment Secreta; nakon anonimnog ponovnog preuzimanja `apksigner verify --verbose --print-certs` potvrđuje isti očekivani certifikat. Manifestov SHA-256 jednak je stvarnom hashu preuzetog APK-a. RC27 workflow dokazano uvjetuje signing uspješnom API 29/35 instrumentacijom te briše dekodirani keystore i produkcijski `google-services.json` prije generiranja manifesta i objave. Nadogradnja prethodne instalacije i očuvanje podataka i dalje zahtijevaju stvarni uređaj.
 
 ## Sigurnosni i dependency nalaz
 
@@ -45,7 +45,7 @@ Kodom, testovima i buildom potvrđeni su verzionirana JSON validacija, UTF-8 CSV
 ## Što nije bilo moguće stvarno provjeriti
 
 - dva stvarna Google računa i uređaja u produkcijskom Firebase projektu, stvarni App Check, FCM dostava, Crashlytics i oporavak podataka nakon ponovne instalacije;
-- GitHub rate-limit ponašanje i Android nadogradnja RC25→RC26 s očuvanjem lokalnih podataka na stvarnom uređaju; objava i anonimni javni download RC26 potvrđeni su;
+- GitHub rate-limit ponašanje i obvezna Android nadogradnja rc9→rc19 s očuvanjem lokalnih podataka na dva stvarna uređaja; objava i anonimni javni download aktualnog RC27 potvrđeni su;
 - kamera, bljeskalica, fotografiranje i fizički EAN-8/EAN-13/UPC-A/UPC-E kodovi na stvarnom Android 10+ uređaju;
 - fizički Android 10 i OEM uređaji; emulatori API 29 i API 35 sada su lokalno i u CI-ju PASS, ali ne zamjenjuju stvarni hardver;
 - višednevni rad više stvarnih uređaja, stvarni prekidi procesa/mreže i cloud oporavak izvan emulatora;
@@ -73,4 +73,4 @@ Dodatni prolaz 13. srpnja 2026. nakon pripreme signing/Firebase/GitHub konfigura
 | App Check | debug i production aplikacije registrirane; production zahtijeva Device integrity, bez PLAY_RECOGNISED/LICENSED zahtjeva; API enforcement ostavljen isključen do testa uređaja |
 | Artifact Registry cleanup | slike buildova starije od 7 dana automatski se brišu |
 
-Objavljen je potpisani javni RC26 s očekivanim certifikatom, produkcijskom Firebase konfiguracijom i provjerenim update manifestom. Release je prošao ručno odobreni `production` Environment; pet signing/Firebase tajni postoje samo kao Environment Secrets, a repozitorijski Secrets istih naziva uklonjeni su. Instalacija, stvarni App Check promet, atomske skupne operacije na dva uređaja i nadogradnja na uređaju moraju se evidentirati u `docs/REAL_DEVICE_TEST_PLAN.md`.
+Objavljen je potpisani javni RC27 s očekivanim certifikatom, produkcijskom Firebase konfiguracijom i provjerenim update manifestom. Release je prije ručnog odobrenja prošao API 29 i API 35 instrumentacijski gate te zatim zaštićeni `production` Environment; pet signing/Firebase tajni postoje samo kao Environment Secrets, a repozitorijski Secrets istih naziva uklonjeni su. Instalacija, stvarni App Check promet, atomske skupne operacije na dva uređaja i nadogradnja na uređaju moraju se evidentirati u `docs/REAL_DEVICE_TEST_PLAN.md`.
