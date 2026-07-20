@@ -379,6 +379,15 @@ Firestore/Storage pravila moraju osigurati:
 - klijent ne može lažirati vlasničke ovlasti
 - osjetljive administrativne operacije idu kroz Cloud Functions
 
+### Privatnost i brisanje korisničkog računa
+
+- `Izbornik` mora nuditi trajno brisanje prijavljenog korisničkog računa uz jasnu potvrdu posljedica.
+- Poslužitelj uklanja Firebase Auth račun, `users/{uid}` i uređaje, FCM tokene, pristupni lock te sva članstva.
+- Ako korisnik posjeduje smočnicu s drugim aktivnim članovima, vlasništvo se prije uklanjanja deterministički prenosi aktivnom članu. Ako drugih članova nema, smočnica se stavlja u 30-dnevni rok trajnog brisanja.
+- Zajednički revizijski zapisi koji ostaju drugim članovima moraju se anonimizirati; osobni identifikatori i nazivi uređaja ne smiju ostati u njima.
+- Politika privatnosti i procedura zahtjeva za brisanje moraju biti javno dostupne bez instalacije te povezane iz zaslona `O aplikaciji`.
+- `O aplikaciji` mora navesti Open Food Facts atribuciju i licence. Zahtjevi moraju slati stvarni naziv/verziju aplikacije i stvarni kontakt u `User-Agent` zaglavlju.
+
 Ne zapisivati nazive artikala, sadržaj kupnje, barkodove ni osobne podatke u Crashlytics poruke.
 
 ## 17. Uvoz i izvoz

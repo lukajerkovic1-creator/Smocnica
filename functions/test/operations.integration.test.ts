@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import firebaseFunctionsTest from "firebase-functions-test";
 import { applyOperation } from "../src/operations";
-import { createInvitation, createPantry, joinPantry, listMyPantries, manageMember, registerDevice, transferOwnership, unregisterDevice } from "../src/pantry";
+import { createInvitation, createPantry, deleteAccountData, joinPantry, listMyPantries, manageMember, registerDevice, transferOwnership, unregisterDevice } from "../src/pantry";
 import { db } from "../src/firebase";
 import { sha256 } from "../src/validation";
 
@@ -22,6 +22,7 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
   beforeEach(async () => {
     await db.recursiveDelete(db.doc("pantries/p1"));
     await db.recursiveDelete(db.doc("pantries/p2"));
+    await db.recursiveDelete(db.doc("pantries/p3"));
     const createdPantries = await db.collection("pantries").where("memberUids", "array-contains", "u-create").get();
     const parallelPantries = await db.collection("pantries").where("memberUids", "array-contains", "u-parallel").get();
     await Promise.all([...createdPantries.docs, ...parallelPantries.docs].map((pantry) => db.recursiveDelete(pantry.ref)));
@@ -29,6 +30,7 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
       db.doc("userPantryAccess/u1").delete(), db.doc("userPantryAccess/u2").delete(),
       db.doc("userPantryAccess/u3").delete(), db.doc("userPantryAccess/u-create").delete(),
       db.doc("userPantryAccess/u-parallel").delete(),
+      db.recursiveDelete(db.doc("users/u1")), db.recursiveDelete(db.doc("users/u2")),
     ]);
     const batch = db.batch();
     batch.set(db.doc("pantries/p1"), { name: "Test", ownerUid: "u1", memberUids: ["u1", "u2"], revision: 1, createdAt: new Date(), updatedAt: new Date() });
@@ -597,6 +599,45 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect((await db.doc("pantries/p1/members/u2").get()).get("role")).toBe("OWNER");
     const activity = (await db.collection("pantries/p1/activities").where("type", "==", "OWNERSHIP_TRANSFERRED").get()).docs[0];
     expect(activity.get("deviceDisplayName")).toBe("Poslužiteljski telefon");
+  });
+
+  it("deletes a member account, devices and access while anonymizing shared history", async () => {
+    await db.doc("users/u2").set({ displayName: "Osobno ime", photoUrl: "https://example.test/avatar.jpg" });
+    await db.doc("users/u2/devices/phone").set({ name: "Privatni telefon", active: true, fcmToken: "secret-token" });
+    await db.doc("pantries/p1/activities/private-u2").set({
+      type: "STOCK_ADDED", actorUid: "u2", aggregateId: "a", deviceId: "phone",
+      deviceDisplayName: "Privatni telefon", displayLabel: "Riža", createdAt: new Date(),
+    });
+    await db.doc("pantries/p1/operations/private-u2").set({ actorUid: "u2", deviceId: "phone", deviceDisplayName: "Privatni telefon" });
+    await db.doc("pantries/p3").set({ name: "Legacy", ownerUid: "legacy-owner", memberUids: ["legacy-owner"], revision: 0 });
+    await db.doc("pantries/p3/members/u2").set({ uid: "u2", role: "MEMBER", active: true, joinedAt: new Date() });
+
+    await deleteAccountData("u2");
+
+    expect((await db.doc("users/u2").get()).exists).toBe(false);
+    expect((await db.doc("users/u2/devices/phone").get()).exists).toBe(false);
+    expect((await db.doc("userPantryAccess/u2").get()).exists).toBe(false);
+    expect((await db.doc("pantries/p1/members/u2").get()).exists).toBe(false);
+    expect((await db.doc("pantries/p3/members/u2").get()).exists).toBe(false);
+    expect((await db.doc("pantries/p1").get()).get("memberUids")).toEqual(["u1"]);
+    const activity = await db.doc("pantries/p1/activities/private-u2").get();
+    expect(activity.get("actorUid")).toBe("deleted-user");
+    expect(activity.get("deviceDisplayName")).toBe("Obrisani korisnik");
+    expect((await db.doc("pantries/p1/operations/private-u2").get()).get("actorUid")).toBe("deleted-user");
+  });
+
+  it("transfers an owner's pantry before deleting the owner account", async () => {
+    await db.doc("users/u1").set({ displayName: "Vlasnik" });
+    await db.doc("users/u1/devices/device-0001").set({ name: "Telefon", active: true });
+
+    await deleteAccountData("u1");
+
+    const pantry = await db.doc("pantries/p1").get();
+    expect(pantry.get("ownerUid")).toBe("u2");
+    expect(pantry.get("memberUids")).toEqual(["u2"]);
+    expect((await db.doc("pantries/p1/members/u1").get()).exists).toBe(false);
+    expect((await db.doc("pantries/p1/members/u2").get()).get("role")).toBe("OWNER");
+    expect((await db.doc("users/u1").get()).exists).toBe(false);
   });
 
   it("creates at most one pantry and returns the same pantry for an idempotent retry", async () => {

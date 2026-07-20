@@ -29,6 +29,7 @@ import hr.smocnica.core.data.repository.LocalInventoryRepository
 import hr.smocnica.core.data.repository.OutboxSyncRepository
 import hr.smocnica.core.data.repository.PantryAccessRefresher
 import hr.smocnica.core.domain.InventoryRepository
+import hr.smocnica.core.domain.AppMetadata
 import hr.smocnica.core.domain.BackupRepository
 import hr.smocnica.core.domain.PantryRepository
 import hr.smocnica.core.domain.ProductCatalogRepository
@@ -74,7 +75,7 @@ object DataProviders {
 
     @Provides
     @Singleton
-    fun openFoodFactsApi(json: Json): OpenFoodFactsApi {
+    fun openFoodFactsApi(json: Json, metadata: AppMetadata): OpenFoodFactsApi {
         val client = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
@@ -82,7 +83,7 @@ object DataProviders {
             .addInterceptor { chain ->
                 chain.proceed(
                     chain.request().newBuilder()
-                        .header("User-Agent", "SmocnicaAndroid/1.0 (https://github.com/smocnica-app/releases)")
+                        .header("User-Agent", openFoodFactsUserAgent(metadata))
                         .build(),
                 )
             }
@@ -95,6 +96,9 @@ object DataProviders {
             .create(OpenFoodFactsApi::class.java)
     }
 }
+
+internal fun openFoodFactsUserAgent(metadata: AppMetadata): String =
+    "Smocnica/${metadata.versionName} (${metadata.projectUrl}; ${metadata.supportEmail})"
 
 @Module
 @InstallIn(SingletonComponent::class)

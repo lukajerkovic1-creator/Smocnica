@@ -1,5 +1,16 @@
 # Produkcijska integracijska priprema
 
+## Google Play privatnost i brisanje računa
+
+- URL politike privatnosti za Play Console: `https://lukajerkovic1-creator.github.io/Smocnica/privacy-policy.html`
+- URL brisanja računa za obrazac Data safety: `https://lukajerkovic1-creator.github.io/Smocnica/delete-account.html`
+- in-app put: `Izbornik → Izbriši korisnički račun`
+- kontakt zahtjeva bez pristupa aplikaciji: `luka.jerkovic1@gmail.com`
+
+Prije slanja Play obrasca otvoriti oba URL-a u anonimnom pregledniku i potvrditi HTTP 200, čitljivost na mobitelu te ispravan `mailto:` gumb. GitHub Pages workflow objavljuje isključivo mapu `public/`; privatni ključevi ni Firebase konfiguracija ne ulaze u artefakt.
+
+Brisanje računa zahtijeva backend API 7 i capability `account-deletion:v1`, stoga se backend mora objaviti prije APK-a koji traži tu verziju.
+
 Ovaj dokument priprema postojeću funkcionalnost aplikacije Smočnica za potpisani release candidate, dva stvarna Android uređaja, produkcijski Firebase i javni GitHub Releases kanal. Ne sadrži stvarne ključeve, lozinke, tokene ni Firebase konfiguraciju.
 
 ## 1. Vrijednosti koje administrator mora pripremiti

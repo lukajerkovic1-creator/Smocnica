@@ -84,7 +84,7 @@ Nacrti inventure ostaju u Roomu dok ih korisnik ne primijeni ili odbaci. Potvrđ
 
 ## Cloud Functions
 
-- `getBackendCapabilities` je javni, neosjetljivi handshake koji vraća samo `backendApiVersion`, statičke capability oznake i očekivani manifest funkcija. Android prije registracije uređaja i obnove cloud podataka zahtijeva API 6 te `operation:delete_shopping`, `device-registration:v2`, `notification-privacy:v1`, `single-active-pantry:v1`, `canonical-names:v1`, `manual-shopping-merge:v1` i `atomic-bulk-products:v1`. Potvrđena verzija lokalno se pamti samo za privremeni offline fallback; izričito zastario ili nepotpun odgovor uvijek blokira udaljene pozive.
+- `getBackendCapabilities` je javni, neosjetljivi handshake koji vraća samo `backendApiVersion`, statičke capability oznake i očekivani manifest funkcija. Android prije registracije uređaja i obnove cloud podataka zahtijeva API 7 te `operation:delete_shopping`, `device-registration:v2`, `notification-privacy:v1`, `single-active-pantry:v1`, `canonical-names:v1`, `manual-shopping-merge:v1`, `atomic-bulk-products:v1` i `account-deletion:v1`. Potvrđena verzija lokalno se pamti samo za privremeni offline fallback; izričito zastario ili nepotpun odgovor uvijek blokira udaljene pozive.
 - `createPantry`, `listMyPantries`, `createInvitation`, `joinPantry`, `manageMember`, `transferOwnership`, `deletePantry`, `registerDevice`, `unregisterDevice` i `purgeTrash`.
 - `applyOperation`: validira i atomarno primjenjuje police, artikle, zalihe, kupnju i obnovu.
 - `apply_inventory` grana u `applyOperation`: atomarno validira SHA-256 izvedeni snapshot količina police i primjenjuje potvrđene razlike.

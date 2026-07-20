@@ -6,6 +6,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import hr.smocnica.core.data.remote.FirebaseNotConfiguredException
+import hr.smocnica.core.data.remote.FirebaseCallableClient
 import hr.smocnica.core.data.local.SmocnicaDatabase
 import hr.smocnica.core.domain.SessionRepository
 import hr.smocnica.core.model.UserSession
@@ -22,6 +23,7 @@ import javax.inject.Singleton
 class FirebaseSessionRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val database: SmocnicaDatabase,
+    private val callableClient: FirebaseCallableClient,
 ) : SessionRepository {
     override val session: Flow<UserSession?> = callbackFlow {
         if (FirebaseApp.getApps(context).isEmpty()) {
@@ -46,6 +48,16 @@ class FirebaseSessionRepository @Inject constructor(
 
     override suspend fun signOut() {
         if (FirebaseApp.getApps(context).isNotEmpty()) FirebaseAuth.getInstance().signOut()
+        clearLocalUserData()
+    }
+
+    override suspend fun deleteAccount() {
+        callableClient.call("deleteAccount")
+        if (FirebaseApp.getApps(context).isNotEmpty()) FirebaseAuth.getInstance().signOut()
+        clearLocalUserData()
+    }
+
+    private suspend fun clearLocalUserData() {
         withContext(Dispatchers.IO) {
             database.clearAllTables()
             context.cacheDir.listFiles()

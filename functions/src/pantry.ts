@@ -1,4 +1,5 @@
 import { DocumentSnapshot, FieldValue } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db, daysFromNow, now } from "./firebase";
@@ -225,7 +226,19 @@ export const registerDevice = onCall(callable, async (request) => {
     name: deviceDisplayName, platform: "ANDROID", detailedNotifications, updatedAt: now(), active: true,
   };
   if (fcmToken) update.fcmToken = fcmToken;
-  await db.doc(`users/${uid}/devices/${deviceId}`).set(update, { merge: true });
+  const userRef = db.doc(`users/${uid}`);
+  await db.runTransaction(async (transaction) => {
+    const user = await transaction.get(userRef);
+    if (user.exists && user.get("deletionRequestedAt")) {
+      throw new HttpsError("failed-precondition", "Brisanje korisničkog računa je u tijeku.");
+    }
+    transaction.set(userRef, {
+      displayName: request.auth?.token.name?.toString() || "Korisnik",
+      photoUrl: request.auth?.token.picture?.toString() || null,
+      lastSeenAt: now(),
+    }, { merge: true });
+    transaction.set(userRef.collection("devices").doc(deviceId), update, { merge: true });
+  });
   return { status: "OK" };
 });
 
@@ -329,6 +342,141 @@ export const deletePantry = onCall(callable, async (request) => {
   });
   await batch.commit();
   return { status: "OK", purgeAfter: daysFromNow(30).toMillis() };
+});
+
+/**
+ * Removes all account-owned identity data while preserving shared pantry data for remaining
+ * members. The operation is deliberately idempotent: authentication is deleted only after every
+ * Firestore cleanup step succeeds, so a transient failure can safely be retried.
+ */
+export async function deleteAccountData(uid: string): Promise<void> {
+  const timestamp = now();
+  const userRef = db.doc(`users/${uid}`);
+  await userRef.set({ deletionRequestedAt: timestamp }, { merge: true });
+
+  const devices = await userRef.collection("devices").get();
+  for (let index = 0; index < devices.docs.length; index += 400) {
+    const deactivate = db.batch();
+    devices.docs.slice(index, index + 400).forEach((device) => deactivate.set(device.ref, {
+      active: false,
+      fcmToken: FieldValue.delete(),
+      updatedAt: timestamp,
+    }, { merge: true }));
+    await deactivate.commit();
+  }
+
+  const [pantriesByArray, membershipsByUid] = await Promise.all([
+    db.collection("pantries").where("memberUids", "array-contains", uid).get(),
+    db.collectionGroup("members").where("uid", "==", uid).get(),
+  ]);
+  const pantryRefs = new Map(pantriesByArray.docs.map((pantry) => [pantry.id, pantry.ref]));
+  membershipsByUid.docs.forEach((membership) => {
+    const pantryRef = membership.ref.parent.parent;
+    if (pantryRef) pantryRefs.set(pantryRef.id, pantryRef);
+  });
+  for (const pantryRef of pantryRefs.values()) {
+    await db.runTransaction(async (transaction) => {
+      const memberRef = pantryRef.collection("members").doc(uid);
+      const [currentPantry, member, activeMembers] = await Promise.all([
+        transaction.get(pantryRef),
+        transaction.get(memberRef),
+        transaction.get(pantryRef.collection("members").where("active", "==", true).limit(PANTRY_LIMITS.members + 1)),
+      ]);
+      if (!currentPantry.exists) return;
+
+      const replacement = activeMembers.docs
+        .filter((candidate) => candidate.id !== uid)
+        .sort((left, right) => {
+          const leftJoined = left.get("joinedAt")?.toMillis?.() ?? 0;
+          const rightJoined = right.get("joinedAt")?.toMillis?.() ?? 0;
+          return leftJoined - rightJoined || left.id.localeCompare(right.id);
+        })[0];
+
+      if (currentPantry.get("ownerUid") === uid) {
+        if (replacement) {
+          transaction.update(replacement.ref, { role: "OWNER" });
+          transaction.update(pantryRef, {
+            ownerUid: replacement.id,
+            memberUids: FieldValue.arrayRemove(uid),
+            revision: FieldValue.increment(1),
+            updatedAt: timestamp,
+          });
+        } else {
+          transaction.update(pantryRef, {
+            memberUids: [],
+            deletedAt: timestamp,
+            purgeAfter: daysFromNow(30),
+            revision: FieldValue.increment(1),
+            updatedAt: timestamp,
+          });
+        }
+      } else {
+        transaction.update(pantryRef, {
+          memberUids: FieldValue.arrayRemove(uid),
+          revision: FieldValue.increment(1),
+          updatedAt: timestamp,
+        });
+      }
+      if (member.exists) transaction.delete(memberRef);
+      transaction.create(pantryRef.collection("activities").doc(), {
+        type: "MEMBER_REMOVED",
+        aggregateId: "deleted-user",
+        displayLabel: "Korisnički račun obrisan",
+        actorUid: "deleted-user",
+        deviceId: "deleted-device",
+        deviceDisplayName: "Obrisani korisnik",
+        createdAt: timestamp,
+        expiresAt: daysFromNow(365),
+      });
+    });
+  }
+
+  await db.doc(`userPantryAccess/${uid}`).delete();
+  await anonymizeMatchingDocuments("activities", "actorUid", uid, {
+    actorUid: "deleted-user", deviceId: "deleted-device", deviceDisplayName: "Obrisani korisnik",
+  });
+  await anonymizeMatchingDocuments("activities", "aggregateId", uid, { aggregateId: "deleted-user" });
+  await anonymizeMatchingDocuments("operations", "actorUid", uid, {
+    actorUid: "deleted-user", deviceId: "deleted-device", deviceDisplayName: "Obrisani korisnik",
+  });
+  await anonymizeMatchingDocuments("inventorySessions", "actorUid", uid, {
+    actorUid: "deleted-user", deviceId: "deleted-device", deviceDisplayName: "Obrisani korisnik",
+  });
+  await anonymizeMatchingDocuments("members", "invitedBy", uid, { invitedBy: "deleted-user" });
+
+  const invitations = await db.collection("inviteCodes").where("createdBy", "==", uid).get();
+  for (let index = 0; index < invitations.docs.length; index += 400) {
+    const revoke = db.batch();
+    invitations.docs.slice(index, index + 400).forEach((invitation) => revoke.set(invitation.ref, {
+      createdBy: "deleted-user", revokedAt: timestamp,
+    }, { merge: true }));
+    await revoke.commit();
+  }
+  await db.recursiveDelete(userRef);
+}
+
+async function anonymizeMatchingDocuments(
+  collectionGroup: string,
+  field: string,
+  value: string,
+  update: Record<string, unknown>,
+): Promise<void> {
+  while (true) {
+    const matching = await db.collectionGroup(collectionGroup).where(field, "==", value).limit(400).get();
+    if (matching.empty) return;
+    const batch = db.batch();
+    matching.docs.forEach((document) => batch.set(document.ref, update, { merge: true }));
+    await batch.commit();
+  }
+}
+
+export const deleteAccount = onCall(callable, async (request) => {
+  const uid = authUid(request);
+  await deleteAccountData(uid);
+  await getAuth().deleteUser(uid).catch((error: { code?: string }) => {
+    if (error.code !== "auth/user-not-found") throw error;
+  });
+  return { status: "DELETED" };
 });
 
 function trustedDeviceName(device: { exists: boolean; get(field: string): unknown }): string {

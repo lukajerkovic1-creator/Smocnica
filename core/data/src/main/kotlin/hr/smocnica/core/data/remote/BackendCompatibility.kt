@@ -54,7 +54,7 @@ class BackendCompatibilityChecker internal constructor(
     }
 
     internal companion object {
-        const val MIN_BACKEND_API_VERSION = 6
+        const val MIN_BACKEND_API_VERSION = 7
         val REQUIRED_CAPABILITIES = setOf(
             "operation:delete_shopping",
             "device-registration:v2",
@@ -63,6 +63,7 @@ class BackendCompatibilityChecker internal constructor(
             "canonical-names:v1",
             "manual-shopping-merge:v1",
             "atomic-bulk-products:v1",
+            "account-deletion:v1",
         )
     }
 }

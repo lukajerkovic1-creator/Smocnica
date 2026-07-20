@@ -79,6 +79,8 @@ class MainViewModel @Inject constructor(
     val notificationPrivacyMode: StateFlow<NotificationPrivacyMode> = _notificationPrivacyMode
     private val _notificationPrivacyUpdating = MutableStateFlow(false)
     val notificationPrivacyUpdating: StateFlow<Boolean> = _notificationPrivacyUpdating
+    private val _accountDeletionInProgress = MutableStateFlow(false)
+    val accountDeletionInProgress: StateFlow<Boolean> = _accountDeletionInProgress
     private val _backendReadiness = MutableStateFlow<BackendReadiness>(BackendReadiness.Checking)
     val backendReadiness: StateFlow<BackendReadiness> = _backendReadiness
 
@@ -225,6 +227,21 @@ class MainViewModel @Inject constructor(
         sync.stopRealtime()
         sessions.signOut()
         selectedPantryId.value = null
+    }
+    fun deleteAccount() {
+        if (_accountDeletionInProgress.value) return
+        viewModelScope.launch {
+            _accountDeletionInProgress.value = true
+            val pantryId = selectedPantryId.value
+            sync.stopRealtime()
+            runCatching { sessions.deleteAccount() }
+                .onSuccess { selectedPantryId.value = null }
+                .onFailure { error ->
+                    if (pantryId != null) sync.startRealtime(pantryId)
+                    _messages.emit(error.message ?: "Korisnički račun nije moguće izbrisati.")
+                }
+            _accountDeletionInProgress.value = false
+        }
     }
     fun renameDevice(name: String) = action {
         deviceIdentity.displayName = name

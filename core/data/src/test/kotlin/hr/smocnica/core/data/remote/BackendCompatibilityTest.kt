@@ -17,7 +17,7 @@ class BackendCompatibilityTest {
     fun `accepts current backend contract`() {
         val result = evaluateBackendCapabilities(
             mapOf(
-                "backendApiVersion" to 6L,
+                "backendApiVersion" to 7L,
                 "capabilities" to listOf(
                     "operation:delete_shopping",
                     "device-registration:v2",
@@ -27,6 +27,7 @@ class BackendCompatibilityTest {
                     "manual-shopping-merge:v1",
                     "atomic-bulk-products:v1",
                     "future:capability",
+                    "account-deletion:v1",
                 ),
             ),
         )
@@ -48,7 +49,7 @@ class BackendCompatibilityTest {
     fun `blocks backend missing required capability`() {
         val result = evaluateBackendCapabilities(
             mapOf(
-                "backendApiVersion" to 6L,
+                "backendApiVersion" to 7L,
                 "capabilities" to listOf("operation:delete_shopping", "device-registration:v2"),
             ),
         )
@@ -60,21 +61,21 @@ class BackendCompatibilityTest {
     @Test
     fun `checker persists a confirmed compatible version`() = runTest {
         coEvery { client.call("getBackendCapabilities") } returns mapOf(
-            "backendApiVersion" to 6L,
+            "backendApiVersion" to 7L,
             "capabilities" to BackendCompatibilityChecker.REQUIRED_CAPABILITIES.toList(),
         )
 
         val result = BackendCompatibilityChecker(client, store) { false }.check()
 
         assertEquals(BackendCompatibilityResult.Compatible(), result)
-        verify { store.confirmedApiVersion = 6 }
+        verify { store.confirmedApiVersion = 7 }
     }
 
     @Test
     fun `temporary outage uses only a previously confirmed current contract`() = runTest {
         val unavailable = IllegalStateException("offline")
         coEvery { client.call("getBackendCapabilities") } throws unavailable
-        every { store.confirmedApiVersion } returns 6
+        every { store.confirmedApiVersion } returns 7
 
         val result = BackendCompatibilityChecker(client, store) { it === unavailable }.check()
 

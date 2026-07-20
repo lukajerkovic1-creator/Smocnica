@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.ArrowUpward
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Group
@@ -365,7 +366,9 @@ fun MenuScreen(
     val summary by viewModel.syncSummary.collectAsStateWithLifecycle()
     val notificationPrivacyMode by viewModel.notificationPrivacyMode.collectAsStateWithLifecycle()
     val notificationPrivacyUpdating by viewModel.notificationPrivacyUpdating.collectAsStateWithLifecycle()
+    val accountDeletionInProgress by viewModel.accountDeletionInProgress.collectAsStateWithLifecycle()
     var editDeviceName by remember { mutableStateOf(false) }
+    var deleteAccountDialog by remember { mutableStateOf(false) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = padding.calculateTopPadding() + 12.dp, bottom = padding.calculateBottomPadding() + 30.dp)) {
         item { ScreenTitle("Izbornik", selected?.name ?: "Postavke smočnice") }
         item {
@@ -408,12 +411,33 @@ fun MenuScreen(
         if (summary.conflicts + summary.failed > 0) item { MenuEntry("Riješi probleme sinkronizacije (${summary.conflicts + summary.failed})", Icons.Outlined.WarningAmber) { navigate("conflicts") } }
         item { MenuEntry("O aplikaciji", Icons.Outlined.Info) { navigate("about") } }
         item { MenuEntry("Odjava", Icons.AutoMirrored.Outlined.Logout, viewModel::signOut) }
+        item {
+            MenuEntry(
+                if (accountDeletionInProgress) "Brisanje računa…" else "Izbriši korisnički račun",
+                Icons.Outlined.DeleteForever,
+            ) { if (!accountDeletionInProgress) deleteAccountDialog = true }
+        }
     }
     if (editDeviceName) NameDialog("Naziv ovog uređaja", viewModel.deviceIdentity.displayName, { editDeviceName = false }) {
         viewModel.renameDevice(it)
         editDeviceName = false
     }
+    if (deleteAccountDialog) AccountDeletionDialog(
+        onDismiss = { deleteAccountDialog = false },
+        onConfirm = {
+            deleteAccountDialog = false
+            viewModel.deleteAccount()
+        },
+    )
 }
+
+@Composable
+internal fun AccountDeletionDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) = ConfirmDialog(
+    "Trajno izbrisati korisnički račun?",
+    "Prijava, registrirani uređaji i sva članstva bit će uklonjeni. Ako ste vlasnik, vlasništvo se prenosi aktivnom članu; ako drugih članova nema, smočnica ulazi u 30-dnevni rok trajnog brisanja. Nesinkronizirane lokalne promjene neće biti sačuvane. Ovu radnju nije moguće poništiti.",
+    onDismiss,
+    onConfirm,
+)
 
 @Composable
 internal fun NotificationPrivacySetting(

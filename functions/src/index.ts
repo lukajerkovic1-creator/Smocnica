@@ -8,6 +8,7 @@ export {
   manageMember,
   transferOwnership,
   deletePantry,
+  deleteAccount,
   purgeTrash,
 } from "./pantry";
 export { applyOperation } from "./operations";

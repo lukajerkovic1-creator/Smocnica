@@ -1,4 +1,4 @@
-export const BACKEND_API_VERSION = 6;
+export const BACKEND_API_VERSION = 7;
 
 export const BACKEND_CAPABILITIES = [
   "operation:delete_shopping",
@@ -10,6 +10,7 @@ export const BACKEND_CAPABILITIES = [
   "canonical-names:v1",
   "manual-shopping-merge:v1",
   "atomic-bulk-products:v1",
+  "account-deletion:v1",
 ] as const;
 
 export const CALLABLE_FUNCTIONS = [
@@ -23,6 +24,7 @@ export const CALLABLE_FUNCTIONS = [
   "manageMember",
   "transferOwnership",
   "deletePantry",
+  "deleteAccount",
   "purgeTrash",
   "applyOperation",
 ] as const;

@@ -1,5 +1,7 @@
 # Smočnica
 
+Javna [politika privatnosti](https://lukajerkovic1-creator.github.io/Smocnica/privacy-policy.html) i [postupak brisanja korisničkog računa](https://lukajerkovic1-creator.github.io/Smocnica/delete-account.html) dostupni su bez instalacije aplikacije. U aplikaciji se račun briše putem `Izbornik → Izbriši korisnički račun`.
+
 Nativna Android aplikacija za zajedničko, offline-first vođenje kućne smočnice. Kotlin/Compose klijent koristi Room kao lokalni izvor istine i sinkronizira idempotentni outbox preko Firebase callable funkcija. Produkcijski podaci nisu uključeni u repozitorij.
 
 ## Preduvjeti

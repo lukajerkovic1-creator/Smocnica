@@ -46,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -123,14 +124,53 @@ fun MembersScreen(viewModel: MainViewModel, padding: PaddingValues, onBack: () -
 }
 
 @Composable
-fun AboutScreen(padding: PaddingValues) {
-    Column(Modifier.fillMaxSize().padding(padding).padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ScreenTitle("O aplikaciji", "Smočnica ${BuildConfig.VERSION_NAME}")
-        Text("Zajednička, offline-first evidencija kućnih zaliha.")
-        Text("Podaci smočnice pohranjuju se lokalno i u Firebase projektu kojem pripada ova instalacija. Crashlytics ne prima nazive artikala, barkodove, fotografije ni popis za kupnju.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("Licenca i izvorni kod dostupni su u GitHub repozitoriju navedenom u README-u distribucije.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+fun AboutScreen(padding: PaddingValues, onBack: () -> Unit) {
+    val uriHandler = LocalUriHandler.current
+    SecondaryScreenScaffold("O aplikaciji", padding, onBack) { inner ->
+        Column(
+            Modifier.fillMaxSize().padding(inner).padding(18.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Smočnica ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Zajednička, offline-first evidencija kućnih zaliha.")
+            Text(
+                "Podaci smočnice pohranjuju se lokalno i u Firebaseu. Crashlytics ne prima nazive artikala, barkodove, fotografije, e-mail adrese ni sadržaj popisa za kupnju.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text("Privatnost i račun", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            OutlinedButton(
+                { uriHandler.openUri(PRIVACY_POLICY_URL) },
+                Modifier.fillMaxWidth(),
+            ) { Text("Politika privatnosti") }
+            OutlinedButton(
+                { uriHandler.openUri(ACCOUNT_DELETION_URL) },
+                Modifier.fillMaxWidth(),
+            ) { Text("Upute za brisanje računa") }
+            Text("Podaci o proizvodima", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "Podatke i fotografije proizvoda pruža Open Food Facts. Baza je dostupna pod licencom ODbL, pojedinačni sadržaj pod Database Contents License, a fotografije pod licencom CC BY-SA.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(
+                { uriHandler.openUri(OPEN_FOOD_FACTS_URL) },
+                Modifier.fillMaxWidth(),
+            ) { Text("Open Food Facts i licence") }
+            Text(
+                "Lokalne ispravke ostaju u Smočnici i ne šalju se u Open Food Facts.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(
+                { uriHandler.openUri(PROJECT_URL) },
+                Modifier.fillMaxWidth(),
+            ) { Text("Izvorni kod i licence aplikacije") }
+        }
     }
 }
+
+internal const val PRIVACY_POLICY_URL = "https://lukajerkovic1-creator.github.io/Smocnica/privacy-policy.html"
+internal const val ACCOUNT_DELETION_URL = "https://lukajerkovic1-creator.github.io/Smocnica/delete-account.html"
+internal const val OPEN_FOOD_FACTS_URL = "https://world.openfoodfacts.org/terms-of-use"
+internal const val PROJECT_URL = "https://github.com/lukajerkovic1-creator/Smocnica"
 
 @Composable
 fun TrashScreen(viewModel: MainViewModel, padding: PaddingValues, onBack: () -> Unit) {

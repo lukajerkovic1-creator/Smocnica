@@ -200,7 +200,7 @@ fun MainNavigation(
             composable("trash") { TrashScreen(viewModel, padding) { navController.popBackStack() } }
             composable("backup") { BackupScreen(viewModel, padding) { navController.popBackStack() } }
             composable("update") { UpdateScreen(viewModel, padding) { navController.popBackStack() } }
-            composable("about") { AboutScreen(padding) }
+            composable("about") { AboutScreen(padding) { navController.popBackStack() } }
             composable("conflicts") { ConflictsScreen(viewModel, padding) { navController.popBackStack() } }
         }
     }

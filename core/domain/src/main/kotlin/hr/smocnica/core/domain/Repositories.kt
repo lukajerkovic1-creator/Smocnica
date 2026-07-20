@@ -20,7 +20,14 @@ interface SessionRepository {
     val session: Flow<UserSession?>
     suspend fun signInWithGoogleIdToken(idToken: String): Result<UserSession>
     suspend fun signOut()
+    suspend fun deleteAccount()
 }
+
+data class AppMetadata(
+    val versionName: String,
+    val projectUrl: String,
+    val supportEmail: String,
+)
 
 interface PantryRepository {
     fun observePantries(): Flow<List<Pantry>>
