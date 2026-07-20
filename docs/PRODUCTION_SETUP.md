@@ -86,13 +86,15 @@ SHA-1 je potreban Google prijavi, a SHA-256 produkcijskom Play Integrity App Che
 
 ### Firestore, Storage, Functions i FCM
 
-Produkcijsko stanje potvrđeno 13. srpnja 2026.:
+Produkcijsko stanje ponovno potvrđeno 20. srpnja 2026.:
 
 - Firebase projekt: `smocnica-aplikacija` (Blaze);
 - Firestore `(default)`: `europe-west1`;
 - Storage bucket: `gs://smocnica-aplikacija.firebasestorage.app`, `europe-west1`, Standard;
 - objavljena su aktualna Firestore i Storage pravila te indeksi;
-- aktivno je svih 14 očekivanih Node.js 22 funkcija u `europe-west1`;
+- aktivno je svih 15 očekivanih Node.js 22 funkcija u `europe-west1`, uključujući `getBackendCapabilities` API 2;
+- svih 15 funkcija objavljeno je iz commita `4d637b44e6e3e230b37ed039c4749c834bd41d17` s istim Firebase source hashom `05e31a6640024e4aeb868f526f95687789ae20d6`;
+- produkcijski smoke provjerio je capability odgovor i svih 11 zaštićenih callable funkcija; dokaz je u `docs/PRODUCTION_BACKEND_SMOKE.json`;
 - Artifact Registry automatski briše build slike starije od 7 dana radi ograničenja troška.
 
 1. Izraditi Firestore bazu u Native načinu. Lokaciju izabrati prije prvog zapisa; naknadno se ne može jednostavno promijeniti. Funkcije su konfigurirane za `europe-west1`, pa odabrati europsku lokaciju usklađenu s pravilima organizacije.

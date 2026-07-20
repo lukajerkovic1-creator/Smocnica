@@ -1,6 +1,6 @@
 # Završna verifikacija
 
-Datum provjere: 13. srpnja 2026.
+Datum zadnje provjere: 20. srpnja 2026.
 
 ## Automatizirani rezultati
 
@@ -14,6 +14,7 @@ Datum provjere: 13. srpnja 2026.
 | Firebase Emulator Suite | `npm --prefix functions run test:emulator` | 18/18 prošlo: Firestore/Storage pravila i integracijske operacije |
 | Runtime smoke | `adb install -r`, brisanje podataka, hladni start i `logcat` | instalacija i start uspješni; hrvatski login renderiran; nema fatalne iznimke |
 | Workflow sintaksa | parsiranje `ci.yml` i `release.yml` Node YAML parserom | oba workflowa valjana |
+| Produkcijski backend | puni deploy Functions/rules/indexes/storage + `smoke-production.mjs` | PASS; 15/15 funkcija ACTIVE, backend API 2, capability odgovor HTTP 200, 11/11 zaštićenih callable funkcija HTTP 401 bez vjerodajnice |
 | APK manifest | `aapt dump badging` | debug `hr.smocnica.debug`, release `hr.smocnica`, `minSdk 29`, stabilni `targetSdk 36`, `versionCode 1` |
 
 Lint za aplikaciju i `core:data`, u debug i release varijantama, završava s 0 pogrešaka i 0 fatalnih nalaza. Preostala upozorenja su informativna (novije verzije ovisnosti/Gradlea, preporuka KTX API-ja i dinamički dohvat generirane update konfiguracije).
@@ -67,7 +68,7 @@ Dodatni prolaz 13. srpnja 2026. nakon pripreme signing/Firebase/GitHub konfigura
 | `verifyReleaseSigningConfiguration` bez tajni | očekivano odbijen; nepotpisani build ne može se proglasiti produkcijskim RC-om |
 | release workflow YAML | sintaktički valjan |
 | ignore matrica | `local.properties`, keystore, `.env*`, `.firebaserc`, svi `google-services.json`, service-account JSON i generirani update config ignorirani |
-| produkcijski Firebase deploy | Firestore/Storage pravila i indeksi objavljeni; svih 14 Node.js 22 funkcija aktivno u `europe-west1` |
+| produkcijski Firebase deploy | 20. srpnja 2026. iz commita `4d637b4`: Firestore/Storage pravila i indeksi objavljeni; svih 15 Node.js 22 funkcija aktivno u `europe-west1`, isti source hash; post-deploy smoke PASS |
 | App Check | debug i production aplikacije registrirane; production zahtijeva Device integrity, bez PLAY_RECOGNISED/LICENSED zahtjeva; API enforcement ostavljen isključen do testa uređaja |
 | Artifact Registry cleanup | slike buildova starije od 7 dana automatski se brišu |
 
