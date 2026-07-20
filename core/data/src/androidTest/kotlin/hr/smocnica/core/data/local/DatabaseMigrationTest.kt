@@ -70,8 +70,28 @@ class DatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migration3To4PreservesPantryAndAddsAccessQuarantine() {
+        helper.createDatabase(ACCESS_DB, 3).apply {
+            execSQL(
+                "INSERT INTO pantries (id, name, ownerUid, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState) " +
+                    "VALUES ('p1', 'Test', 'u1', 1, 1, 1, NULL, NULL, 'SYNCED')",
+            )
+            close()
+        }
+
+        helper.runMigrationsAndValidate(ACCESS_DB, 4, true, MIGRATION_3_4).use { database ->
+            database.query("SELECT name, accessRevokedAt FROM pantries WHERE id = 'p1'").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("Test", cursor.getString(0))
+                assertNull(cursor.getString(1))
+            }
+        }
+    }
+
     private companion object {
         const val TEST_DB = "activity-migration-test"
         const val CATEGORY_DB = "category-migration-test"
+        const val ACCESS_DB = "access-migration-test"
     }
 }

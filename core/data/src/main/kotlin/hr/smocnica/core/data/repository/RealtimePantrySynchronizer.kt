@@ -5,6 +5,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.ListenerRegistration
 import dagger.hilt.android.qualifiers.ApplicationContext
 import hr.smocnica.core.data.local.ActivityEntity
@@ -29,6 +30,7 @@ import javax.inject.Singleton
 class RealtimePantrySynchronizer @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val database: SmocnicaDatabase,
+    private val accessCoordinator: PantryAccessCoordinator,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val registrations = mutableListOf<ListenerRegistration>()
@@ -42,14 +44,17 @@ class RealtimePantrySynchronizer @Inject constructor(
         activePantryId = pantryId
         val pantry = FirebaseFirestore.getInstance().collection("pantries").document(pantryId)
         registrations += pantry.addSnapshotListener { snapshot, error ->
+            if (handleListenerError(pantryId, error)) return@addSnapshotListener
             if (error == null && snapshot?.exists() == true) scope.launch { cachePantry(snapshot) }
         }
         registrations += pantry.collection("members").addSnapshotListener { snapshot, error ->
+            if (handleListenerError(pantryId, error)) return@addSnapshotListener
             if (error == null && snapshot != null) scope.launch {
                 database.memberDao().upsertAll(snapshot.documents.map { it.member(pantryId) })
             }
         }
         registrations += pantry.collection("shelves").addSnapshotListener { snapshot, error ->
+            if (handleListenerError(pantryId, error)) return@addSnapshotListener
             if (error == null && snapshot != null) scope.launch {
                 snapshot.documents.forEach { document ->
                     val remote = document.shelf(pantryId)
@@ -64,6 +69,7 @@ class RealtimePantrySynchronizer @Inject constructor(
             }
         }
         registrations += pantry.collection("categories").addSnapshotListener { snapshot, error ->
+            if (handleListenerError(pantryId, error)) return@addSnapshotListener
             if (error == null && snapshot != null) scope.launch {
                 snapshot.documents.forEach { document ->
                     val remote = document.category(pantryId)
@@ -78,6 +84,7 @@ class RealtimePantrySynchronizer @Inject constructor(
             }
         }
         registrations += pantry.collection("products").addSnapshotListener { snapshot, error ->
+            if (handleListenerError(pantryId, error)) return@addSnapshotListener
             if (error == null && snapshot != null) scope.launch {
                 snapshot.documents.forEach { document ->
                     val remote = document.product(pantryId)
@@ -92,6 +99,7 @@ class RealtimePantrySynchronizer @Inject constructor(
             }
         }
         registrations += pantry.collection("stocks").addSnapshotListener { snapshot, error ->
+            if (handleListenerError(pantryId, error)) return@addSnapshotListener
             if (error == null && snapshot != null) scope.launch {
                 snapshot.documents.forEach { document ->
                     val remote = document.stock(pantryId)
@@ -107,6 +115,7 @@ class RealtimePantrySynchronizer @Inject constructor(
             }
         }
         registrations += pantry.collection("shoppingItems").addSnapshotListener { snapshot, error ->
+            if (handleListenerError(pantryId, error)) return@addSnapshotListener
             if (error == null && snapshot != null) scope.launch {
                 snapshot.documents.forEach { document ->
                     val remote = document.shopping(pantryId)
@@ -121,6 +130,7 @@ class RealtimePantrySynchronizer @Inject constructor(
             }
         }
         registrations += pantry.collection("activities").addSnapshotListener { snapshot, error ->
+            if (handleListenerError(pantryId, error)) return@addSnapshotListener
             if (error == null && snapshot != null) scope.launch {
                 database.activityDao().insertAll(snapshot.documents.map { it.activity(pantryId) })
             }
@@ -137,6 +147,20 @@ class RealtimePantrySynchronizer @Inject constructor(
     fun refresh(pantryId: String) {
         stop()
         start(pantryId)
+    }
+
+    internal fun handleListenerError(pantryId: String, error: FirebaseFirestoreException?): Boolean {
+        if (error == null) return false
+        if (error.code != FirebaseFirestoreException.Code.PERMISSION_DENIED) return true
+        val wasActive = synchronized(this) {
+            if (activePantryId != pantryId) false
+            else {
+                stop()
+                true
+            }
+        }
+        if (wasActive) accessCoordinator.onPermissionDenied(pantryId)
+        return true
     }
 
     private suspend fun cachePantry(document: DocumentSnapshot) {

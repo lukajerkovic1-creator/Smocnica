@@ -27,6 +27,7 @@ class OutboxSyncRepository @Inject constructor(
     private val realtime: RealtimePantrySynchronizer,
     private val json: Json,
     private val crashReporter: PrivacySafeCrashReporter,
+    private val accessCoordinator: PantryAccessCoordinator,
 ) : SyncRepository {
     override fun startRealtime(pantryId: String) = realtime.start(pantryId)
     override fun stopRealtime() = realtime.stop()
@@ -37,9 +38,10 @@ class OutboxSyncRepository @Inject constructor(
         } }
 
     override suspend fun synchronize(): SyncResult {
+        val accessRefreshFailed = !accessCoordinator.reconcileQuarantinedAccess()
         var applied = 0
         var conflicts = 0
-        var failed = 0
+        var failed = if (accessRefreshFailed) 1 else 0
         val refreshPantries = linkedSetOf<String>()
         for (operation in database.operationDao().next()) {
             database.operationDao().setState(operation.operationId, OperationState.IN_FLIGHT)
@@ -73,9 +75,20 @@ class OutboxSyncRepository @Inject constructor(
                     conflicts++
                     break
                 }
+                if ((error as? FirebaseFunctionsException)?.code == FirebaseFunctionsException.Code.PERMISSION_DENIED) {
+                    database.operationDao().setState(
+                        operation.operationId,
+                        OperationState.PENDING,
+                        attemptIncrement = 1,
+                        errorCode = "FUNCTION_PERMISSION_DENIED",
+                    )
+                    accessCoordinator.quarantineAndRefresh(operation.pantryId)
+                    crashReporter.record(TechnicalErrorCode.SYNC_TRANSPORT, error)
+                    failed++
+                    break
+                }
                 val permanent = (error as? FirebaseFunctionsException)?.code in setOf(
                     FirebaseFunctionsException.Code.INVALID_ARGUMENT,
-                    FirebaseFunctionsException.Code.PERMISSION_DENIED,
                     FirebaseFunctionsException.Code.UNAUTHENTICATED,
                     FirebaseFunctionsException.Code.FAILED_PRECONDITION,
                     FirebaseFunctionsException.Code.NOT_FOUND,

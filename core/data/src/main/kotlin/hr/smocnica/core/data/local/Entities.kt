@@ -16,6 +16,7 @@ data class PantryEntity(
     val deletedAt: Long?,
     val purgeAfter: Long?,
     val syncState: SyncState,
+    val accessRevokedAt: Long? = null,
 )
 
 @Entity(tableName = "members", primaryKeys = ["pantryId", "uid"], indices = [Index("pantryId")])

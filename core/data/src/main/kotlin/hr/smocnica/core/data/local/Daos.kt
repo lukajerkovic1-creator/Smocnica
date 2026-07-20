@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PantryDao {
-    @Query("SELECT * FROM pantries WHERE deletedAt IS NULL ORDER BY updatedAt DESC")
+    @Query("SELECT * FROM pantries WHERE deletedAt IS NULL AND accessRevokedAt IS NULL ORDER BY updatedAt DESC")
     fun observeActive(): Flow<List<PantryEntity>>
 
     @Query("SELECT * FROM pantries WHERE id = :id")
@@ -26,6 +26,15 @@ interface PantryDao {
 
     @Query("UPDATE pantries SET deletedAt = :now")
     suspend fun hideAll(now: Long)
+
+    @Query("UPDATE pantries SET accessRevokedAt = :now WHERE id = :pantryId")
+    suspend fun quarantineAccess(pantryId: String, now: Long)
+
+    @Query("SELECT COUNT(*) FROM pantries WHERE accessRevokedAt IS NOT NULL")
+    suspend fun quarantinedCount(): Int
+
+    @Query("SELECT id FROM pantries")
+    suspend fun allIds(): List<String>
 }
 
 @Dao
@@ -66,6 +75,9 @@ interface ShelfDao {
     @Query("DELETE FROM shelves WHERE id = :id")
     suspend fun deleteHard(id: String)
 
+    @Query("DELETE FROM shelves WHERE pantryId = :pantryId")
+    suspend fun deleteForPantry(pantryId: String)
+
     @Query("SELECT * FROM shelves WHERE id = :id")
     suspend fun get(id: String): ShelfEntity?
 
@@ -104,6 +116,9 @@ interface CategoryDao {
 
     @Query("DELETE FROM categories WHERE id = :id")
     suspend fun deleteHard(id: String)
+
+    @Query("DELETE FROM categories WHERE pantryId = :pantryId")
+    suspend fun deleteForPantry(pantryId: String)
 
     @Query("SELECT * FROM categories WHERE id = :id")
     suspend fun get(id: String): CategoryEntity?
@@ -160,6 +175,9 @@ interface ProductDao {
     @Query("DELETE FROM products WHERE id = :id")
     suspend fun deleteHard(id: String)
 
+    @Query("DELETE FROM products WHERE pantryId = :pantryId")
+    suspend fun deleteForPantry(pantryId: String)
+
     @Query("SELECT * FROM products WHERE id = :id")
     suspend fun get(id: String): ProductEntity?
 
@@ -214,6 +232,9 @@ interface StockDao {
     @Query("DELETE FROM stocks WHERE pantryId = :pantryId AND productId = :productId AND shelfId = :shelfId")
     suspend fun deleteHard(pantryId: String, productId: String, shelfId: String)
 
+    @Query("DELETE FROM stocks WHERE pantryId = :pantryId")
+    suspend fun deleteForPantry(pantryId: String)
+
     @Query("UPDATE stocks SET revision = :revision, syncState = 'SYNCED' WHERE productId = :productId AND shelfId = :shelfId")
     suspend fun markSynced(productId: String, shelfId: String, revision: Long)
 
@@ -250,6 +271,9 @@ interface ShoppingDao {
     @Query("DELETE FROM shopping_items WHERE id = :id")
     suspend fun deleteHard(id: String)
 
+    @Query("DELETE FROM shopping_items WHERE pantryId = :pantryId")
+    suspend fun deleteForPantry(pantryId: String)
+
     @Query("UPDATE shopping_items SET category = :replacementName, updatedAt = :updatedAt WHERE pantryId = :pantryId AND category = :oldName AND deletedAt IS NULL")
     suspend fun reassignCategory(pantryId: String, oldName: String, replacementName: String, updatedAt: Long)
 
@@ -279,6 +303,9 @@ interface ActivityDao {
 
     @Query("DELETE FROM activities WHERE createdAt < :before")
     suspend fun deleteBefore(before: Long)
+
+    @Query("DELETE FROM activities WHERE pantryId = :pantryId")
+    suspend fun deleteForPantry(pantryId: String)
 }
 
 @Dao
@@ -297,6 +324,9 @@ interface InventoryDao {
 
     @Query("DELETE FROM inventory_sessions WHERE id = :id AND status = 'DRAFT'")
     suspend fun deleteDraft(id: String)
+
+    @Query("DELETE FROM inventory_sessions WHERE pantryId = :pantryId")
+    suspend fun deleteForPantry(pantryId: String)
 }
 
 data class OperationStateCount(val state: OperationState, val count: Int)
@@ -306,7 +336,14 @@ interface OperationDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(entity: PendingOperationEntity)
 
-    @Query("SELECT * FROM pending_operations WHERE state IN ('PENDING', 'IN_FLIGHT') ORDER BY createdAt, rowid LIMIT :limit")
+    @Query("""
+        SELECT pending_operations.* FROM pending_operations
+        INNER JOIN pantries ON pantries.id = pending_operations.pantryId
+        WHERE pending_operations.state IN ('PENDING', 'IN_FLIGHT')
+          AND pantries.deletedAt IS NULL
+          AND pantries.accessRevokedAt IS NULL
+        ORDER BY pending_operations.createdAt, pending_operations.rowid LIMIT :limit
+    """)
     suspend fun next(limit: Int = 50): List<PendingOperationEntity>
 
     @Query("SELECT * FROM pending_operations WHERE operationId = :id")
@@ -338,4 +375,7 @@ interface OperationDao {
 
     @Query("SELECT COUNT(*) FROM pending_operations")
     suspend fun countUnsynced(): Int
+
+    @Query("DELETE FROM pending_operations WHERE pantryId = :pantryId")
+    suspend fun deleteForPantry(pantryId: String)
 }

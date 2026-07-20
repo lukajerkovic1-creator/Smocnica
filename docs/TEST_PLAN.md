@@ -14,6 +14,8 @@
 ### Data/repository
 
 - Room transakcija uvijek zajedno mijenja read-model i outbox.
+- `PERMISSION_DENIED` na pantry/members listeneru odmah zaustavlja listenere, trajno karantenira smočnicu, uklanja je iz aktivnog UI toka i isključuje njezine operacije iz outboxa.
+- Karantena preživljava pozadinu i ponovno stvaranje procesa; offline potvrda ostaje blokirana, a uspješan `listMyPantries` nakon povratka mreže vraća pristup ili potpuno briše lokalne podatke opozvane smočnice.
 - Idempotentna potvrda operacije, retry, konflikt i odbijanje trajne pogreške.
 - Firestore DTO mapiranje ne gubi revizije/tombstone.
 - Open Food Facts: rezultat, 404/prazan rezultat, mrežna pogreška.
