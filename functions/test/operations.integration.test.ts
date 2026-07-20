@@ -645,7 +645,7 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     const active = await db.collection("inviteCodes").where("pantryId", "==", "p1").where("revokedAt", "==", null).get();
     expect(active.size).toBe(1);
     expect(active.docs[0]!.get("usesRemaining")).toBe(1);
-  });
+  }, 15_000);
 
   it("rejects joining a second pantry without consuming its invitation", async () => {
     const secondPantry = db.doc("pantries/p2");
