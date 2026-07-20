@@ -9,8 +9,6 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import dagger.hilt.android.AndroidEntryPoint
-import hr.smocnica.core.data.DeviceIdentity
-import hr.smocnica.core.data.remote.FirebaseCallableClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,25 +17,14 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 class SmocnicaMessagingService : FirebaseMessagingService() {
-    @Inject lateinit var client: FirebaseCallableClient
-    @Inject lateinit var deviceIdentity: DeviceIdentity
+    @Inject lateinit var deviceRegistration: DeviceRegistration
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     @Suppress("OVERRIDE_DEPRECATION")
     override fun onNewToken(token: String) {
         if (FirebaseAuth.getInstance().currentUser == null) return
         serviceScope.launch {
-            runCatching {
-                client.call(
-                    "registerDevice",
-                    mapOf(
-                        "deviceId" to deviceIdentity.deviceId,
-                        "deviceDisplayName" to deviceIdentity.displayName,
-                        "fcmToken" to token,
-                        "platform" to "ANDROID",
-                    ),
-                )
-            }
+            runCatching { deviceRegistration.registerToken(token) }
         }
     }
 

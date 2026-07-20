@@ -153,6 +153,25 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect(device.get("active")).toBe(true);
     expect(device.get("name")).toBe("Telefon bez tokena");
     expect(device.get("fcmToken")).toBeUndefined();
+    expect(device.get("detailedNotifications")).toBe(false);
+  });
+
+  it("stores an explicit detailed-notification preference and rejects invalid values", async () => {
+    await invokeRegisterDevice(callable({
+      deviceId: "device-detailed",
+      deviceDisplayName: "Detaljni telefon",
+      platform: "ANDROID",
+      fcmToken: "token-detailed",
+      detailedNotifications: true,
+    }, "u1") as never);
+    expect((await db.doc("users/u1/devices/device-detailed").get()).get("detailedNotifications")).toBe(true);
+
+    await expect(invokeRegisterDevice(callable({
+      deviceId: "device-invalid-privacy",
+      deviceDisplayName: "Neispravan telefon",
+      platform: "ANDROID",
+      detailedNotifications: "true",
+    }, "u1") as never)).rejects.toMatchObject({ code: "invalid-argument" });
   });
 
   it("moves stock only while the product and both shelves are active", async () => {

@@ -15,30 +15,65 @@ export const notifyLowStock = onDocumentCreated(
     if (!notification) return;
     const members = await db.collection(`pantries/${pantryId}/members`).where("active", "==", true).get();
     const deviceSnapshots = await Promise.all(members.docs.map((member) => db.collection(`users/${member.id}/devices`).where("active", "==", true).get()));
-    const tokens = [...new Set(deviceSnapshots.flatMap((snapshot) => snapshot.docs.map((doc) => doc.get("fcmToken")).filter((token): token is string => typeof token === "string")))];
+    const audiences = groupNotificationTokens(
+      deviceSnapshots.flatMap((snapshot) => snapshot.docs.map((doc) => ({
+        fcmToken: doc.get("fcmToken"),
+        detailedNotifications: doc.get("detailedNotifications"),
+      }))),
+    );
+    const tokens = [...audiences.privateTokens, ...audiences.detailedTokens];
     if (tokens.length === 0) return;
-    const chunks = chunk(tokens, 500);
-    for (const tokenChunk of chunks) {
-      const result = await getMessaging().sendEachForMulticast({
-        tokens: tokenChunk,
-        notification: {
-          title: "Artikl je ispod minimuma",
-          body: `${String(notification.name).slice(0, 100)}: preostalo ${Number(notification.remaining)} kom, na popis dodano ${Number(notification.required)} kom.`,
-        },
-        data: { pantryId, productId: String(notification.productId), destination: "shopping" },
-        android: { priority: "high", notification: { channelId: "low_stock" } },
-      });
-      const invalidTokens = result.responses.flatMap((response, index) => {
-        const code = response.error?.code;
-        return code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token"
-          ? [tokenChunk[index]!]
-          : [];
-      });
-      if (invalidTokens.length > 0) await deactivateTokens(invalidTokens, deviceSnapshots);
+    for (const audience of [
+      { tokens: audiences.privateTokens, detailed: false },
+      { tokens: audiences.detailedTokens, detailed: true },
+    ]) {
+      for (const tokenChunk of chunk(audience.tokens, 500)) {
+        const result = await getMessaging().sendEachForMulticast({
+          tokens: tokenChunk,
+          notification: lowStockNotificationContent(notification, audience.detailed),
+          data: { pantryId, productId: String(notification.productId), destination: "shopping" },
+          android: { priority: "high", notification: { channelId: "low_stock" } },
+        });
+        const invalidTokens = result.responses.flatMap((response, index) => {
+          const code = response.error?.code;
+          return code === "messaging/registration-token-not-registered" || code === "messaging/invalid-registration-token"
+            ? [tokenChunk[index]!]
+            : [];
+        });
+        if (invalidTokens.length > 0) await deactivateTokens(invalidTokens, deviceSnapshots);
+      }
     }
     await event.data?.ref.update({ sentAt: FieldValue.serverTimestamp(), recipientCount: tokens.length });
   },
 );
+
+type NotificationDevice = { fcmToken?: unknown; detailedNotifications?: unknown };
+
+export function groupNotificationTokens(devices: NotificationDevice[]): { privateTokens: string[]; detailedTokens: string[] } {
+  const preferencesByToken = new Map<string, boolean>();
+  for (const device of devices) {
+    if (typeof device.fcmToken !== "string" || device.fcmToken.length === 0) continue;
+    const detailed = device.detailedNotifications === true;
+    preferencesByToken.set(device.fcmToken, (preferencesByToken.get(device.fcmToken) ?? true) && detailed);
+  }
+  const privateTokens: string[] = [];
+  const detailedTokens: string[] = [];
+  preferencesByToken.forEach((detailed, token) => (detailed ? detailedTokens : privateTokens).push(token));
+  return { privateTokens, detailedTokens };
+}
+
+export function lowStockNotificationContent(
+  notification: Record<string, unknown>,
+  detailed: boolean,
+): { title: string; body: string } {
+  if (!detailed) {
+    return { title: "Smočnica", body: "Jedan artikl je ispod minimalne zalihe." };
+  }
+  return {
+    title: "Artikl je ispod minimuma",
+    body: `${String(notification.name).slice(0, 100)}: preostalo ${Number(notification.remaining)} kom, na popis dodano ${Number(notification.required)} kom.`,
+  };
+}
 
 export const purgeExpiredData = onSchedule(
   { region: "europe-west1", schedule: "every day 03:15", timeZone: "Europe/Zagreb", timeoutSeconds: 540, memory: "512MiB" },
