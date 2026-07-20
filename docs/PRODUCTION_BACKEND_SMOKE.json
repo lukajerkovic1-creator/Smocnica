@@ -1,23 +1,155 @@
 {
   "projectId": "smocnica-aplikacija",
-  "sourceCommit": "27e6009995951e92fefcd690525bdc022fb93694",
-  "checkedAt": "2026-07-20T16:12:28.400Z",
-  "backendApiVersion": 6,
-  "deployedFunctionCount": 15,
-  "firebaseSourceHash": "7c8be49ef539a58592ee69435ee153049063d52b",
-  "callableSmoke": {
-    "getBackendCapabilities": 200,
-    "createPantry": 401,
-    "listMyPantries": 401,
-    "createInvitation": 401,
-    "joinPantry": 401,
-    "registerDevice": 401,
-    "unregisterDevice": 401,
-    "manageMember": 401,
-    "transferOwnership": 401,
-    "deletePantry": 401,
-    "purgeTrash": 401,
-    "applyOperation": 401
-  },
-  "result": "PASS"
+  "sourceCommit": "26378b0bddebddc8868e165ad02a12cd9179696a",
+  "checkedAt": "2026-07-20T20:21:13.503Z",
+  "backendApiVersion": 7,
+  "deployedFunctions": [
+    {
+      "name": "getBackendCapabilities",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "createPantry",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "listMyPantries",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "createInvitation",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "joinPantry",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "registerDevice",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "unregisterDevice",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "manageMember",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "transferOwnership",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "deletePantry",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "deleteAccount",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "purgeTrash",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "applyOperation",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "notifyLowStock",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "purgeExpiredData",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    },
+    {
+      "name": "purgeOldActivities",
+      "state": "ACTIVE",
+      "hash": "03a601d08a7d1c9b3263fa8a22b76f19acc10dc3"
+    }
+  ],
+  "callableSmokes": [
+    {
+      "name": "getBackendCapabilities",
+      "status": 200,
+      "result": "capabilities verified"
+    },
+    {
+      "name": "createPantry",
+      "status": 401,
+      "result": "unauthorized request rejected"
+    },
+    {
+      "name": "listMyPantries",
+      "status": 401,
+      "result": "unauthorized request rejected"
+    },
+    {
+      "name": "createInvitation",
+      "status": 401,
+      "result": "unauthorized request rejected"
+    },
+    {
+      "name": "joinPantry",
+      "status": 401,
+      "result": "unauthorized request rejected"
+    },
+    {
+      "name": "registerDevice",
+      "status": 401,
+      "result": "unauthorized request rejected"
+    },
+    {
+      "name": "unregisterDevice",
+      "status": 401,
+      "result": "unauthorized request rejected"
+    },
+    {
+      "name": "manageMember",
+      "status": 401,
+      "result": "unauthorized request rejected"
+    },
+    {
+      "name": "transferOwnership",
+      "status": 401,
+      "result": "unauthorized request rejected"
+    },
+    {
+      "name": "deletePantry",
+      "status": 401,
+      "result": "unauthorized request rejected"
+    },
+    {
+      "name": "deleteAccount",
+      "status": 401,
+      "result": "unauthorized request rejected"
+    },
+    {
+      "name": "purgeTrash",
+      "status": 401,
+      "result": "unauthorized request rejected"
+    },
+    {
+      "name": "applyOperation",
+      "status": 401,
+      "result": "unauthorized request rejected"
+    }
+  ]
 }
