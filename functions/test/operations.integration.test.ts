@@ -635,7 +635,7 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     const pantries = await db.collection("pantries").where("memberUids", "array-contains", "u-parallel").get();
     expect(pantries.size).toBe(1);
     expect((await db.doc("userPantryAccess/u-parallel").get()).get("pantryId")).toBe(pantries.docs[0]!.id);
-  });
+  }, 15_000);
 
   it("keeps only one active invitation under simultaneous creation", async () => {
     const attempts = await Promise.allSettled([

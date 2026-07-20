@@ -9,6 +9,9 @@ permissions:
   contents: read
 
 jobs:
+  instrumentation:
+    uses: ./.github/workflows/android-instrumentation.yml
+
   android:
     runs-on: ubuntu-latest
     steps:

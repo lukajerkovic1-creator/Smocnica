@@ -32,7 +32,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  instrumentation:
+    uses: ./.github/workflows/android-instrumentation.yml
+
   release:
+    needs: instrumentation
     runs-on: ubuntu-latest
     environment: production
     env:

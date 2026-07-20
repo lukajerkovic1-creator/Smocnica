@@ -53,4 +53,18 @@ describe("GitHub Actions supply-chain controls", () => {
     expect(release).toMatch(/jobs:\s+[\s\S]*release:\s+[\s\S]*environment:\s*production/);
     expect(release).toMatch(/permissions:\s+contents:\s*write/);
   });
+
+  it("blocks CI and releases on Room and Compose instrumentation at API 29 and 35", () => {
+    const instrumentation = readFileSync(resolve(workflowsDirectory, "android-instrumentation.yml"), "utf8");
+    const ci = readFileSync(resolve(workflowsDirectory, "ci.yml"), "utf8");
+    const release = readFileSync(resolve(workflowsDirectory, "release.yml"), "utf8");
+
+    expect(instrumentation).toContain("workflow_call:");
+    expect(instrumentation).toMatch(/api-level:\s*\[29, 35\]/);
+    expect(instrumentation).toContain(":core:data:connectedDebugAndroidTest");
+    expect(instrumentation).toContain(":app:connectedDebugAndroidTest");
+    expect(ci).toMatch(/instrumentation:\s+uses:\s+\.\/\.github\/workflows\/android-instrumentation\.yml/);
+    expect(release).toMatch(/instrumentation:\s+uses:\s+\.\/\.github\/workflows\/android-instrumentation\.yml/);
+    expect(release).toMatch(/release:\s+needs:\s+instrumentation/);
+  });
 });

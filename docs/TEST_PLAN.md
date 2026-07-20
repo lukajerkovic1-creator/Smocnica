@@ -56,6 +56,8 @@
 
 ### Integracija
 
+- Standardni CI i release gate automatski pokreću `:core:data:connectedDebugAndroidTest` i `:app:connectedDebugAndroidTest` na emulatorima API 29 i API 35. Time su Room migracije i Compose UI testovi obvezna prepreka mergeu i izdanju, a ne samo lokalna provjera.
+- Izravna migracija iz stvarne rc9 Room sheme v1 na aktualnu shemu v5 mora očuvati pantry/member zapise, police, kategorije, artikle, URI fotografije, zalihe, shopping stavke, inventuru, aktivnosti i nesinkronizirani outbox.
 - APK s minimalnim backend API-jem 6 blokira rad uz jasan retry kada `getBackendCapabilities` ne postoji, vrati stariju verziju ili nema `atomic-bulk-products:v1` ili drugu obveznu capability oznaku; prolazi s aktualnim odgovorom i samo pri privremenom mrežnom prekidu smije koristiti prethodno potvrđenu kompatibilnu verziju.
 - Produkcijski post-deploy smoke uspoređuje `functions:list` sa statičkim manifestom svih funkcija, provjerava stvarni capability odgovor i potvrđuje da svaka zaštićena callable funkcija odbija neautorizirani zahtjev.
 - Prijava → stvaranje smočnice → polica → artikl → add/remove → auto-shopping.
@@ -75,4 +77,4 @@
 
 ## Izlazni kriteriji
 
-`test`, `connectedDebugAndroidTest` (na emulatoru), `lintDebug`, rules/functions testovi i `assembleDebug` prolaze. Nema visoko-kritičnih lint/rules nalaza, tajni u Git povijesti ni PII sadržaja u Crashlytics pozivima.
+`test`, API 29/35 instrumentation gate, `lintDebug`, rules/functions testovi i `assembleDebug` prolaze. Stvarna rc9 → rc19 nadogradnja bez deinstalacije dodatno mora biti PASS na dva fizička uređaja prema `REAL_DEVICE_TEST_PLAN.md`. Nema visoko-kritičnih lint/rules nalaza, tajni u Git povijesti ni PII sadržaja u Crashlytics pozivima.

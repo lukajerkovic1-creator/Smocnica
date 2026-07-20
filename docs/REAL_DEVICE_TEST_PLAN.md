@@ -1,20 +1,31 @@
 # Plan integracijskog testa na dva stvarna uređaja
 
-Ovaj plan provjerava postojeću produkcijsku funkcionalnost potpisanih izdanja `1.0.0-rc1` i `1.0.0-rc2`. Nijedan scenarij ne smije se označiti PASS samo zato što postoji gumb; potrebno je izvršiti korake i provjeriti rezultat na oba uređaja i u Firebase Console.
+Ovaj plan provjerava postojeću produkcijsku funkcionalnost i obveznu nadogradnju potpisanog izdanja `1.0.0-rc9` na `1.0.0-rc19`. Nijedan scenarij ne smije se označiti PASS samo zato što postoji gumb ili automatizirani test; potrebno je izvršiti korake i provjeriti rezultat na oba uređaja i u Firebase Console.
+
+## Trenutačno stanje dokaza
+
+| Provjera | Status | Dokaz / razlog |
+|---|---|---|
+| Room migracija iz stvarne rc9 sheme (v1) izravno na aktualnu shemu (v5) | PASS | Instrumentacijski test stvara realistične police, kategorije, artikl, fotografiju, zalihu, shopping stavku, inventuru i nesinkronizirani outbox te provjerava očuvanje svih podataka. |
+| Instrumentacija na API 29 i API 35 | LOKALNO PASS / CI U TIJEKU | Lokalno je na svakom API-ju prošlo 28 Room/repository i 30 app/Compose testova. Obvezna matrica dodana je u standardni CI i release workflow; udaljeni dokaz upisuje se nakon prvog prolaza. |
+| Nadogradnja APK-a rc9 → rc19 bez deinstalacije na uređaju A | **NIJE PROVJERENO** | Potreban je stvarni uređaj i ručno evidentiranje K-01–K-08. |
+| Nadogradnja APK-a rc9 → rc19 bez deinstalacije na uređaju B | **NIJE PROVJERENO** | Potreban je drugi stvarni uređaj i ručno evidentiranje K-01–K-08. |
+| Stvarni App Check, FCM, Crashlytics, reinstalacija, fizički skener i višednevni rad | **NIJE PROVJERENO** | Repo i emulator ne mogu dokazati ponašanje produkcijskih uređaja/usluga. |
+| App Check enforcement za Auth, Firestore i Storage | **NIJE UKLJUČENO** | Namjerno ostaje isključen dok L-01 i ostali stvarni scenariji ne budu PASS na oba uređaja. |
 
 ## Evidencija prolaza
 
 | Polje | Vrijednost |
 |---|---|
-| Datum i tester |  |
-| Commit/tag RC1 |  |
-| RC1 versionCode / SHA-256 |  |
-| Commit/tag RC2 |  |
-| RC2 versionCode / SHA-256 |  |
-| Release signer SHA-256 |  |
-| Firebase project ID |  |
-| Uređaj A / Android / serijski broj |  |
-| Uređaj B / Android / serijski broj |  |
+| Datum i tester | **NIJE PROVJERENO – upisuje tester** |
+| Commit/tag polaznog izdanja | `v1.0.0-rc9` |
+| rc9 versionCode / SHA-256 | **NIJE PROVJERENO – prepisati iz javnog release manifesta** |
+| Commit/tag ciljnog izdanja | `v1.0.0-rc19` |
+| rc19 versionCode / SHA-256 | **NIJE PROVJERENO – prepisati iz javnog release manifesta** |
+| Release signer SHA-256 | `AA:ED:D1:CF:BA:45:A8:E6:1F:15:5E:E6:B4:3D:F7:76:48:C8:2A:B7:64:08:F3:20:5D:53:6A:22:EE:67:86:44` – potvrditi na oba APK-a |
+| Firebase project ID | **NIJE PROVJERENO – ne zapisivati tajnu, samo javni project ID** |
+| Uređaj A / Android / interna oznaka | **NIJE PROVJERENO** |
+| Uređaj B / Android / interna oznaka | **NIJE PROVJERENO** |
 | Google račun A | zabilježiti samo internu oznaku, ne e-mail u javnom izvještaju |
 | Google račun B | zabilježiti samo internu oznaku, ne e-mail u javnom izvještaju |
 
@@ -23,7 +34,7 @@ Status svakog testa mora biti točno jedan od: **PASS**, **FAIL**, **NIJE PROVJE
 ## Preduvjeti
 
 - oba uređaja su Android 10 ili noviji, imaju aktualne Google Play services i zaključavanje zaslona;
-- oba imaju instaliran isti `hr.smocnica` RC1, potpisan istim trajnim release certifikatom;
+- oba za scenarij K počinju s `hr.smocnica` rc9, potpisanim istim trajnim release certifikatom kao rc19;
 - Firebase Auth, Firestore, Storage, Functions, FCM, Crashlytics i App Check konfigurirani su prema `PRODUCTION_SETUP.md`;
 - uređaji koriste dva različita Google računa;
 - tester ima pristup Firebase Console, Firestore podacima, Functions logovima, App Check metrici i Crashlyticsu;
@@ -138,33 +149,34 @@ Status svakog testa mora biti točno jedan od: **PASS**, **FAIL**, **NIJE PROVJE
 | J-02 | Prije deinstalacije ostaviti lokalnu offline mutaciju koja nije sinkronizirana. | Tester je upozoren da nesinkronizirana lokalna promjena nije cloud backup; nakon deinstalacije cloud stanje ostaje konzistentno bez djelomične operacije. |  |  |
 | J-03 | Nakon ponovne instalacije provjeriti privatne fotografije i članstvo. | Fotografije se autorizirano ponovno učitavaju; uklonjeno članstvo se ne vraća iz cachea. |  |  |
 
-## K. Nadogradnja RC1 → RC2 bez gubitka podataka
+## K. Nadogradnja rc9 → rc19 bez gubitka podataka
 
 | ID | Koraci | Očekivani rezultat / PASS kriterij | Status | Bilješka |
 |---|---|---|---|---|
-| K-01 | Objaviti RC1 i RC2 u javnom GitHub repozitoriju. RC2 ima veći versionCode, isti `applicationId` i certifikat. | Oba releasea imaju APK, `release-manifest.json`, bilješke i SHA-256; assets su dostupni u anonimnom browseru. |  |  |
-| K-02 | Na RC1 ručno i automatski provjeriti ažuriranje. | Prikazuje se RC2 s bilješkama i ispravnim opcionalno/obavezno stanjem. |  |  |
-| K-03 | Preuzeti RC2 unutar aplikacije. | Hash i certifikat prolaze; otvara se standardna Android potvrda instalacije, bez silent installa. |  |  |
-| K-04 | Prvi put odbiti “Install unknown apps”, zatim omogućiti samo za Smočnicu i ponoviti. | Aplikacija daje jasan oporavak; nakon dopuštenja instalacija nastavlja. |  |  |
-| K-05 | Dovršiti nadogradnju na oba uređaja bez deinstalacije. | Android prihvaća paket; verzija je RC2; prijava, Room podaci, outbox i odabrana smočnica ostaju sačuvani. |  |  |
-| K-06 | Nakon nadogradnje napraviti mutaciju offline i online. | Lokalna baza/migracija radi, mutacija se sinkronizira jednom i drugi uređaj je vidi. |  |  |
-| K-07 | Objaviti testni manifest s pogrešnim hashom ili APK-om drugog certifikata u zasebnom kontroliranom releaseu. | Aplikacija odbija paket prije Android instalacije i briše nevaljani download. |  |  |
-| K-08 | Provjeriti offline, timeout i GitHub rate-limit stanje provjere ažuriranja. | Aplikacija ostaje upotrebljiva za opcionalni update i prikazuje razumljivu pogrešku; obavezni update ne dopušta lažno “ažurno” stanje. |  |  |
+| K-01 | U anonimnom pregledniku otvoriti javne rc9 i rc19 GitHub Release stranice. Potvrditi da rc19 ima veći versionCode, isti `applicationId` i certifikat. | Oba releasea imaju APK, `release-manifest.json`, bilješke i SHA-256; assets su javno dostupni. | **NIJE PROVJERENO** | Upisati URL-ove i hash oba preuzeta APK-a. |
+| K-02 | Na rc9 ručno i automatski provjeriti ažuriranje. | Prikazuje se rc19 s bilješkama i ispravnim opcionalno/obavezno stanjem. | **NIJE PROVJERENO** | Izvesti na oba uređaja. |
+| K-03 | Preuzeti rc19 unutar aplikacije. | Hash i certifikat prolaze; otvara se standardna Android potvrda instalacije, bez silent installa. | **NIJE PROVJERENO** |  |
+| K-04 | Prvi put odbiti “Install unknown apps”, zatim omogućiti samo za Smočnicu i ponoviti. | Aplikacija daje jasan oporavak; nakon dopuštenja instalacija nastavlja. | **NIJE PROVJERENO** |  |
+| K-05 | Na rc9 unijeti realistične artikle, police, kategorije i fotografije te ostaviti barem jednu nesinkroniziranu promjenu. Dovršiti nadogradnju na oba uređaja bez deinstalacije. | Android prihvaća paket; verzija je rc19; prijava, fotografije, Room podaci, outbox i odabrana smočnica ostaju sačuvani. | **NIJE PROVJERENO** | Za svaki uređaj zabilježiti broj zapisa prije/poslije bez sadržaja smočnice. |
+| K-06 | Nakon nadogradnje potvrditi sadržaj i napraviti po jednu offline i online mutaciju. | Svi artikli, police, kategorije, fotografije i outbox su očuvani; svaka nova mutacija sinkronizira se jednom i drugi uređaj je vidi. | **NIJE PROVJERENO** |  |
+| K-07 | Upotrijebiti kontrolirani testni manifest s pogrešnim hashom ili APK-om drugog certifikata. | Aplikacija odbija paket prije Android instalacije i briše nevaljani download. | **NIJE PROVJERENO** | Ne mijenjati produkcijski manifest. |
+| K-08 | Provjeriti offline, timeout i GitHub rate-limit stanje provjere ažuriranja. | Aplikacija ostaje upotrebljiva za opcionalni update i prikazuje razumljivu pogrešku; obavezni update ne dopušta lažno “ažurno” stanje. | **NIJE PROVJERENO** |  |
 
 ## L. App Check, Crashlytics i završni gate
 
 | ID | Koraci | Očekivani rezultat / PASS kriterij | Status | Bilješka |
 |---|---|---|---|---|
-| L-01 | U App Check metrici filtrirati `hr.smocnica` tijekom rada oba uređaja. | Za Auth, Firestore i Storage dominiraju Verified requests; oba sideloadana uređaja rade uz postavke izvan Google Playa. |  |  |
-| L-02 | Pokušati pozvati callable bez App Check tokena iz kontroliranog klijenta. | Produkcijska funkcija odbija zahtjev; legitimna aplikacija nastavlja raditi. |  |  |
-| L-03 | Izazvati kontrolirani non-fatal `SYNC_TRANSPORT`, vratiti mrežu i ponovno pokrenuti aplikaciju. | Crashlytics primi tehnički događaj; nema PII ni sadržaja smočnice u keys/message/logovima. |  |  |
-| L-04 | Pregledati Functions/Crashlytics logove nakon cijelog prolaza. | Nema e-maila, UID-a, naziva artikla, barkoda, fotografije, naziva uređaja, pozivnog koda ni sadržaja izvoza. |  |  |
-| L-05 | Ponoviti secret scan i provjeru radnog stabla. | Git je čist i ne prati Firebase konfiguraciju, keystore, lozinke, `.env`, service-account JSON ni lokalni update config. |  |  |
+| L-01 | Uz još isključen enforcement, u App Check metrici filtrirati `hr.smocnica` tijekom svih tokova na oba uređaja. | Za Auth, Firestore i Storage legitimni zahtjevi oba uređaja prikazuju se kao Verified. | **NIJE PROVJERENO** | Enforcement se ne smije uključiti prije ovog PASS-a. |
+| L-02 | Pokušati pozvati callable bez App Check tokena iz kontroliranog klijenta. | Produkcijska funkcija odbija zahtjev; legitimna aplikacija nastavlja raditi. | **NIJE PROVJERENO** |  |
+| L-03 | Izazvati kontrolirani non-fatal `SYNC_TRANSPORT`, vratiti mrežu i ponovno pokrenuti aplikaciju. | Crashlytics primi tehnički događaj; nema PII ni sadržaja smočnice u keys/message/logovima. | **NIJE PROVJERENO** |  |
+| L-04 | Pregledati Functions/Crashlytics logove nakon cijelog prolaza. | Nema e-maila, UID-a, naziva artikla, barkoda, fotografije, naziva uređaja, pozivnog koda ni sadržaja izvoza. | **NIJE PROVJERENO** |  |
+| L-05 | Ponoviti secret scan i provjeru radnog stabla. | Git je čist i ne prati Firebase konfiguraciju, keystore, lozinke, `.env`, service-account JSON ni lokalni update config. | **NIJE PROVJERENO** |  |
+| L-06 | Tek nakon PASS rezultata L-01 i sigurnog rollback plana uključiti App Check enforcement za Auth, Firestore i Storage. Ponoviti prijavu, sinkronizaciju, fotografiju, FCM i reinstalaciju na oba uređaja te pokušaj bez tokena. | Oba legitimna uređaja rade bez regresije, a neprovjereni zahtjevi su odbijeni. | **NIJE PROVJERENO** | Trenutačno namjerno isključeno; pri FAIL odmah vratiti monitoring. |
 
 ## Odluka nakon testa
 
 - **PASS za produkcijsku integraciju:** svi primjenjivi A–L scenariji su PASS, nema gubitka podataka, sigurnosnog curenja ni neobjašnjenog konflikta.
-- **FAIL:** bilo koji sigurnosni problem, negativna količina, izgubljena/udvostručena potvrđena operacija, pogrešno članstvo, nevaljan update prihvaćen ili podatak izgubljen pri RC1 → RC2.
+- **FAIL:** bilo koji sigurnosni problem, negativna količina, izgubljena/udvostručena potvrđena operacija, pogrešno članstvo, nevaljan update prihvaćen ili podatak izgubljen pri rc9 → rc19.
 - **NIJE PROVJERENO:** samo kada vanjski preduvjet objektivno nije dostupan; razlog mora biti zapisan i takav scenarij ostaje release rizik.
 
 Konačni rezultat: **________________ (PASS / FAIL / UVJETNO)**  
