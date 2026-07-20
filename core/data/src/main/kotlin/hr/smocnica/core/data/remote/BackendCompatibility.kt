@@ -54,11 +54,12 @@ class BackendCompatibilityChecker internal constructor(
     }
 
     internal companion object {
-        const val MIN_BACKEND_API_VERSION = 2
+        const val MIN_BACKEND_API_VERSION = 3
         val REQUIRED_CAPABILITIES = setOf(
             "operation:delete_shopping",
             "device-registration:v2",
             "notification-privacy:v1",
+            "single-active-pantry:v1",
         )
     }
 }

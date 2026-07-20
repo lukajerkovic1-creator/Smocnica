@@ -1,7 +1,8 @@
-import { FieldValue } from "firebase-admin/firestore";
+import { DocumentSnapshot, FieldValue } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db, daysFromNow, now } from "./firebase";
+import { PANTRY_LIMITS, assertResourceLimit } from "./limits";
 import { authUid, boolean, invitationCode, object, optionalText, requireMember, requireOwner, safeId, sha256, text } from "./validation";
 
 const callable = { region: "europe-west1", enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== "true" } as const;
@@ -16,48 +17,80 @@ export const createPantry = onCall(callable, async (request) => {
   const data = object(request.data);
   const name = text(data, "name", 1, 60);
   const deviceId = safeId(text(data, "deviceId", 1, 128), "deviceId");
+  const requestId = safeId(text(data, "requestId", 8, 128), "requestId");
   const deviceDisplayName = trustedDeviceName(await db.doc(`users/${uid}/devices/${deviceId}`).get());
   const pantryRef = db.collection("pantries").doc();
+  const accessRef = db.doc(`userPantryAccess/${uid}`);
   const timestamp = now();
-  const batch = db.batch();
-  batch.create(pantryRef, {
-    name, ownerUid: uid, memberUids: [uid], revision: 0,
-    createdAt: timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
-  });
   const displayName = request.auth?.token.name?.toString() || "Korisnik";
   const photoUrl = request.auth?.token.picture?.toString() || null;
-  batch.create(pantryRef.collection("members").doc(uid), {
-    uid, displayName, photoUrl, role: "OWNER", joinedAt: timestamp, invitedBy: uid, active: true,
-  });
-  batch.set(db.doc(`users/${uid}`), { displayName, photoUrl, createdAt: timestamp, lastSeenAt: timestamp }, { merge: true });
-  for (let index = 0; index < 3; index++) {
-    const shelf = pantryRef.collection("shelves").doc();
-    batch.create(shelf, {
-      name: `Polica ${index + 1}`, sortOrder: index, revision: 0,
+  return db.runTransaction(async (transaction) => {
+    const access = await transaction.get(accessRef);
+    if (access.exists) {
+      const activePantryId = safeId(String(access.get("pantryId")), "pantryId");
+      const existingPantryRef = db.doc(`pantries/${activePantryId}`);
+      const [existingPantry, existingMember] = await Promise.all([
+        transaction.get(existingPantryRef),
+        transaction.get(existingPantryRef.collection("members").doc(uid)),
+      ]);
+      if (existingPantry.exists && !existingPantry.get("deletedAt") && existingMember.exists && existingMember.get("active") === true) {
+        if (access.get("createRequestId") === requestId) return pantryResponse(existingPantry, existingMember);
+        throw new HttpsError("already-exists", "Korisnik već ima aktivnu smočnicu.");
+      }
+    } else {
+      const legacy = await transaction.get(db.collection("pantries").where("memberUids", "array-contains", uid).limit(10));
+      const activeLegacy = legacy.docs.filter((document) => !document.get("deletedAt"));
+      if (activeLegacy.length > 0) throw new HttpsError("already-exists", "Korisnik već ima aktivnu smočnicu.");
+    }
+
+    transaction.create(pantryRef, {
+      name, ownerUid: uid, memberUids: [uid], revision: 0,
       createdAt: timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
     });
-  }
-  defaultCategories.forEach((categoryName, index) => {
-    const category = pantryRef.collection("categories").doc();
-    batch.create(category, {
-      name: categoryName, sortOrder: index, isDefault: categoryName === "Ostalo", revision: 0,
-      createdAt: timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
+    transaction.create(pantryRef.collection("members").doc(uid), {
+      uid, displayName, photoUrl, role: "OWNER", joinedAt: timestamp, invitedBy: uid, active: true,
     });
+    transaction.set(accessRef, { uid, pantryId: pantryRef.id, createRequestId: requestId, active: true, updatedAt: timestamp });
+    transaction.set(db.doc(`users/${uid}`), { displayName, photoUrl, createdAt: timestamp, lastSeenAt: timestamp }, { merge: true });
+    for (let index = 0; index < 3; index++) {
+      const shelf = pantryRef.collection("shelves").doc();
+      transaction.create(shelf, {
+        name: `Polica ${index + 1}`, sortOrder: index, revision: 0,
+        createdAt: timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
+      });
+    }
+    defaultCategories.forEach((categoryName, index) => {
+      const category = pantryRef.collection("categories").doc();
+      transaction.create(category, {
+        name: categoryName, sortOrder: index, isDefault: categoryName === "Ostalo", revision: 0,
+        createdAt: timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
+      });
+    });
+    transaction.create(pantryRef.collection("activities").doc(), {
+      type: "PANTRY_CREATED", aggregateId: pantryRef.id, displayLabel: name,
+      actorUid: uid, deviceId, deviceDisplayName,
+      createdAt: timestamp, expiresAt: daysFromNow(365),
+    });
+    return {
+      pantry: { id: pantryRef.id, name, ownerUid: uid, revision: 0, createdAt: timestamp.toMillis(), updatedAt: timestamp.toMillis() },
+      member: { uid, displayName, photoUrl, role: "OWNER", joinedAt: timestamp.toMillis() },
+    };
   });
-  batch.create(pantryRef.collection("activities").doc(), {
-    type: "PANTRY_CREATED", aggregateId: pantryRef.id, displayLabel: name,
-    actorUid: uid, deviceId, deviceDisplayName,
-    createdAt: timestamp, expiresAt: daysFromNow(365),
-  });
-  await batch.commit();
-  return {
-    pantry: { id: pantryRef.id, name, ownerUid: uid, revision: 0, createdAt: timestamp.toMillis(), updatedAt: timestamp.toMillis() },
-    member: { uid, displayName, photoUrl, role: "OWNER", joinedAt: timestamp.toMillis() },
-  };
 });
 
 export const listMyPantries = onCall(callable, async (request) => {
   const uid = authUid(request);
+  const accessRef = db.doc(`userPantryAccess/${uid}`);
+  const access = await accessRef.get();
+  if (access.exists) {
+    const pantryId = safeId(String(access.get("pantryId")), "pantryId");
+    const pantry = await db.doc(`pantries/${pantryId}`).get();
+    const member = await pantry.ref.collection("members").doc(uid).get();
+    if (pantry.exists && !pantry.get("deletedAt") && member.exists && member.get("active") === true) {
+      return { pantries: [pantryResponse(pantry, member)] };
+    }
+    await accessRef.delete();
+  }
   const pantries = await db.collection("pantries")
     .where("memberUids", "array-contains", uid)
     .limit(10)
@@ -66,27 +99,16 @@ export const listMyPantries = onCall(callable, async (request) => {
     if (pantry.get("deletedAt")) return null;
     const member = await pantry.ref.collection("members").doc(uid).get();
     if (!member.exists || member.get("active") !== true) return null;
-    const createdAt = pantry.get("createdAt");
-    const updatedAt = pantry.get("updatedAt");
-    return {
-      pantry: {
-        id: pantry.id,
-        name: pantry.get("name"),
-        ownerUid: pantry.get("ownerUid"),
-        revision: Number(pantry.get("revision") || 0),
-        createdAt: createdAt?.toMillis?.() ?? Number(createdAt || Date.now()),
-        updatedAt: updatedAt?.toMillis?.() ?? Number(updatedAt || Date.now()),
-      },
-      member: {
-        uid,
-        displayName: member.get("displayName") || "Korisnik",
-        photoUrl: member.get("photoUrl") || null,
-        role: member.get("role") || "MEMBER",
-        joinedAt: member.get("joinedAt")?.toMillis?.() ?? Date.now(),
-      },
-    };
+    return pantryResponse(pantry, member);
   }));
-  return { pantries: available.filter((value) => value !== null) };
+  const active = available.filter((value) => value !== null);
+  if (active.length > 1) {
+    throw new HttpsError("failed-precondition", "Korisnik ima više aktivnih smočnica. Potrebna je administratorska provjera.");
+  }
+  if (active.length === 1) {
+    await accessRef.set({ uid, pantryId: active[0]!.pantry.id, createRequestId: null, active: true, updatedAt: now() });
+  }
+  return { pantries: active };
 });
 
 export const createInvitation = onCall(callable, async (request) => {
@@ -95,17 +117,23 @@ export const createInvitation = onCall(callable, async (request) => {
   const pantryId = safeId(text(data, "pantryId"), "pantryId");
   await requireOwner(pantryId, uid);
 
-  const existing = await db.collection("inviteCodes").where("pantryId", "==", pantryId).where("revokedAt", "==", null).limit(20).get();
   const code = invitationCode();
   const hash = sha256(code);
   const timestamp = now();
   const expiresAt = daysFromNow(1);
-  const batch = db.batch();
-  existing.docs.forEach((doc) => batch.update(doc.ref, { revokedAt: timestamp }));
-  batch.create(db.doc(`inviteCodes/${hash}`), {
-    pantryId, createdBy: uid, createdAt: timestamp, expiresAt, usesRemaining: 1, revokedAt: null,
+  await db.runTransaction(async (transaction) => {
+    const pantryRef = db.doc(`pantries/${pantryId}`);
+    const pantry = await transaction.get(pantryRef);
+    const existing = await transaction.get(
+      db.collection("inviteCodes").where("pantryId", "==", pantryId).where("revokedAt", "==", null).limit(PANTRY_LIMITS.activeInvitations + 1),
+    );
+    if (!pantry.exists || pantry.get("deletedAt")) throw new HttpsError("not-found", "Smočnica nije dostupna.");
+    existing.docs.forEach((document) => transaction.update(document.ref, { revokedAt: timestamp }));
+    transaction.create(db.doc(`inviteCodes/${hash}`), {
+      pantryId, createdBy: uid, createdAt: timestamp, expiresAt, usesRemaining: 1, revokedAt: null,
+    });
+    transaction.update(pantryRef, { activeInvitationHash: hash, updatedAt: timestamp });
   });
-  await batch.commit();
   return { code, expiresAt: expiresAt.toMillis() };
 });
 
@@ -131,19 +159,32 @@ export const joinPantry = onCall(callable, async (request) => {
     const pantryRef = db.doc(`pantries/${pantryId}`);
     const memberRef = pantryRef.collection("members").doc(uid);
     const deviceRef = db.doc(`users/${uid}/devices/${deviceId}`);
-    const [pantry, existingMember, device] = await Promise.all([
-      transaction.get(pantryRef), transaction.get(memberRef), transaction.get(deviceRef),
+    const accessRef = db.doc(`userPantryAccess/${uid}`);
+    const [pantry, existingMember, device, access, activeMembers, legacyPantries] = await Promise.all([
+      transaction.get(pantryRef), transaction.get(memberRef), transaction.get(deviceRef), transaction.get(accessRef),
+      transaction.get(pantryRef.collection("members").where("active", "==", true).limit(PANTRY_LIMITS.members + 1)),
+      transaction.get(db.collection("pantries").where("memberUids", "array-contains", uid).limit(10)),
     ]);
     if (!pantry.exists || pantry.get("deletedAt")) throw new HttpsError("not-found", "Smočnica više nije dostupna.");
     const deviceDisplayName = trustedDeviceName(device);
-    if (existingMember.exists && existingMember.get("active") === true) {
-      throw new HttpsError("already-exists", "Već ste član ove smočnice.");
+    if (access.exists && access.get("pantryId") !== pantryId) {
+      throw new HttpsError("already-exists", "Korisnik već ima aktivnu smočnicu.");
     }
+    if (!access.exists && legacyPantries.docs.some((document) => document.id !== pantryId && !document.get("deletedAt"))) {
+      throw new HttpsError("already-exists", "Korisnik već ima aktivnu smočnicu.");
+    }
+    if (existingMember.exists && existingMember.get("active") === true) {
+      transaction.set(accessRef, { uid, pantryId, createRequestId: null, active: true, updatedAt: timestamp });
+      pantryResult = pantryResponse(pantry, existingMember).pantry;
+      return;
+    }
+    assertResourceLimit(activeMembers.size, PANTRY_LIMITS.members, "članova");
     transaction.update(inviteRef, { usesRemaining: FieldValue.increment(-1), usedAt: timestamp, usedBy: uid });
     transaction.set(memberRef, {
       uid, displayName, photoUrl, role: "MEMBER", joinedAt: timestamp, invitedBy: inviteData.createdBy, active: true,
     });
     transaction.update(pantryRef, { memberUids: FieldValue.arrayUnion(uid), updatedAt: timestamp, revision: FieldValue.increment(1) });
+    transaction.set(accessRef, { uid, pantryId, createRequestId: null, active: true, updatedAt: timestamp });
     transaction.set(db.doc(`users/${uid}`), { displayName, photoUrl, createdAt: timestamp, lastSeenAt: timestamp }, { merge: true });
     transaction.create(pantryRef.collection("activities").doc(), {
       type: "MEMBER_JOINED", aggregateId: uid, displayLabel: "Novi uređaj pridružen",
@@ -201,12 +242,16 @@ export const manageMember = onCall(callable, async (request) => {
   await db.runTransaction(async (transaction) => {
     const memberRef = pantryRef.collection("members").doc(memberUid);
     const deviceRef = db.doc(`users/${uid}/devices/${deviceId}`);
-    const [member, device] = await Promise.all([transaction.get(memberRef), transaction.get(deviceRef)]);
+    const accessRef = db.doc(`userPantryAccess/${memberUid}`);
+    const [member, device, access] = await Promise.all([
+      transaction.get(memberRef), transaction.get(deviceRef), transaction.get(accessRef),
+    ]);
     if (!member.exists || member.get("active") !== true) throw new HttpsError("not-found", "Član nije pronađen.");
     const deviceDisplayName = trustedDeviceName(device);
     const timestamp = now();
     transaction.update(memberRef, { active: false, removedAt: timestamp, removedBy: uid });
     transaction.update(pantryRef, { memberUids: FieldValue.arrayRemove(memberUid), revision: FieldValue.increment(1), updatedAt: timestamp });
+    if (access.exists && access.get("pantryId") === pantryId) transaction.delete(accessRef);
     transaction.create(pantryRef.collection("activities").doc(), {
       type: "MEMBER_REMOVED", aggregateId: memberUid,
       displayLabel: String(member.get("displayName") || "Član").slice(0, 100),
@@ -252,7 +297,12 @@ export const deletePantry = onCall(callable, async (request) => {
   await requireOwner(pantryId, uid);
   const deviceDisplayName = trustedDeviceName(await db.doc(`users/${uid}/devices/${deviceId}`).get());
   const timestamp = now();
-  const invitations = await db.collection("inviteCodes").where("pantryId", "==", pantryId).limit(100).get();
+  const [invitations, members] = await Promise.all([
+    db.collection("inviteCodes").where("pantryId", "==", pantryId).limit(100).get(),
+    db.collection(`pantries/${pantryId}/members`).where("active", "==", true).limit(PANTRY_LIMITS.members + 1).get(),
+  ]);
+  const accessRefs = members.docs.map((member) => db.doc(`userPantryAccess/${member.id}`));
+  const accessDocuments = accessRefs.length > 0 ? await db.getAll(...accessRefs) : [];
   const batch = db.batch();
   batch.update(db.doc(`pantries/${pantryId}`), {
     deletedAt: timestamp, purgeAfter: daysFromNow(30), updatedAt: timestamp, revision: FieldValue.increment(1),
@@ -262,6 +312,9 @@ export const deletePantry = onCall(callable, async (request) => {
     actorUid: uid, deviceId, deviceDisplayName, createdAt: timestamp, expiresAt: daysFromNow(365),
   });
   invitations.docs.forEach((invite) => batch.set(invite.ref, { revokedAt: timestamp }, { merge: true }));
+  accessDocuments.forEach((access) => {
+    if (access.exists && access.get("pantryId") === pantryId) batch.delete(access.ref);
+  });
   await batch.commit();
   return { status: "OK", purgeAfter: daysFromNow(30).toMillis() };
 });
@@ -275,6 +328,29 @@ function trustedDeviceName(device: { exists: boolean; get(field: string): unknow
     throw new HttpsError("failed-precondition", "Registrirani uređaj nema ispravan naziv.");
   }
   return name.trim();
+}
+
+function pantryResponse(pantry: DocumentSnapshot, member: DocumentSnapshot) {
+  const createdAt = pantry.get("createdAt");
+  const updatedAt = pantry.get("updatedAt");
+  const joinedAt = member.get("joinedAt");
+  return {
+    pantry: {
+      id: pantry.id,
+      name: pantry.get("name"),
+      ownerUid: pantry.get("ownerUid"),
+      revision: Number(pantry.get("revision") || 0),
+      createdAt: createdAt?.toMillis?.() ?? Number(createdAt || Date.now()),
+      updatedAt: updatedAt?.toMillis?.() ?? Number(updatedAt || Date.now()),
+    },
+    member: {
+      uid: member.id,
+      displayName: member.get("displayName") || "Korisnik",
+      photoUrl: member.get("photoUrl") || null,
+      role: member.get("role") || "MEMBER",
+      joinedAt: joinedAt?.toMillis?.() ?? Number(joinedAt || Date.now()),
+    },
+  };
 }
 
 export const purgeTrash = onCall(callable, async (request) => {

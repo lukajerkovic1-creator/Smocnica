@@ -1,4 +1,4 @@
-export const BACKEND_API_VERSION = 2;
+export const BACKEND_API_VERSION = 3;
 
 export const BACKEND_CAPABILITIES = [
   "operation:delete_shopping",
@@ -6,6 +6,7 @@ export const BACKEND_CAPABILITIES = [
   "notification-privacy:v1",
   "trusted-audit:v1",
   "canonical-category:v1",
+  "single-active-pantry:v1",
 ] as const;
 
 export const CALLABLE_FUNCTIONS = [
