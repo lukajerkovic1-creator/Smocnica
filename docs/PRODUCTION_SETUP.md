@@ -92,8 +92,8 @@ Produkcijsko stanje ponovno potvrđeno 20. srpnja 2026.:
 - Firestore `(default)`: `europe-west1`;
 - Storage bucket: `gs://smocnica-aplikacija.firebasestorage.app`, `europe-west1`, Standard;
 - objavljena su aktualna Firestore i Storage pravila te indeksi;
-- aktivno je svih 15 očekivanih Node.js 22 funkcija u `europe-west1`, uključujući `getBackendCapabilities` API 3 i `single-active-pantry:v1`;
-- svih 15 funkcija objavljeno je iz commita `c0730c8b30ee2693c9a44ca61652dfdeea517d13` s istim Firebase source hashom `2b7e3a70639629cfae76b970f1fc1f5951940dc4`;
+- aktivno je svih 15 očekivanih Node.js 22 funkcija u `europe-west1`, uključujući `getBackendCapabilities` API 4, `single-active-pantry:v1` i `canonical-names:v1`;
+- svih 15 funkcija objavljeno je iz commita `2c0e215afc2631504289fa3a33f7a8742434d2c9` s istim Firebase source hashom `49ac1ee35c603d4bc7ee8ec7a235cd029c1557ef`;
 - produkcijski smoke provjerio je capability odgovor i svih 11 zaštićenih callable funkcija; dokaz je u `docs/PRODUCTION_BACKEND_SMOKE.json`;
 - Artifact Registry automatski briše build slike starije od 7 dana radi ograničenja troška.
 
