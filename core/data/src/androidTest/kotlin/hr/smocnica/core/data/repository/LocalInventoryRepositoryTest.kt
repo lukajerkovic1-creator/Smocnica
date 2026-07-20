@@ -19,6 +19,9 @@ import hr.smocnica.core.domain.ImportStrategy
 import hr.smocnica.core.model.Pantry
 import hr.smocnica.core.model.PantrySnapshot
 import hr.smocnica.core.model.Product
+import hr.smocnica.core.model.ProductFilter
+import hr.smocnica.core.model.Category
+import hr.smocnica.core.model.Shelf
 import hr.smocnica.core.model.SyncState
 import hr.smocnica.core.model.ShoppingItem
 import hr.smocnica.core.model.AggregateType
@@ -66,7 +69,7 @@ class LocalInventoryRepositoryTest {
     @Test
     fun productStockAndOutboxAreCommittedTogether() = runTest {
         val product = repository.upsertProduct(
-            Product("", "p1", "Riža 1 kg", minimumQuantity = 3, createdAt = 1, updatedAt = 1),
+            Product("", "p1", "Riža 1 kg", category = "Ostalo", categoryId = "cat-other", minimumQuantity = 3, createdAt = 1, updatedAt = 1),
             "u1",
             "Test uređaj",
         )
@@ -82,6 +85,7 @@ class LocalInventoryRepositoryTest {
             val shopping = awaitItem().single()
             assertEquals("auto_${product.id}", shopping.id)
             assertEquals(2, shopping.requiredQuantity)
+            assertEquals("cat-other", shopping.categoryId)
             cancelAndIgnoreRemainingEvents()
         }
         assertEquals(2, database.operationDao().next().size)
@@ -116,14 +120,66 @@ class LocalInventoryRepositoryTest {
     }
 
     @Test
+    fun productFilterUsesCanonicalCategoryIdInsteadOfDisplayName() = runTest {
+        database.categoryDao().upsert(CategoryEntity("cat-food", "p1", "Hrana", 1, false, 1, null, null, SyncState.SYNCED))
+        repository.upsertProduct(
+            Product("", "p1", "Riža", category = "Zastarjeli naziv", categoryId = "cat-food", createdAt = 1, updatedAt = 1),
+            "u1", "Test uređaj",
+        )
+        repository.upsertProduct(
+            Product("", "p1", "Sol", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
+            "u1", "Test uređaj",
+        )
+
+        repository.observeProducts("p1", ProductFilter(categoryIds = setOf("cat-food"))).test {
+            assertEquals(listOf("Riža"), awaitItem().map { it.product.name })
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun shelfAndCategoryNamesAreUniqueAfterCanonicalNormalization() = runTest {
+        val shelf = repository.createShelf("p1", "  Nova   POLICA ", "u1", "Test uređaj")
+        assertEquals("Nova POLICA", shelf.name)
+        assertTrue(runCatching { repository.createShelf("p1", "nova polica", "u1", "Test uređaj") }.isFailure)
+
+        val category = repository.upsertCategory(Category("", "p1", "  PiĆa  ", 1, isDefault = true), "u1", "Test uređaj")
+        assertEquals("PiĆa", category.name)
+        assertEquals(false, category.isDefault)
+        assertTrue(runCatching {
+            repository.upsertCategory(Category("", "p1", "pića", 2, isDefault = false), "u1", "Test uređaj")
+        }.isFailure)
+        assertEquals(1, database.categoryDao().listActive("p1").count { it.isDefault })
+    }
+
+    @Test
+    fun categoryRenameUpdatesLinkedRowsByIdEvenWhenDisplayTextIsStale() = runTest {
+        val category = repository.upsertCategory(Category("", "p1", "Pića", 1), "u1", "Test uređaj")
+        database.shoppingDao().upsert(
+            ShoppingEntity(
+                id = "manual-stale", pantryId = "p1", productId = null, name = "Sok", category = "Pogrešan tekst",
+                requiredQuantity = 1, checked = false, manual = true, revision = 1, createdAt = 1, updatedAt = 1,
+                deletedAt = null, syncState = SyncState.SYNCED, categoryId = category.id,
+            ),
+        )
+        repository.upsertCategory(category.copy(name = "Napitci", isDefault = true), "u1", "Test uređaj")
+
+        val linked = database.shoppingDao().get("manual-stale")!!
+        assertEquals(category.id, linked.categoryId)
+        assertEquals("Napitci", linked.category)
+        assertEquals(1, database.categoryDao().listActive("p1").count { it.isDefault })
+    }
+
+    @Test
     fun identicalManualShoppingItemsAreMergedAndReactivated() = runTest {
-        repository.addManualShoppingItem("p1", "  Mlijeko   bez laktoze ", "ostalo", 1, "u1", "Test uređaj", checked = true)
-        repository.addManualShoppingItem("p1", "mlijeko bez laktoze", "Ostalo", 2, "u1", "Test uređaj")
+        repository.addManualShoppingItem("p1", "  Mlijeko   bez laktoze ", "cat-other", 1, "u1", "Test uređaj", checked = true)
+        repository.addManualShoppingItem("p1", "mlijeko bez laktoze", "cat-other", 2, "u1", "Test uređaj")
 
         val active = database.shoppingDao().listActive("p1")
         assertEquals(1, active.size)
         assertEquals("Mlijeko bez laktoze", active.single().name)
         assertEquals("Ostalo", active.single().category)
+        assertEquals("cat-other", active.single().categoryId)
         assertEquals(3, active.single().requiredQuantity)
         assertEquals(false, active.single().checked)
         assertEquals(1, database.operationDao().next().size)
@@ -173,7 +229,7 @@ class LocalInventoryRepositoryTest {
     @Test
     fun removingMoreThanAvailableWritesNothing() = runTest {
         val product = repository.upsertProduct(
-            Product("", "p1", "Sol", createdAt = 1, updatedAt = 1), "u1", "Test uređaj",
+            Product("", "p1", "Sol", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1), "u1", "Test uređaj",
         )
         val before = database.operationDao().next().size
         runCatching { repository.adjustStock(product.id, "s1", -1, "u1", "Test uređaj") }
@@ -184,7 +240,7 @@ class LocalInventoryRepositoryTest {
     @Test
     fun inventoryDraftSurvivesObservationAndCanBeDiscarded() = runTest {
         val product = repository.upsertProduct(
-            Product("", "p1", "Sol", createdAt = 1, updatedAt = 1), "u1", "Test uređaj",
+            Product("", "p1", "Sol", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1), "u1", "Test uređaj",
         )
         val draft = repository.previewInventory("p1", "s1", mapOf(product.id to 0), "u1", "Test uređaj")
         repository.observeInventoryDraft("p1").test {
@@ -214,9 +270,28 @@ class LocalInventoryRepositoryTest {
     }
 
     @Test
+    fun importRejectsCanonicalDuplicateNamesBeforeAnyWrite() = runTest {
+        val snapshot = PantrySnapshot(
+            pantry = Pantry("source", "Izvor", "u1", createdAt = 1, updatedAt = 1),
+            members = emptyList(),
+            shelves = listOf(
+                Shelf("duplicate-a", "source", "Nova   polica", 0, createdAt = 1, updatedAt = 1),
+                Shelf("duplicate-b", "source", "  NOVA polica ", 1, createdAt = 1, updatedAt = 1),
+            ),
+            categories = listOf(Category("source-default", "source", "Ostalo", 0, isDefault = true)),
+            products = emptyList(), stocks = emptyList(), shoppingItems = emptyList(), activities = emptyList(),
+        )
+        val forged = ImportPreview(2, "Izvor", 2, 0, 0, snapshot, conflicts = emptyList())
+
+        assertTrue(runCatching { backup.import(forged, ImportStrategy.MERGE, "p1", "u1", "Test uređaj") }.isFailure)
+        assertEquals(null, database.shelfDao().get("duplicate-a"))
+        assertEquals(null, database.shelfDao().get("duplicate-b"))
+    }
+
+    @Test
     fun outboxPreservesInsertionOrderWhenOperationsShareTimestamp() = runTest {
         val product = repository.upsertProduct(
-            Product("", "p1", "Riža", createdAt = 1, updatedAt = 1), "u1", "Test uređaj",
+            Product("", "p1", "Riža", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1), "u1", "Test uređaj",
         )
         repository.adjustStock(product.id, "s1", 1, "u1", "Test uređaj")
         val appliedTypes = mutableListOf<String>()
@@ -268,7 +343,7 @@ class LocalInventoryRepositoryTest {
     fun deletedBarcodeCannotBeReplacedByANewProduct() = runTest {
         val barcode = "4006381333931"
         val original = repository.upsertProduct(
-            Product("", "p1", "Original", barcode = barcode, createdAt = 1, updatedAt = 1),
+            Product("", "p1", "Original", barcode = barcode, category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
             "u1",
             "Test uređaj",
         )
@@ -276,7 +351,7 @@ class LocalInventoryRepositoryTest {
 
         val result = runCatching {
             repository.upsertProduct(
-                Product("", "p1", "Duplikat", barcode = barcode, createdAt = 1, updatedAt = 1),
+                Product("", "p1", "Duplikat", barcode = barcode, category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
                 "u1",
                 "Test uređaj",
             )
@@ -291,7 +366,7 @@ class LocalInventoryRepositoryTest {
     @Test
     fun restoringDeletedProductAndAddingStockIsOneLocalTransaction() = runTest {
         val product = repository.upsertProduct(
-            Product("", "p1", "Sok", barcode = "4006381333931", createdAt = 1, updatedAt = 1),
+            Product("", "p1", "Sok", barcode = "4006381333931", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
             "u1",
             "Test uređaj",
         )

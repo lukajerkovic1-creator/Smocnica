@@ -70,6 +70,10 @@ export function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
+export function normalizedName(value: string): string {
+  return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("hr");
+}
+
 const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export function invitationCode(length = 16): string {
   const bytes = randomBytes(length);

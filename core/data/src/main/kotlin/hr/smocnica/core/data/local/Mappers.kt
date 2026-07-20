@@ -19,8 +19,9 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.text.Normalizer
 
-internal fun String.searchKey(): String = Normalizer.normalize(trim().lowercase(), Normalizer.Form.NFD)
-    .replace("\\p{Mn}+".toRegex(), "")
+internal fun String.searchKey(): String = Normalizer.normalize(trim(), Normalizer.Form.NFKC)
+    .replace(Regex("\\s+"), " ")
+    .lowercase(java.util.Locale.forLanguageTag("hr"))
 
 internal fun PantryEntity.model() = Pantry(id, name, ownerUid, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState)
 internal fun Pantry.entity() = PantryEntity(id, name, ownerUid, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState)
@@ -29,10 +30,10 @@ internal fun MemberEntity.model() = Member(pantryId, uid, displayName, photoUrl,
 internal fun Member.entity() = MemberEntity(pantryId, uid, displayName, photoUrl, role.name, joinedAt, active)
 
 internal fun ShelfEntity.model() = Shelf(id, pantryId, name, sortOrder, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState)
-internal fun Shelf.entity() = ShelfEntity(id, pantryId, name, sortOrder, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState)
+internal fun Shelf.entity() = ShelfEntity(id, pantryId, name, sortOrder, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState, name.searchKey())
 
 internal fun CategoryEntity.model() = Category(id, pantryId, name, sortOrder, isDefault, revision, deletedAt, purgeAfter, syncState)
-internal fun Category.entity() = CategoryEntity(id, pantryId, name, sortOrder, isDefault, revision, deletedAt, purgeAfter, syncState)
+internal fun Category.entity() = CategoryEntity(id, pantryId, name, sortOrder, isDefault, revision, deletedAt, purgeAfter, syncState, name.searchKey())
 
 internal fun ProductEntity.model() = Product(
     id = id,
@@ -80,11 +81,11 @@ internal fun Stock.entity() = StockEntity(pantryId, productId, shelfId, quantity
 
 internal fun ShoppingEntity.model() = ShoppingItem(
     id, pantryId, productId, name, category, requiredQuantity, checked, manual,
-    revision, createdAt, updatedAt, deletedAt, syncState,
+    revision, createdAt, updatedAt, deletedAt, syncState, categoryId.orEmpty(),
 )
 internal fun ShoppingItem.entity() = ShoppingEntity(
     id, pantryId, productId, name, category, requiredQuantity, checked, manual,
-    revision, createdAt, updatedAt, deletedAt, syncState,
+    revision, createdAt, updatedAt, deletedAt, syncState, categoryId.ifBlank { null },
 )
 
 internal fun ActivityEntity.model() = Activity(

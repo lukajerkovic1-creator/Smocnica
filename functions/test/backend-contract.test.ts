@@ -15,11 +15,12 @@ describe("production backend contract", () => {
       capabilities: BACKEND_CAPABILITIES,
       functions: BACKEND_FUNCTIONS,
     });
-    expect(BACKEND_API_VERSION).toBeGreaterThanOrEqual(3);
+    expect(BACKEND_API_VERSION).toBeGreaterThanOrEqual(4);
     expect(BACKEND_CAPABILITIES).toContain("operation:delete_shopping");
     expect(BACKEND_CAPABILITIES).toContain("device-registration:v2");
     expect(BACKEND_CAPABILITIES).toContain("notification-privacy:v1");
     expect(BACKEND_CAPABILITIES).toContain("single-active-pantry:v1");
+    expect(BACKEND_CAPABILITIES).toContain("canonical-names:v1");
   });
 
   it("keeps the deploy manifest equal to every exported function", () => {

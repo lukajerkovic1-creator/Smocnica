@@ -261,7 +261,7 @@ fun ProductDetailScreen(
                     }
                 }
                 item {
-                    Button({ viewModel.addShopping(item.product.name, item.product.category, 1) }, Modifier.fillMaxWidth()) { Text("Dodaj na popis za kupnju") }
+                    Button({ viewModel.addShopping(item.product.name, item.product.categoryId, 1) }, Modifier.fillMaxWidth()) { Text("Dodaj na popis za kupnju") }
                     TextButton({ deleting = true }, Modifier.fillMaxWidth()) { Icon(Icons.Outlined.DeleteOutline, null); Text("Obriši artikl", Modifier.padding(start = 6.dp)) }
                 }
             }

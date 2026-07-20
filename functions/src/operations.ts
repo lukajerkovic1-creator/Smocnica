@@ -2,7 +2,7 @@ import { FieldValue, Transaction, DocumentReference, DocumentSnapshot, Timestamp
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db, daysFromNow, now } from "./firebase";
 import { PANTRY_LIMITS, assertFinalResourceLimit, assertResourceLimit } from "./limits";
-import { Data, authUid, barcode, boolean, integer, object, safeId, sha256, stringArray, text } from "./validation";
+import { Data, authUid, barcode, boolean, integer, normalizedName, object, safeId, sha256, stringArray, text } from "./validation";
 
 const callable = { region: "europe-west1", enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== "true", timeoutSeconds: 60, memory: "512MiB" as const };
 const metadataTypes = new Set(["rename_shelf", "reorder_shelves", "reorder_categories", "delete_shelf", "upsert_category", "delete_category", "upsert_product", "upsert_shopping", "delete_shopping", "soft_delete", "restore"]);
@@ -117,28 +117,46 @@ async function createShelf({ tx, pantryRef, payload, timestamp }: HandlerContext
   const shelf = object(payload.shelf, "shelf");
   const id = safeId(text(shelf, "id"));
   const name = text(shelf, "name", 1, 100);
+  const normalized = normalizedName(name);
   const ref = pantryRef.collection("shelves").doc(id);
-  const [existing, active] = await Promise.all([
+  const nameRef = pantryRef.collection("shelfNames").doc(sha256(normalized));
+  const [existing, active, reserved] = await Promise.all([
     tx.get(ref),
     tx.get(pantryRef.collection("shelves").where("deletedAt", "==", null).limit(PANTRY_LIMITS.shelves + 1)),
+    tx.get(nameRef),
   ]);
   if (existing.exists) throw new HttpsError("already-exists", "Polica već postoji.");
   assertResourceLimit(active.size, PANTRY_LIMITS.shelves, "polica");
+  assertUniqueNormalizedName(active.docs, normalized, id, "Polica");
+  if (reserved.exists && reserved.get("shelfId") !== id) throw new HttpsError("already-exists", "Aktivna polica s tim nazivom već postoji.");
   tx.create(ref, {
-    name, sortOrder: integer(shelf, "sortOrder", 0, 10_000),
+    name, normalizedName: normalized, sortOrder: integer(shelf, "sortOrder", 0, 10_000),
     revision: 1, createdAt: timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
   });
+  tx.set(nameRef, { normalizedName: normalized, shelfId: id, updatedAt: timestamp });
   return { revision: 1, activity: { shelfId: id, displayLabel: name } };
 }
 
 async function renameShelf({ tx, pantryRef, payload, baseRevision, timestamp }: HandlerContext): Promise<HandlerResult> {
   const id = safeId(text(payload, "shelfId"));
   const name = text(payload, "name", 1, 100);
+  const normalized = normalizedName(name);
   const ref = pantryRef.collection("shelves").doc(id);
   const shelf = await tx.get(ref);
   assertRevision(shelf, baseRevision, "Polica");
+  const oldNormalized = documentNormalizedName(shelf);
+  const newNameRef = pantryRef.collection("shelfNames").doc(sha256(normalized));
+  const oldNameRef = pantryRef.collection("shelfNames").doc(sha256(oldNormalized));
+  const [active, reserved] = await Promise.all([
+    tx.get(pantryRef.collection("shelves").where("deletedAt", "==", null).limit(PANTRY_LIMITS.shelves + 1)),
+    tx.get(newNameRef),
+  ]);
+  assertUniqueNormalizedName(active.docs, normalized, id, "Polica");
+  if (reserved.exists && reserved.get("shelfId") !== id) throw new HttpsError("already-exists", "Aktivna polica s tim nazivom već postoji.");
   const revision = baseRevision + 1;
-  tx.update(ref, { name, revision, updatedAt: timestamp });
+  tx.update(ref, { name, normalizedName: normalized, revision, updatedAt: timestamp });
+  tx.set(newNameRef, { normalizedName: normalized, shelfId: id, updatedAt: timestamp });
+  if (oldNameRef.path !== newNameRef.path) tx.delete(oldNameRef);
   return { revision, activity: { shelfId: id, displayLabel: name } };
 }
 
@@ -181,6 +199,7 @@ async function deleteShelf({ tx, pantryRef, payload, baseRevision, timestamp }: 
   if (!occupied.empty) throw new HttpsError("failed-precondition", "Polica se može obrisati tek kada je prazna.");
   const revision = baseRevision + 1;
   tx.update(ref, { deletedAt: timestamp, purgeAfter: daysFromNow(30), revision, updatedAt: timestamp });
+  tx.delete(pantryRef.collection("shelfNames").doc(sha256(documentNormalizedName(shelf))));
   return {
     revision,
     activity: { shelfId: id, displayLabel: serverActivityLabel(shelf.get("name"), "Polica") },
@@ -193,31 +212,44 @@ async function upsertCategory({ tx, pantryRef, payload, baseRevision, timestamp 
   const ref = pantryRef.collection("categories").doc(id);
   const existing = await tx.get(ref);
   if (existing.exists && Number(existing.get("revision") || 0) !== baseRevision) return conflict(Number(existing.get("revision") || 0));
-  if (!existing.exists || existing.get("deletedAt")) {
-    const active = await tx.get(pantryRef.collection("categories").where("deletedAt", "==", null).limit(PANTRY_LIMITS.categories + 1));
-    assertResourceLimit(active.size, PANTRY_LIMITS.categories, "kategorija");
-  }
   const name = text(category, "name", 1, 100);
+  const normalized = normalizedName(name);
+  const newNameRef = pantryRef.collection("categoryNames").doc(sha256(normalized));
+  const oldNormalized = existing.exists ? documentNormalizedName(existing) : normalized;
+  const oldNameRef = pantryRef.collection("categoryNames").doc(sha256(oldNormalized));
+  const active = await tx.get(pantryRef.collection("categories").where("deletedAt", "==", null).limit(PANTRY_LIMITS.categories + 1));
+  const reserved = await tx.get(newNameRef);
+  const renamed = existing.exists && existing.get("name") !== name;
+  const [products, shopping] = renamed ? await Promise.all([
+    tx.get(pantryRef.collection("products").where("categoryId", "==", id)),
+    tx.get(pantryRef.collection("shoppingItems").where("categoryId", "==", id)),
+  ]) : [null, null];
+  if (!existing.exists || existing.get("deletedAt")) assertResourceLimit(active.size, PANTRY_LIMITS.categories, "kategorija");
+  assertUniqueNormalizedName(active.docs, normalized, id, "Kategorija");
+  if (reserved.exists && reserved.get("categoryId") !== id) throw new HttpsError("already-exists", "Aktivna kategorija s tim nazivom već postoji.");
   if (existing.exists && existing.get("name") !== name) {
-    const [products, shopping] = await Promise.all([
-      tx.get(pantryRef.collection("products").where("category", "==", existing.get("name"))),
-      tx.get(pantryRef.collection("shoppingItems").where("category", "==", existing.get("name"))),
-    ]);
-    if (products.size + shopping.size > 400) throw new HttpsError("resource-exhausted", "Previše zapisa za atomarno preimenovanje kategorije.");
-    products.docs.forEach((product) => tx.update(product.ref, {
+    if (products!.size + shopping!.size > 400) throw new HttpsError("resource-exhausted", "Previše zapisa za atomarno preimenovanje kategorije.");
+    products!.docs.forEach((product) => tx.update(product.ref, {
       category: name, revision: FieldValue.increment(1), updatedAt: timestamp,
     }));
-    shopping.docs.forEach((item) => tx.update(item.ref, {
-      category: name, revision: FieldValue.increment(1), updatedAt: timestamp,
+    shopping!.docs.forEach((item) => tx.update(item.ref, {
+      categoryId: id, category: name, revision: FieldValue.increment(1), updatedAt: timestamp,
     }));
   }
   const revision = existing.exists ? baseRevision + 1 : 1;
+  const defaultCategoryId = canonicalDefaultCategoryId(active.docs, id, normalized, existing);
   tx.set(ref, {
-    name, sortOrder: integer(category, "sortOrder", 0, 10_000),
-    isDefault: boolean(category, "isDefault", false), revision,
+    name, normalizedName: normalized, sortOrder: integer(category, "sortOrder", 0, 10_000),
+    isDefault: defaultCategoryId === id, revision,
     createdAt: existing.get("createdAt") || timestamp, updatedAt: timestamp,
     deletedAt: null, purgeAfter: null,
   }, { merge: true });
+  active.docs.filter((document) => document.id !== id).forEach((document) => {
+    const shouldBeDefault = document.id === defaultCategoryId;
+    if (document.get("isDefault") !== shouldBeDefault) tx.update(document.ref, { isDefault: shouldBeDefault, updatedAt: timestamp });
+  });
+  tx.set(newNameRef, { normalizedName: normalized, categoryId: id, updatedAt: timestamp });
+  if (oldNameRef.path !== newNameRef.path) tx.delete(oldNameRef);
   return revision;
 }
 
@@ -226,23 +258,26 @@ async function deleteCategory({ tx, pantryRef, payload, baseRevision, timestamp 
   const replacementId = safeId(text(payload, "replacementCategoryId"));
   const categoryRef = pantryRef.collection("categories").doc(id);
   const replacementRef = pantryRef.collection("categories").doc(replacementId);
-  const [category, replacement] = await Promise.all([tx.get(categoryRef), tx.get(replacementRef)]);
+  if (id === replacementId) throw new HttpsError("invalid-argument", "Zamjenska kategorija mora biti različita.");
+  const [category, replacement, products, shopping] = await Promise.all([
+    tx.get(categoryRef),
+    tx.get(replacementRef),
+    tx.get(pantryRef.collection("products").where("categoryId", "==", id)),
+    tx.get(pantryRef.collection("shoppingItems").where("categoryId", "==", id)),
+  ]);
   assertRevision(category, baseRevision, "Kategorija");
   if (category.get("isDefault") === true) throw new HttpsError("failed-precondition", "Zadana kategorija ne može se obrisati.");
   if (!replacement.exists || replacement.get("deletedAt")) throw new HttpsError("failed-precondition", "Zamjenska kategorija nije dostupna.");
-  const [products, shopping] = await Promise.all([
-    tx.get(pantryRef.collection("products").where("category", "==", category.get("name"))),
-    tx.get(pantryRef.collection("shoppingItems").where("category", "==", category.get("name"))),
-  ]);
   if (products.size + shopping.size > 400) throw new HttpsError("resource-exhausted", "Previše zapisa za atomarno brisanje kategorije.");
   products.docs.forEach((product) => tx.update(product.ref, {
     categoryId: replacementId, category: replacement.get("name"), revision: FieldValue.increment(1), updatedAt: timestamp,
   }));
   shopping.docs.forEach((item) => tx.update(item.ref, {
-    category: replacement.get("name"), revision: FieldValue.increment(1), updatedAt: timestamp,
+    categoryId: replacementId, category: replacement.get("name"), revision: FieldValue.increment(1), updatedAt: timestamp,
   }));
   const revision = baseRevision + 1;
   tx.update(categoryRef, { deletedAt: timestamp, purgeAfter: daysFromNow(30), revision, updatedAt: timestamp });
+  tx.delete(pantryRef.collection("categoryNames").doc(sha256(documentNormalizedName(category))));
   return revision;
 }
 
@@ -258,23 +293,12 @@ async function upsertProduct(context: HandlerContext): Promise<HandlerResult> {
     const active = await tx.get(pantryRef.collection("products").where("deletedAt", "==", null).limit(PANTRY_LIMITS.products + 1));
     assertResourceLimit(active.size, PANTRY_LIMITS.products, "artikala");
   }
-  let categoryId: string;
-  let categoryName: string;
-  if (typeof product.categoryId === "string" && product.categoryId.trim() !== "") {
-    categoryId = safeId(product.categoryId, "categoryId");
-    const categoryDocument = await tx.get(pantryRef.collection("categories").doc(categoryId));
-    if (!categoryDocument.exists || categoryDocument.get("deletedAt")) {
-      throw new HttpsError("failed-precondition", "Kategorija nije dostupna.");
-    }
-    categoryName = text({ name: categoryDocument.get("name") }, "name", 1, 100);
-  } else {
-    const legacyName = text(product, "category", 1, 100);
-    const matches = await tx.get(pantryRef.collection("categories").where("name", "==", legacyName).limit(2));
-    const active = matches.docs.filter((document) => !document.get("deletedAt"));
-    if (active.length !== 1) throw new HttpsError("failed-precondition", "Kategorija nije dostupna.");
-    categoryId = active[0]!.id;
-    categoryName = text({ name: active[0]!.get("name") }, "name", 1, 100);
+  const categoryId = safeId(text(product, "categoryId"), "categoryId");
+  const categoryDocument = await tx.get(pantryRef.collection("categories").doc(categoryId));
+  if (!categoryDocument.exists || categoryDocument.get("deletedAt")) {
+    throw new HttpsError("failed-precondition", "Kategorija nije dostupna.");
   }
+  const categoryName = text({ name: categoryDocument.get("name") }, "name", 1, 100);
   const code = barcode(product.barcode);
   const oldCode = existing.exists ? (existing.get("barcode") as string | null) : null;
   const newReservation = code ? db.doc(`barcodes/${sha256(`${pantryId}:${code}`)}`) : null;
@@ -302,7 +326,7 @@ async function upsertProduct(context: HandlerContext): Promise<HandlerResult> {
   const totalQuantity = existing.exists ? Number(existing.get("totalQuantity") || 0) : 0;
   const revision = existing.exists ? baseRevision + 1 : 1;
   tx.set(ref, {
-    name, normalizedName: name.toLocaleLowerCase("hr"),
+    name, normalizedName: normalizedName(name),
     barcode: code, description: typeof product.description === "string" ? product.description.slice(0, 500) : "",
     category: categoryName, categoryId,
     photoUrl: publicPhotoUrl ?? photoUri,
@@ -312,7 +336,7 @@ async function upsertProduct(context: HandlerContext): Promise<HandlerResult> {
   }, { merge: true });
   if (newReservation) tx.set(newReservation, { pantryId, productId: id, barcode: code, updatedAt: timestamp });
   if (oldReservation) tx.delete(oldReservation);
-  reconcileShopping(tx, shoppingRef, currentShopping, { id, name, category: categoryName }, minimum, totalQuantity, autoShopping, timestamp);
+  reconcileShopping(tx, shoppingRef, currentShopping, { id, name, category: categoryName, categoryId }, minimum, totalQuantity, autoShopping, timestamp);
   const wasBelow = existing.exists && existing.get("autoShopping") !== false &&
     totalQuantity < Number(existing.get("minimumQuantity") || 0);
   if (autoShopping && !wasBelow && totalQuantity < minimum) {
@@ -348,7 +372,9 @@ async function adjustStock(context: HandlerContext): Promise<HandlerResult> {
   tx.update(productRef, { totalQuantity: total, revision: FieldValue.increment(1), updatedAt: timestamp });
   const minimum = Number(product.get("minimumQuantity") || 0);
   const autoShopping = product.get("autoShopping") !== false;
-  reconcileShopping(tx, shoppingRef, shopping, { id: productId, name: product.get("name"), category: product.get("category") }, minimum, total, autoShopping, timestamp);
+  reconcileShopping(tx, shoppingRef, shopping, {
+    id: productId, name: product.get("name"), category: product.get("category"), categoryId: product.get("categoryId"),
+  }, minimum, total, autoShopping, timestamp);
   if (autoShopping && previousTotal >= minimum && total < minimum) {
     tx.create(pantryRef.collection("notifications").doc(operationId), {
       productId, name: product.get("name"), remaining: total, required: Math.max(minimum - total, 0), createdAt: timestamp,
@@ -420,13 +446,12 @@ async function upsertShopping({ tx, pantryRef, payload, baseRevision, timestamp 
   if (item.productId !== null && item.productId !== undefined) {
     throw new HttpsError("invalid-argument", "Ručna stavka ne smije biti povezana s artiklom.");
   }
-  const requestedCategory = text(item, "category", 1, 100);
-  const categoryMatches = await tx.get(pantryRef.collection("categories").where("name", "==", requestedCategory).limit(2));
-  const activeCategory = categoryMatches.docs.find((category) => !category.get("deletedAt"));
-  if (!activeCategory) throw new HttpsError("failed-precondition", "Odabrana kategorija nije aktivna.");
+  const categoryId = safeId(text(item, "categoryId"), "categoryId");
+  const activeCategory = await tx.get(pantryRef.collection("categories").doc(categoryId));
+  if (!activeCategory.exists || activeCategory.get("deletedAt")) throw new HttpsError("failed-precondition", "Odabrana kategorija nije aktivna.");
   tx.set(ref, {
     productId: null,
-    name: text(item, "name", 1, 100), category: activeCategory.get("name"),
+    name: text(item, "name", 1, 100), categoryId, category: activeCategory.get("name"),
     requiredQuantity: integer(item, "requiredQuantity", 1, 1_000_000),
     checked: boolean(item, "checked"), manual: true, revision,
     createdAt: existing.get("createdAt") || timestamp, updatedAt: timestamp, deletedAt: null,
@@ -489,7 +514,9 @@ async function applyInventory({ tx, pantryRef, payload, baseRevision, operationI
     tx.update(productRefs[index]!, { totalQuantity: total, revision: FieldValue.increment(1), updatedAt: timestamp });
     const minimum = Number(product.get("minimumQuantity") || 0);
     const auto = product.get("autoShopping") !== false;
-    reconcileShopping(tx, shoppingRefs[index]!, shoppingDocs[index]!, { id: productIds[index]!, name: product.get("name"), category: product.get("category") }, minimum, total, auto, timestamp);
+    reconcileShopping(tx, shoppingRefs[index]!, shoppingDocs[index]!, {
+      id: productIds[index]!, name: product.get("name"), category: product.get("category"), categoryId: product.get("categoryId"),
+    }, minimum, total, auto, timestamp);
     if (auto && previousTotal >= minimum && total < minimum) {
       tx.set(pantryRef.collection("notifications").doc(`${operationId}_${index}`), {
         productId: productIds[index], name: product.get("name"), remaining: total,
@@ -522,8 +549,13 @@ async function softDelete({ tx, pantryRef, payload, baseRevision, timestamp }: H
     shoppingRef ? tx.get(shoppingRef) : Promise.resolve(null),
   ]);
   assertRevision(doc, baseRevision, "Zapis");
+  if (kind === "CATEGORY" && doc.get("isDefault") === true) {
+    throw new HttpsError("failed-precondition", "Zadana kategorija ne može se obrisati.");
+  }
   const revision = baseRevision + 1;
   tx.update(ref, { deletedAt: timestamp, purgeAfter: daysFromNow(30), revision, updatedAt: timestamp });
+  if (kind === "SHELF") tx.delete(pantryRef.collection("shelfNames").doc(sha256(documentNormalizedName(doc))));
+  if (kind === "CATEGORY") tx.delete(pantryRef.collection("categoryNames").doc(sha256(documentNormalizedName(doc))));
   if (shoppingRef && shopping?.exists) {
     tx.update(shoppingRef, { deletedAt: timestamp, updatedAt: timestamp });
   }
@@ -549,6 +581,18 @@ async function restore({ tx, pantryRef, payload, timestamp }: HandlerContext): P
   const label = kind === "PRODUCT" ? "artikala" : kind === "SHELF" ? "polica" : "kategorija";
   const active = await tx.get(pantryRef.collection(collectionForAggregate(kind)).where("deletedAt", "==", null).limit(limit + 1));
   assertResourceLimit(active.size, limit, label);
+  const restoredNormalized = kind === "SHELF" || kind === "CATEGORY" ? documentNormalizedName(doc) : null;
+  const restoredNameRef = kind === "SHELF" && restoredNormalized
+    ? pantryRef.collection("shelfNames").doc(sha256(restoredNormalized))
+    : kind === "CATEGORY" && restoredNormalized
+      ? pantryRef.collection("categoryNames").doc(sha256(restoredNormalized))
+      : null;
+  const restoredReservation = restoredNameRef ? await tx.get(restoredNameRef) : null;
+  if (restoredNormalized) {
+    assertUniqueNormalizedName(active.docs, restoredNormalized, id, kind === "SHELF" ? "Polica" : "Kategorija");
+    const reservedId = restoredReservation?.get(kind === "SHELF" ? "shelfId" : "categoryId");
+    if (restoredReservation?.exists && reservedId !== id) throw new HttpsError("already-exists", "Aktivan zapis s tim nazivom već postoji.");
+  }
   if (kind === "PRODUCT" && typeof doc.get("barcode") === "string") {
     const code = String(doc.get("barcode"));
     const reservationRef = db.doc(`barcodes/${sha256(`${pantryRef.id}:${code}`)}`);
@@ -557,11 +601,22 @@ async function restore({ tx, pantryRef, payload, timestamp }: HandlerContext): P
     tx.set(reservationRef, { pantryId: pantryRef.id, productId: id, barcode: code, updatedAt: timestamp });
   }
   const revision = Number(doc.get("revision") || 0) + 1;
-  tx.update(ref, { deletedAt: null, purgeAfter: null, revision, updatedAt: timestamp });
+  tx.update(ref, {
+    deletedAt: null, purgeAfter: null, revision, updatedAt: timestamp,
+    ...(restoredNormalized ? { normalizedName: restoredNormalized } : {}),
+    ...(kind === "CATEGORY" ? { isDefault: false } : {}),
+  });
+  if (restoredNameRef && restoredNormalized) {
+    tx.set(restoredNameRef, {
+      normalizedName: restoredNormalized,
+      [kind === "SHELF" ? "shelfId" : "categoryId"]: id,
+      updatedAt: timestamp,
+    });
+  }
   if (kind === "PRODUCT" && shoppingRef && shopping) {
     reconcileShopping(
       tx, shoppingRef, shopping,
-      { id, name: doc.get("name"), category: doc.get("category") },
+      { id, name: doc.get("name"), category: doc.get("category"), categoryId: doc.get("categoryId") },
       Number(doc.get("minimumQuantity") || 0), Number(doc.get("totalQuantity") || 0),
       doc.get("autoShopping") !== false, timestamp,
     );
@@ -589,11 +644,13 @@ async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerCont
   }
   const shelfEntries = shelves.map((raw) => {
     const value = object(raw); const id = safeId(text(value, "id"));
-    return { value, id, name: text(value, "name", 1, 100), sortOrder: integer(value, "sortOrder", 0, 10_000) };
+    const name = text(value, "name", 1, 100);
+    return { value, id, name, normalizedName: normalizedName(name), sortOrder: integer(value, "sortOrder", 0, 10_000) };
   });
   const categoryEntries = categories.map((raw) => {
     const value = object(raw); const id = safeId(text(value, "id"));
-    return { value, id, name: text(value, "name", 1, 100), sortOrder: integer(value, "sortOrder", 0, 10_000), isDefault: boolean(value, "isDefault", false) };
+    const name = text(value, "name", 1, 100);
+    return { value, id, name, normalizedName: normalizedName(name), sortOrder: integer(value, "sortOrder", 0, 10_000) };
   });
   const productEntries = products.map((raw) => {
     const value = object(raw);
@@ -609,9 +666,10 @@ async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerCont
     const productId = value.productId === null || value.productId === undefined ? null : safeId(text(value, "productId"));
     if (manual && (productId !== null || id.startsWith("auto_"))) throw new HttpsError("invalid-argument", "Ručna stavka ima rezerviranu vezu ili identifikator.");
     if (!manual && (productId === null || id !== `auto_${productId}`)) throw new HttpsError("invalid-argument", "Automatska stavka nema valjanu vezu s artiklom.");
+    const categoryId = typeof value.categoryId === "string" && value.categoryId.trim() !== "" ? safeId(value.categoryId, "categoryId") : null;
     return {
-      value, id, manual, productId,
-      name: text(value, "name", 1, 100), category: text(value, "category", 1, 100),
+      value, id, manual, productId, categoryId,
+      name: text(value, "name", 1, 100), legacyCategory: text(value, "category", 1, 100),
       requiredQuantity: integer(value, "requiredQuantity", 1, 1_000_000), checked: boolean(value, "checked"),
     };
   });
@@ -624,6 +682,12 @@ async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerCont
   }
   const codes = productEntries.map((entry) => entry.code).filter((code): code is string => code !== null);
   if (new Set(codes).size !== codes.length) throw new HttpsError("already-exists", "Sigurnosna kopija sadrži dupli barkod.");
+  if (new Set(shelfEntries.map((entry) => entry.normalizedName)).size !== shelfEntries.length) {
+    throw new HttpsError("already-exists", "Sigurnosna kopija sadrži duple nazive polica.");
+  }
+  if (new Set(categoryEntries.map((entry) => entry.normalizedName)).size !== categoryEntries.length) {
+    throw new HttpsError("already-exists", "Sigurnosna kopija sadrži duple nazive kategorija.");
+  }
   const incoming = {
     shelves: new Set(shelfEntries.map((entry) => entry.id)),
     categories: new Set(categoryEntries.map((entry) => entry.id)),
@@ -633,24 +697,73 @@ async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerCont
   };
   const reservationRefs = codes.map((code) => db.doc(`barcodes/${sha256(`${pantryRef.id}:${code}`)}`));
   const reservationRefByCode = new Map(codes.map((code, index) => [code, reservationRefs[index]!]));
-  const [existing, reservations] = await Promise.all([
+  const shelfNameRefs = shelfEntries.map((entry) => pantryRef.collection("shelfNames").doc(sha256(entry.normalizedName)));
+  const categoryNameRefs = categoryEntries.map((entry) => pantryRef.collection("categoryNames").doc(sha256(entry.normalizedName)));
+  const [existing, reservations, shelfNameReservations, categoryNameReservations] = await Promise.all([
     Promise.all([
       tx.get(pantryRef.collection("shelves")), tx.get(pantryRef.collection("categories")),
       tx.get(pantryRef.collection("products")), tx.get(pantryRef.collection("stocks")),
       tx.get(pantryRef.collection("shoppingItems")),
     ]),
     reservationRefs.length > 0 ? tx.getAll(...reservationRefs) : Promise.resolve([]),
+    shelfNameRefs.length > 0 ? tx.getAll(...shelfNameRefs) : Promise.resolve([]),
+    categoryNameRefs.length > 0 ? tx.getAll(...categoryNameRefs) : Promise.resolve([]),
   ]);
   const existingProducts = new Map(existing[2].docs.map((document) => [document.id, document]));
   const existingShelves = new Map(existing[0].docs.map((document) => [document.id, document]));
   const existingCategories = new Map(existing[1].docs.map((document) => [document.id, document]));
   const existingStocks = new Map(existing[3].docs.map((document) => [document.id, document]));
   const existingShopping = new Map(existing[4].docs.map((document) => [document.id, document]));
+  const finalShelfNames = new Map<string, string>();
+  const finalCategoryNames = new Map<string, string>();
+  if (!replaceExisting) {
+    existing[0].docs.filter((document) => !document.get("deletedAt")).forEach((document) => {
+      const normalized = documentNormalizedName(document);
+      const previous = finalShelfNames.get(normalized);
+      if (previous && previous !== document.id) throw new HttpsError("failed-precondition", "Postojeće police sadrže duple nazive.");
+      finalShelfNames.set(normalized, document.id);
+    });
+    existing[1].docs.filter((document) => !document.get("deletedAt")).forEach((document) => {
+      const normalized = documentNormalizedName(document);
+      const previous = finalCategoryNames.get(normalized);
+      if (previous && previous !== document.id) throw new HttpsError("failed-precondition", "Postojeće kategorije sadrže duple nazive.");
+      finalCategoryNames.set(normalized, document.id);
+    });
+  }
+  shelfEntries.forEach((entry, index) => {
+    const previous = finalShelfNames.get(entry.normalizedName);
+    if (previous && previous !== entry.id) throw new HttpsError("already-exists", "Aktivna polica s tim nazivom već postoji.");
+    const reservedId = shelfNameReservations[index]?.get("shelfId");
+    const reservedOwner = typeof reservedId === "string" ? existingShelves.get(reservedId) : undefined;
+    if (reservedId !== undefined && reservedId !== entry.id && reservedOwner && !reservedOwner.get("deletedAt")) {
+      throw new HttpsError("already-exists", "Aktivna polica s tim nazivom već postoji.");
+    }
+    finalShelfNames.set(entry.normalizedName, entry.id);
+  });
+  categoryEntries.forEach((entry, index) => {
+    const previous = finalCategoryNames.get(entry.normalizedName);
+    if (previous && previous !== entry.id) throw new HttpsError("already-exists", "Aktivna kategorija s tim nazivom već postoji.");
+    const reservedId = categoryNameReservations[index]?.get("categoryId");
+    const reservedOwner = typeof reservedId === "string" ? existingCategories.get(reservedId) : undefined;
+    if (reservedId !== undefined && reservedId !== entry.id && reservedOwner && !reservedOwner.get("deletedAt")) {
+      throw new HttpsError("already-exists", "Aktivna kategorija s tim nazivom već postoji.");
+    }
+    finalCategoryNames.set(entry.normalizedName, entry.id);
+  });
   const finalCategories = new Map<string, string>();
   if (!replaceExisting) existing[1].docs.forEach((document) => {
     if (!document.get("deletedAt")) finalCategories.set(document.id, text({ name: document.get("name") }, "name", 1, 100));
   });
   categoryEntries.forEach((entry) => finalCategories.set(entry.id, entry.name));
+  const existingDefault = !replaceExisting
+    ? existing[1].docs.filter((document) => !document.get("deletedAt") && document.get("isDefault") === true)
+      .sort((left, right) => Number(left.get("sortOrder") || 0) - Number(right.get("sortOrder") || 0) || left.id.localeCompare(right.id))[0]?.id
+    : undefined;
+  const defaultCategoryId = existingDefault && finalCategories.has(existingDefault)
+    ? existingDefault
+    : categoryEntries.find((entry) => entry.normalizedName === normalizedName("Ostalo"))?.id
+      ?? [...finalCategories.keys()].sort()[0];
+  if (!defaultCategoryId) throw new HttpsError("failed-precondition", "Uvoz mora sadržavati barem jednu aktivnu kategoriju.");
   const resolvedCategoryIds = new Map<string, string>();
   productEntries.forEach((entry) => {
     if (entry.categoryId && finalCategories.has(entry.categoryId)) {
@@ -658,7 +771,8 @@ async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerCont
       return;
     }
     if (entry.categoryId) throw new HttpsError("failed-precondition", "Artikl upućuje na nepostojeću kategoriju.");
-    const matches = [...finalCategories.entries()].filter(([, name]) => name === entry.legacyCategory);
+    const expected = normalizedName(entry.legacyCategory);
+    const matches = [...finalCategories.entries()].filter(([, name]) => normalizedName(name) === expected);
     if (matches.length !== 1) throw new HttpsError("failed-precondition", "Artikl upućuje na nepostojeću kategoriju.");
     resolvedCategoryIds.set(entry.id, matches[0]![0]);
   });
@@ -696,20 +810,40 @@ async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerCont
   shoppingEntries.forEach((entry) => {
     if (entry.productId !== null && !finalProductIds.has(entry.productId)) throw new HttpsError("failed-precondition", "Stavka kupnje upućuje na nepostojeći artikl.");
   });
+  const resolvedShoppingCategoryIds = new Map<string, string>();
+  shoppingEntries.forEach((entry) => {
+    if (!entry.manual && entry.productId) {
+      const productCategoryId = resolvedCategoryIds.get(entry.productId);
+      if (!productCategoryId) throw new HttpsError("failed-precondition", "Automatska stavka nema kategoriju artikla.");
+      resolvedShoppingCategoryIds.set(entry.id, productCategoryId);
+      return;
+    }
+    if (entry.categoryId && finalCategories.has(entry.categoryId)) {
+      resolvedShoppingCategoryIds.set(entry.id, entry.categoryId);
+      return;
+    }
+    if (entry.categoryId) throw new HttpsError("failed-precondition", "Stavka kupnje upućuje na nepostojeću kategoriju.");
+    const expected = normalizedName(entry.legacyCategory);
+    const matches = [...finalCategories.entries()].filter(([, name]) => normalizedName(name) === expected);
+    if (matches.length !== 1) throw new HttpsError("failed-precondition", "Stavka kupnje upućuje na nepostojeću kategoriju.");
+    resolvedShoppingCategoryIds.set(entry.id, matches[0]![0]);
+  });
   const finalStocks = new Map<string, { productId: string; quantity: number }>();
   if (!replaceExisting) existing[3].docs.forEach((document) => finalStocks.set(document.id, { productId: String(document.get("productId")), quantity: Number(document.get("quantity") || 0) }));
   stockEntries.forEach((entry) => finalStocks.set(entry.id, { productId: entry.productId, quantity: entry.quantity }));
   const totals = new Map<string, number>();
   finalStocks.forEach((stock) => totals.set(stock.productId, (totals.get(stock.productId) || 0) + stock.quantity));
   const productById = new Map(productEntries.map((entry) => [entry.id, {
-    name: text(entry.value, "name", 1, 100), category: finalCategories.get(resolvedCategoryIds.get(entry.id)!)!,
+    name: text(entry.value, "name", 1, 100), categoryId: resolvedCategoryIds.get(entry.id)!,
+    category: finalCategories.get(resolvedCategoryIds.get(entry.id)!)!,
     minimum: integer(entry.value, "minimumQuantity", 0, 1_000_000), autoShopping: boolean(entry.value, "autoShopping", true),
   }]));
   shoppingEntries.filter((entry) => !entry.manual).forEach((entry) => {
     const product = entry.productId ? productById.get(entry.productId) : undefined;
     if (!product) throw new HttpsError("failed-precondition", "Automatska stavka nema uvezeni artikl.");
     const expected = product.autoShopping ? Math.max(product.minimum - (totals.get(entry.productId!) || 0), 0) : 0;
-    if (expected === 0 || entry.requiredQuantity !== expected || entry.name !== product.name || entry.category !== product.category) {
+    if (expected === 0 || entry.requiredQuantity !== expected || entry.name !== product.name ||
+        resolvedShoppingCategoryIds.get(entry.id) !== product.categoryId) {
       throw new HttpsError("invalid-argument", "Automatska stavka ne odgovara stvarnom manjku.");
     }
   });
@@ -729,29 +863,54 @@ async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerCont
         if (incoming.products.has(String(doc.get("productId")))) tx.delete(doc.ref);
       } else {
         tx.set(doc.ref, { deletedAt: timestamp, purgeAfter: daysFromNow(30), updatedAt: timestamp, revision: Number(doc.get("revision") || 0) + 1 }, { merge: true });
+        if (keys[index] === "shelves") tx.delete(pantryRef.collection("shelfNames").doc(sha256(documentNormalizedName(doc))));
+        if (keys[index] === "categories") tx.delete(pantryRef.collection("categoryNames").doc(sha256(documentNormalizedName(doc))));
       }
     }));
   }
-  shelfEntries.forEach(({ id, name, sortOrder }) => {
+  shelfEntries.forEach(({ id, name, normalizedName: normalized, sortOrder }) => {
     const existing = existingShelves.get(id);
     tx.set(pantryRef.collection("shelves").doc(id), {
-      name, sortOrder, revision: Number(existing?.get("revision") || 0) + 1,
+      name, normalizedName: normalized, sortOrder, revision: Number(existing?.get("revision") || 0) + 1,
       createdAt: existing?.get("createdAt") || timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
     }, { merge: true });
+    tx.set(pantryRef.collection("shelfNames").doc(sha256(normalized)), { normalizedName: normalized, shelfId: id, updatedAt: timestamp });
+    if (existing && documentNormalizedName(existing) !== normalized) {
+      tx.delete(pantryRef.collection("shelfNames").doc(sha256(documentNormalizedName(existing))));
+    }
   });
-  categoryEntries.forEach(({ id, name, sortOrder, isDefault }) => {
+  categoryEntries.forEach(({ id, name, normalizedName: normalized, sortOrder }) => {
     const existing = existingCategories.get(id);
     tx.set(pantryRef.collection("categories").doc(id), {
-      name, sortOrder, isDefault, revision: Number(existing?.get("revision") || 0) + 1,
+      name, normalizedName: normalized, sortOrder, isDefault: id === defaultCategoryId,
+      revision: Number(existing?.get("revision") || 0) + 1,
       createdAt: existing?.get("createdAt") || timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
     }, { merge: true });
+    tx.set(pantryRef.collection("categoryNames").doc(sha256(normalized)), { normalizedName: normalized, categoryId: id, updatedAt: timestamp });
+    if (existing && documentNormalizedName(existing) !== normalized) {
+      tx.delete(pantryRef.collection("categoryNames").doc(sha256(documentNormalizedName(existing))));
+    }
   });
+  if (!replaceExisting) existing[1].docs
+    .filter((document) => !document.get("deletedAt") && !incoming.categories.has(document.id))
+    .forEach((document) => {
+      const normalized = documentNormalizedName(document);
+      tx.set(document.ref, { normalizedName: normalized, isDefault: document.id === defaultCategoryId, updatedAt: timestamp }, { merge: true });
+      tx.set(pantryRef.collection("categoryNames").doc(sha256(normalized)), { normalizedName: normalized, categoryId: document.id, updatedAt: timestamp });
+    });
+  if (!replaceExisting) existing[0].docs
+    .filter((document) => !document.get("deletedAt") && !incoming.shelves.has(document.id))
+    .forEach((document) => {
+      const normalized = documentNormalizedName(document);
+      tx.set(document.ref, { normalizedName: normalized, updatedAt: timestamp }, { merge: true });
+      tx.set(pantryRef.collection("shelfNames").doc(sha256(normalized)), { normalizedName: normalized, shelfId: document.id, updatedAt: timestamp });
+    });
   productEntries.forEach(({ value, id, code }) => {
     const existing = existingProducts.get(id);
     const name = text(value, "name", 1, 100);
     const categoryId = resolvedCategoryIds.get(id)!;
     const imported = {
-      name, normalizedName: name.toLocaleLowerCase("hr"), barcode: code,
+      name, normalizedName: normalizedName(name), barcode: code,
       description: typeof value.description === "string" ? value.description : "",
       category: finalCategories.get(categoryId)!, categoryId,
       photoSource: value.photoSource === "OPEN_FOOD_FACTS" && value.photoUri != null ? "OPEN_FOOD_FACTS" : "NONE",
@@ -771,10 +930,11 @@ async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerCont
       productId, shelfId, quantity, revision: Number(existingStocks.get(id)?.get("revision") || 0) + 1, updatedAt: timestamp,
     }, { merge: true });
   });
-  shoppingEntries.forEach(({ id, productId, name, category, requiredQuantity, checked, manual }) => {
+  shoppingEntries.forEach(({ id, productId, name, requiredQuantity, checked, manual }) => {
     const existing = existingShopping.get(id);
+    const categoryId = resolvedShoppingCategoryIds.get(id)!;
     tx.set(pantryRef.collection("shoppingItems").doc(id), {
-      productId, name, category, requiredQuantity, checked, manual,
+      productId, name, categoryId, category: finalCategories.get(categoryId)!, requiredQuantity, checked, manual,
       revision: Number(existing?.get("revision") || 0) + 1,
       createdAt: existing?.get("createdAt") || timestamp, updatedAt: timestamp, deletedAt: null,
     }, { merge: true });
@@ -788,7 +948,7 @@ function reconcileShopping(
   tx: Transaction,
   ref: DocumentReference,
   existing: DocumentSnapshot,
-  product: { id: string; name: unknown; category: unknown },
+  product: { id: string; name: unknown; category: unknown; categoryId: unknown },
   minimum: number,
   total: number,
   enabled: boolean,
@@ -800,7 +960,7 @@ function reconcileShopping(
     return;
   }
   tx.set(ref, {
-    productId: product.id, name: product.name, category: product.category,
+    productId: product.id, name: product.name, categoryId: product.categoryId, category: product.category,
     requiredQuantity: required,
     checked: existing.exists && !existing.get("deletedAt") && existing.get("checked") === true &&
       required <= Number(existing.get("requiredQuantity") || 0),
@@ -812,6 +972,50 @@ function reconcileShopping(
 function assertRevision(document: DocumentSnapshot, expected: number, label: string): void {
   if (!document.exists || document.get("deletedAt")) throw new HttpsError("not-found", `${label} nije dostupan.`);
   if (Number(document.get("revision") || 0) !== expected) conflict(Number(document.get("revision") || 0));
+}
+
+function documentNormalizedName(document: DocumentSnapshot): string {
+  const stored = document.get("normalizedName");
+  return typeof stored === "string" && stored.length > 0
+    ? normalizedName(stored)
+    : normalizedName(serverActivityLabel(document.get("name"), ""));
+}
+
+function assertUniqueNormalizedName(
+  documents: DocumentSnapshot[],
+  expected: string,
+  ownId: string,
+  label: string,
+): void {
+  if (documents.some((document) => document.id !== ownId && documentNormalizedName(document) === expected)) {
+    throw new HttpsError("already-exists", `${label} s tim nazivom već postoji.`);
+  }
+}
+
+function canonicalDefaultCategoryId(
+  activeDocuments: DocumentSnapshot[],
+  changedId: string,
+  changedNormalizedName: string,
+  existing: DocumentSnapshot,
+): string {
+  const candidates = activeDocuments
+    .filter((document) => document.id !== changedId)
+    .map((document) => ({
+      id: document.id,
+      normalized: documentNormalizedName(document),
+      isDefault: document.get("isDefault") === true,
+      sortOrder: Number(document.get("sortOrder") || 0),
+    }));
+  candidates.push({
+    id: changedId,
+    normalized: changedNormalizedName,
+    isDefault: existing.exists && existing.get("isDefault") === true,
+    sortOrder: existing.exists ? Number(existing.get("sortOrder") || 0) : Number.MAX_SAFE_INTEGER,
+  });
+  const ordered = [...candidates].sort((left, right) => left.sortOrder - right.sortOrder || left.id.localeCompare(right.id));
+  return ordered.find((candidate) => candidate.isDefault)?.id
+    ?? ordered.find((candidate) => candidate.normalized === normalizedName("Ostalo"))?.id
+    ?? ordered[0]!.id;
 }
 
 function conflict(revision: number): never {

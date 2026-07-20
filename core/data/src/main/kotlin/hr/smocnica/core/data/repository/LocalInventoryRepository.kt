@@ -80,7 +80,7 @@ class LocalInventoryRepository @Inject constructor(
             }.filter { item ->
                 (query.isBlank() || item.product.name.searchKey().contains(query)) &&
                     (filter.shelfIds.isEmpty() || item.stocks.any { it.shelfId in filter.shelfIds && it.quantity > 0 }) &&
-                    (filter.categories.isEmpty() || item.product.category in filter.categories) &&
+                    (filter.categoryIds.isEmpty() || item.product.categoryId in filter.categoryIds) &&
                     (quantityAtMost == null || item.totalQuantity <= quantityAtMost) &&
                     (!filter.belowMinimumOnly || item.isBelowMinimum) &&
                     (!filter.onShoppingListOnly || item.product.id in onShopping)
@@ -119,7 +119,8 @@ class LocalInventoryRepository @Inject constructor(
         actorUid: String,
         deviceName: String,
     ): Shelf = database.withTransaction {
-        val cleanName = requireName(name, "Naziv police")
+        val cleanName = requireName(name, "Naziv police").canonicalName()
+        requireUniqueShelfName(pantryId, cleanName)
         val now = clock.now()
         val shelf = Shelf(
             id = ids.next(),
@@ -139,7 +140,8 @@ class LocalInventoryRepository @Inject constructor(
     override suspend fun renameShelf(shelf: Shelf, name: String, actorUid: String, deviceName: String) {
         database.withTransaction {
             val current = shelves.get(shelf.id) ?: error("Polica više ne postoji.")
-            val cleanName = requireName(name, "Naziv police")
+            val cleanName = requireName(name, "Naziv police").canonicalName()
+            requireUniqueShelfName(shelf.pantryId, cleanName, shelf.id)
             if (current.name == cleanName) return@withTransaction
             val now = clock.now()
             shelves.upsert(current.copy(name = cleanName, updatedAt = now, syncState = SyncState.PENDING))
@@ -184,15 +186,29 @@ class LocalInventoryRepository @Inject constructor(
         database.withTransaction {
             val now = clock.now()
             val existing = category.id.takeIf(String::isNotBlank)?.let { categories.get(it) }
+            val active = categories.listActive(category.pantryId)
+            val cleanName = requireName(category.name, "Naziv kategorije").canonicalName()
+            requireUniqueCategoryName(category.pantryId, cleanName, existing?.id)
+            val persistedId = category.id.ifBlank { ids.next() }
+            val defaultId = active.filter { it.isDefault }
+                .sortedWith(compareBy<CategoryEntity> { it.sortOrder }.thenBy { it.id })
+                .firstOrNull()?.id
+                ?: active.firstOrNull { it.name.searchKey() == "Ostalo".searchKey() }?.id
+                ?: active.sortedWith(compareBy<CategoryEntity> { it.sortOrder }.thenBy { it.id }).firstOrNull()?.id
+                ?: persistedId
             val persisted = category.copy(
-                id = category.id.ifBlank { ids.next() },
-                name = requireName(category.name, "Naziv kategorije"),
+                id = persistedId,
+                name = cleanName,
                 sortOrder = if (category.id.isBlank()) categories.nextSortOrder(category.pantryId) else category.sortOrder,
+                isDefault = persistedId == defaultId,
                 syncState = SyncState.PENDING,
             )
             if (existing != null && existing.name != persisted.name) {
-                categories.reassignProducts(category.pantryId, existing.id, existing.name, persisted.id, persisted.name, now)
-                shopping.reassignCategory(category.pantryId, existing.name, persisted.name, now)
+                categories.reassignProducts(category.pantryId, existing.id, persisted.id, persisted.name, now)
+                shopping.reassignCategory(category.pantryId, existing.id, persisted.id, persisted.name, now)
+            }
+            active.filter { it.id != persisted.id && it.isDefault != (it.id == defaultId) }.forEach {
+                categories.upsert(it.copy(isDefault = it.id == defaultId))
             }
             categories.upsert(persisted.entity())
             enqueue(persisted.pantryId, AggregateType.CATEGORY, persisted.id, category.revision, OperationPayload.UpsertCategory(persisted), actorUid, deviceName, now)
@@ -231,8 +247,8 @@ class LocalInventoryRepository @Inject constructor(
             val replacement = categories.get(replacementCategoryId) ?: error("Odaberite postojeću zamjensku kategoriju.")
             require(replacement.pantryId == category.pantryId && replacement.deletedAt == null) { "Zamjenska kategorija nije dostupna." }
             val now = clock.now()
-            categories.reassignProducts(category.pantryId, current.id, current.name, replacement.id, replacement.name, now)
-            shopping.reassignCategory(category.pantryId, current.name, replacement.name, now)
+            categories.reassignProducts(category.pantryId, current.id, replacement.id, replacement.name, now)
+            shopping.reassignCategory(category.pantryId, current.id, replacement.id, replacement.name, now)
             categories.upsert(current.copy(deletedAt = now, purgeAfter = now + THIRTY_DAYS, syncState = SyncState.PENDING))
             enqueue(category.pantryId, AggregateType.CATEGORY, category.id, current.revision, OperationPayload.DeleteCategory(category.id, replacementCategoryId), actorUid, deviceName, now)
         }
@@ -248,12 +264,8 @@ class LocalInventoryRepository @Inject constructor(
             val duplicate = barcode?.let { products.findAnyBarcode(product.pantryId, it) }
             require(duplicate == null || duplicate.id == product.id) { "Ovaj barkod već je povezan s drugim artiklom." }
             val activeCategories = categories.listActive(product.pantryId)
-            val canonicalCategory = if (product.categoryId.isNotBlank()) {
-                activeCategories.firstOrNull { it.id == product.categoryId }
-            } else {
-                activeCategories.firstOrNull { it.name.equals(product.category.trim(), ignoreCase = true) }
-                    ?: activeCategories.firstOrNull { it.isDefault }
-            }
+            val canonicalCategory = product.categoryId.takeIf(String::isNotBlank)
+                ?.let { categoryId -> activeCategories.firstOrNull { it.id == categoryId } }
             require(canonicalCategory != null) { "Odaberite postojeću aktivnu kategoriju." }
             val now = clock.now()
             val existing = product.id.takeIf(String::isNotBlank)?.let { products.get(it) }
@@ -433,7 +445,7 @@ class LocalInventoryRepository @Inject constructor(
     override suspend fun addManualShoppingItem(
         pantryId: String,
         name: String,
-        category: String,
+        categoryId: String,
         quantity: Int,
         actorUid: String,
         deviceName: String,
@@ -443,16 +455,17 @@ class LocalInventoryRepository @Inject constructor(
         require(quantity <= MAX_QUANTITY) { "Količina je previsoka." }
         val now = clock.now()
         val canonicalName = requireName(name, "Naziv stavke").replace(Regex("\\s+"), " ")
-        val canonicalCategory = activeCategoryName(pantryId, category)
+        val canonicalCategory = activeCategory(pantryId, categoryId)
         val duplicate = shopping.listActive(pantryId).firstOrNull {
-            it.manual && manualShoppingIdentity(it.name, it.category) == manualShoppingIdentity(canonicalName, canonicalCategory)
+            it.manual && manualShoppingIdentity(it.name, it.categoryId.orEmpty()) == manualShoppingIdentity(canonicalName, canonicalCategory.id)
         }
         if (duplicate != null) {
             val mergedQuantity = duplicate.requiredQuantity.toLong() + quantity
             require(mergedQuantity <= MAX_QUANTITY) { "Ukupna količina je previsoka." }
             val merged = duplicate.copy(
                 name = duplicate.name,
-                category = canonicalCategory,
+                category = canonicalCategory.name,
+                categoryId = canonicalCategory.id,
                 requiredQuantity = mergedQuantity.toInt(),
                 checked = false,
                 updatedAt = now,
@@ -463,8 +476,9 @@ class LocalInventoryRepository @Inject constructor(
             merged.model()
         } else {
             val item = ShoppingItem(
-                ids.next(), pantryId, null, canonicalName, canonicalCategory, quantity,
+                ids.next(), pantryId, null, canonicalName, canonicalCategory.name, quantity,
                 checked = checked, manual = true, createdAt = now, updatedAt = now, syncState = SyncState.PENDING,
+                categoryId = canonicalCategory.id,
             )
             val entity = item.entity()
             shopping.upsert(entity)
@@ -476,7 +490,7 @@ class LocalInventoryRepository @Inject constructor(
     override suspend fun updateManualShoppingItem(
         item: ShoppingItem,
         name: String,
-        category: String,
+        categoryId: String,
         quantity: Int,
         actorUid: String,
         deviceName: String,
@@ -488,17 +502,18 @@ class LocalInventoryRepository @Inject constructor(
             require(current.manual && current.deletedAt == null) { "Stavka nije dostupna za uređivanje." }
             val now = clock.now()
             val canonicalName = requireName(name, "Naziv stavke").replace(Regex("\\s+"), " ")
-            val canonicalCategory = activeCategoryName(item.pantryId, category)
+            val canonicalCategory = activeCategory(item.pantryId, categoryId)
             val duplicate = shopping.listActive(item.pantryId).firstOrNull {
                 it.manual && it.id != item.id &&
-                    manualShoppingIdentity(it.name, it.category) == manualShoppingIdentity(canonicalName, canonicalCategory)
+                    manualShoppingIdentity(it.name, it.categoryId.orEmpty()) == manualShoppingIdentity(canonicalName, canonicalCategory.id)
             }
             if (duplicate != null) {
                 val mergedQuantity = duplicate.requiredQuantity.toLong() + quantity
                 require(mergedQuantity <= MAX_QUANTITY) { "Ukupna količina je previsoka." }
                 val merged = duplicate.copy(
                     name = duplicate.name,
-                    category = canonicalCategory,
+                    category = canonicalCategory.name,
+                    categoryId = canonicalCategory.id,
                     requiredQuantity = mergedQuantity.toInt(),
                     checked = false,
                     updatedAt = now,
@@ -511,7 +526,8 @@ class LocalInventoryRepository @Inject constructor(
             }
             val updated = current.copy(
                 name = canonicalName,
-                category = canonicalCategory,
+                category = canonicalCategory.name,
+                categoryId = canonicalCategory.id,
                 requiredQuantity = quantity,
                 updatedAt = now,
                 syncState = SyncState.PENDING,
@@ -617,12 +633,14 @@ class LocalInventoryRepository @Inject constructor(
                 AggregateType.SHELF -> {
                     val row = shelves.get(id) ?: error("Polica nije pronađena u košu.")
                     require(row.purgeAfter == null || row.purgeAfter > now) { "Rok za vraćanje police je istekao." }
+                    requireUniqueShelfName(pantryId, row.name, row.id)
                     shelves.upsert(row.copy(deletedAt = null, purgeAfter = null, updatedAt = now, syncState = SyncState.PENDING))
                 }
                 AggregateType.CATEGORY -> {
                     val row = categories.get(id) ?: error("Kategorija nije pronađena u košu.")
                     require(row.purgeAfter == null || row.purgeAfter > now) { "Rok za vraćanje kategorije je istekao." }
-                    categories.upsert(row.copy(deletedAt = null, purgeAfter = null, syncState = SyncState.PENDING))
+                    requireUniqueCategoryName(pantryId, row.name, row.id)
+                    categories.upsert(row.copy(deletedAt = null, purgeAfter = null, isDefault = false, syncState = SyncState.PENDING))
                 }
                 else -> error("Ova vrsta zapisa ne može se vratiti iz koša.")
             }
@@ -644,13 +662,14 @@ class LocalInventoryRepository @Inject constructor(
                     id = automaticId, pantryId = product.pantryId, productId = product.id,
                     name = product.name, category = product.category, requiredQuantity = required,
                     checked = false, manual = false, revision = 0, createdAt = now, updatedAt = now,
-                    deletedAt = null, syncState = SyncState.PENDING,
+                    deletedAt = null, syncState = SyncState.PENDING, categoryId = product.categoryId,
                 ),
             )
             required > 0 && aligned != null -> shopping.upsert(
                 aligned.copy(
                     name = product.name,
                     category = product.category,
+                    categoryId = product.categoryId,
                     requiredQuantity = required,
                     checked = if (aligned.deletedAt != null || required > aligned.requiredQuantity) false else aligned.checked,
                     deletedAt = null,
@@ -661,19 +680,15 @@ class LocalInventoryRepository @Inject constructor(
         }
     }
 
-    private suspend fun activeCategoryName(pantryId: String, requested: String): String {
-        val normalized = requireName(requested, "Kategorija")
-        return categories.listActive(pantryId)
-            .firstOrNull { it.name.equals(normalized, ignoreCase = true) }
-            ?.name
+    private suspend fun activeCategory(pantryId: String, categoryId: String): CategoryEntity {
+        require(categoryId.isNotBlank()) { "Odaberite kategoriju." }
+        return categories.get(categoryId)
+            ?.takeIf { it.pantryId == pantryId && it.deletedAt == null }
             ?: error("Odabrana kategorija više nije dostupna.")
     }
 
-    private fun manualShoppingIdentity(name: String, category: String): String {
-        fun normalized(value: String) = value.trim()
-            .replace(Regex("\\s+"), " ")
-            .lowercase(Locale.forLanguageTag("hr"))
-        return "${normalized(name)}\u0000${normalized(category)}"
+    private fun manualShoppingIdentity(name: String, categoryId: String): String {
+        return "${name.searchKey()}\u0000$categoryId"
     }
 
     private suspend fun enqueueOrReplaceShoppingUpsert(
@@ -780,6 +795,22 @@ class LocalInventoryRepository @Inject constructor(
 
     private fun requireName(value: String, label: String): String = value.trim().also {
         require(it.length in 1..100) { "$label mora imati između 1 i 100 znakova." }
+    }
+
+    private fun String.canonicalName(): String = trim().replace(Regex("\\s+"), " ")
+
+    private suspend fun requireUniqueShelfName(pantryId: String, name: String, ownId: String? = null) {
+        val normalized = name.searchKey()
+        require(shelves.listActive(pantryId).none { it.id != ownId && it.name.searchKey() == normalized }) {
+            "Aktivna polica s tim nazivom već postoji."
+        }
+    }
+
+    private suspend fun requireUniqueCategoryName(pantryId: String, name: String, ownId: String? = null) {
+        val normalized = name.searchKey()
+        require(categories.listActive(pantryId).none { it.id != ownId && it.name.searchKey() == normalized }) {
+            "Aktivna kategorija s tim nazivom već postoji."
+        }
     }
 
     private companion object {

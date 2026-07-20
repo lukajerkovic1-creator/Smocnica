@@ -103,17 +103,20 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
   });
 
   it("deletes only manual shopping items and validates their active category", async () => {
-    const upsertManual = (operationId: string, category: string) => callable({
+    const upsertManual = (operationId: string, categoryId: string) => callable({
       operationId, pantryId: "p1", aggregateType: "SHOPPING", aggregateId: "manual-1", baseRevision: 0,
       payload: { type: "upsert_shopping", item: {
-        id: "manual-1", productId: null, name: "Kruh", category,
+        id: "manual-1", productId: null, name: "Kruh", category: "Klijentski naziv", categoryId,
         requiredQuantity: 2, checked: false, manual: true,
       } },
       deviceId: "device-0001", deviceDisplayName: "Klijentski uređaj",
     }, "u1");
-    await expect(invoke(upsertManual("op-manual-invalid-category", "Nepostojeća") as never))
+    await expect(invoke(upsertManual("op-manual-invalid-category", "missing") as never))
       .rejects.toMatchObject({ code: "failed-precondition" });
-    await invoke(upsertManual("op-manual-create", "Namirnice") as never);
+    await invoke(upsertManual("op-manual-create", "c1") as never);
+    const created = await db.doc("pantries/p1/shoppingItems/manual-1").get();
+    expect(created.get("categoryId")).toBe("c1");
+    expect(created.get("category")).toBe("Namirnice");
 
     await invoke(callable({
       operationId: "op-manual-delete", pantryId: "p1", aggregateType: "SHOPPING", aggregateId: "manual-1", baseRevision: 1,
@@ -250,16 +253,61 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect(product.get("categoryId")).toBe("c1");
     expect(product.get("category")).toBe("Namirnice");
 
-    const legacy = upsertProductOperation("op-category-legacy", "c1", "Namirnice", 2);
-    delete (legacy.data.payload as any).product.categoryId;
-    await invoke(legacy as never);
-    expect((await db.doc("pantries/p1/products/a").get()).get("categoryId")).toBe("c1");
+    const missingId = upsertProductOperation("op-category-missing-id", "c1", "Namirnice", 2);
+    delete (missingId.data.payload as any).product.categoryId;
+    await expect(invoke(missingId as never)).rejects.toMatchObject({ code: "invalid-argument" });
 
-    await expect(invoke(upsertProductOperation("op-category-missing", "missing", "Namirnice", 3) as never))
+    await expect(invoke(upsertProductOperation("op-category-missing", "missing", "Namirnice", 2) as never))
       .rejects.toMatchObject({ code: "failed-precondition" });
     await db.doc("pantries/p1/categories/c1").update({ deletedAt: new Date() });
-    await expect(invoke(upsertProductOperation("op-category-deleted", "c1", "Namirnice", 3) as never))
+    await expect(invoke(upsertProductOperation("op-category-deleted", "c1", "Namirnice", 2) as never))
       .rejects.toMatchObject({ code: "failed-precondition" });
+  });
+
+  it("rejects duplicate shelf names regardless of case and whitespace", async () => {
+    await invoke(callable({
+      operationId: "op-shelf-create", pantryId: "p1", aggregateType: "SHELF", aggregateId: "s3", baseRevision: 0,
+      payload: { type: "create_shelf", shelf: { id: "s3", name: "Nova   polica", sortOrder: 2 } },
+      deviceId: "device-0001", deviceDisplayName: "Klijent",
+    }, "u1") as never);
+    expect((await db.doc("pantries/p1/shelves/s3").get()).get("normalizedName")).toBe("nova polica");
+    await expect(invoke(callable({
+      operationId: "op-shelf-duplicate", pantryId: "p1", aggregateType: "SHELF", aggregateId: "s4", baseRevision: 0,
+      payload: { type: "create_shelf", shelf: { id: "s4", name: "  NOVA polica ", sortOrder: 3 } },
+      deviceId: "device-0001", deviceDisplayName: "Klijent",
+    }, "u1") as never)).rejects.toMatchObject({ code: "already-exists" });
+    expect((await db.doc("pantries/p1/shelves/s4").get()).exists).toBe(false);
+  });
+
+  it("keeps one server-controlled default category and category links by id", async () => {
+    await invoke(callable({
+      operationId: "op-category-new", pantryId: "p1", aggregateType: "CATEGORY", aggregateId: "c2", baseRevision: 0,
+      payload: { type: "upsert_category", category: { id: "c2", name: "Pića", sortOrder: 1, isDefault: true } },
+      deviceId: "device-0001", deviceDisplayName: "Klijent",
+    }, "u1") as never);
+    expect((await db.doc("pantries/p1/categories/c1").get()).get("isDefault")).toBe(true);
+    expect((await db.doc("pantries/p1/categories/c2").get()).get("isDefault")).toBe(false);
+
+    await expect(invoke(callable({
+      operationId: "op-category-duplicate", pantryId: "p1", aggregateType: "CATEGORY", aggregateId: "c3", baseRevision: 0,
+      payload: { type: "upsert_category", category: { id: "c3", name: "  PIĆA  ", sortOrder: 2, isDefault: false } },
+      deviceId: "device-0001", deviceDisplayName: "Klijent",
+    }, "u1") as never)).rejects.toMatchObject({ code: "already-exists" });
+  });
+
+  it("migrates legacy canonical names, category ids, and the single default before listing", async () => {
+    await db.doc("pantries/p1/categories/c2").set({ name: "Pića", sortOrder: 1, isDefault: true, deletedAt: null });
+    await db.doc("pantries/p1/shoppingItems/manual-legacy").set({
+      name: "Sok", category: "  piĆA ", requiredQuantity: 1, checked: false, manual: true, deletedAt: null,
+    });
+    const result = await invokeListMyPantries(callable({}, "u1") as never);
+    expect(result.pantries).toHaveLength(1);
+    const categories = await db.collection("pantries/p1/categories").where("deletedAt", "==", null).get();
+    expect(categories.docs.filter((document) => document.get("isDefault") === true)).toHaveLength(1);
+    expect((await db.doc("pantries/p1/categories/c2").get()).get("normalizedName")).toBe("pića");
+    const item = await db.doc("pantries/p1/shoppingItems/manual-legacy").get();
+    expect(item.get("categoryId")).toBe("c2");
+    expect(item.get("category")).toBe("Pića");
   });
 
   it("accepts only canonical Open Food Facts image URLs", async () => {

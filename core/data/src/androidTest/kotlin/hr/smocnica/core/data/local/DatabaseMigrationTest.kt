@@ -89,9 +89,36 @@ class DatabaseMigrationTest {
         }
     }
 
+    @Test
+    fun migration4To5BackfillsCanonicalNamesShoppingCategoryAndSingleDefault() {
+        helper.createDatabase(CANONICAL_NAMES_DB, 4).apply {
+            execSQL("INSERT INTO shelves (id, pantryId, name, sortOrder, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState) VALUES ('s1', 'p1', '  POLICA   Čaj ', 0, 1, 1, 1, NULL, NULL, 'SYNCED')")
+            execSQL("INSERT INTO categories (id, pantryId, name, sortOrder, isDefault, revision, deletedAt, purgeAfter, syncState) VALUES ('c1', 'p1', 'Namirnice', 0, 1, 1, NULL, NULL, 'SYNCED')")
+            execSQL("INSERT INTO categories (id, pantryId, name, sortOrder, isDefault, revision, deletedAt, purgeAfter, syncState) VALUES ('c2', 'p1', 'Ostalo', 1, 1, 1, NULL, NULL, 'SYNCED')")
+            execSQL("INSERT INTO shopping_items (id, pantryId, productId, name, category, requiredQuantity, checked, manual, revision, createdAt, updatedAt, deletedAt, syncState) VALUES ('m1', 'p1', NULL, 'Kruh', 'Namirnice', 1, 0, 1, 1, 1, 1, NULL, 'SYNCED')")
+            close()
+        }
+
+        helper.runMigrationsAndValidate(CANONICAL_NAMES_DB, 5, true, MIGRATION_4_5).use { database ->
+            database.query("SELECT normalizedName FROM shelves WHERE id = 's1'").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("polica čaj", cursor.getString(0))
+            }
+            database.query("SELECT categoryId FROM shopping_items WHERE id = 'm1'").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals("c1", cursor.getString(0))
+            }
+            database.query("SELECT COUNT(*) FROM categories WHERE pantryId = 'p1' AND deletedAt IS NULL AND isDefault = 1").use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(1, cursor.getInt(0))
+            }
+        }
+    }
+
     private companion object {
         const val TEST_DB = "activity-migration-test"
         const val CATEGORY_DB = "category-migration-test"
         const val ACCESS_DB = "access-migration-test"
+        const val CANONICAL_NAMES_DB = "canonical-names-migration-test"
     }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { barcode, invitationCode, sha256 } from "../src/validation";
+import { barcode, invitationCode, normalizedName, sha256 } from "../src/validation";
 
 describe("security validation", () => {
   it("creates high-entropy invitation codes without ambiguous characters", () => {
@@ -18,5 +18,10 @@ describe("security validation", () => {
     expect(barcode("04252614")).toBe("04252614");
     expect(() => barcode("4006381333932")).toThrow();
     expect(() => barcode("123")).toThrow();
+  });
+
+  it("normalizes names independently of case, Unicode form, and repeated whitespace", () => {
+    expect(normalizedName("  POLICA   Čaj  ")).toBe(normalizedName("polica čaj"));
+    expect(normalizedName("Mlijeko\t i\n jaja")).toBe("mlijeko i jaja");
   });
 });

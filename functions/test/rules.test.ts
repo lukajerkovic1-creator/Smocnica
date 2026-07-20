@@ -59,6 +59,10 @@ describe.skipIf(!emulatorAvailable)("Firestore and Storage security rules", () =
     await assertFails(setDoc(doc(owner, "pantries/p1/members/intruder"), { role: "OWNER", active: true }));
     await assertFails(setDoc(doc(owner, "userPantryAccess/owner"), { pantryId: "p2", active: true }));
     await assertFails(getDoc(doc(owner, "userPantryAccess/owner")));
+    await assertFails(setDoc(doc(owner, "pantries/p1/shelfNames/forged"), { shelfId: "s1" }));
+    await assertFails(setDoc(doc(owner, "pantries/p1/categoryNames/forged"), { categoryId: "c1" }));
+    await assertFails(getDoc(doc(owner, "pantries/p1/shelfNames/forged")));
+    await assertFails(getDoc(doc(owner, "pantries/p1/categoryNames/forged")));
   });
 
   it("permits only a bounded JPEG in the member pantry", async () => {

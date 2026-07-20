@@ -39,7 +39,7 @@ class ShoppingScreenTest {
 
     @Test
     fun manualItemUsesAnExistingCategoryInsteadOfFreeText() {
-        var savedCategory = ""
+        var savedCategoryId = ""
         val categories = listOf(
             Category("cat-snacks", "p1", "Grickalice", 1),
             Category("cat-other", "p1", "Ostalo", 9, isDefault = true),
@@ -50,7 +50,7 @@ class ShoppingScreenTest {
                     current = null,
                     categories = categories,
                     dismiss = {},
-                    save = { _, category, _ -> savedCategory = category },
+                    save = { _, categoryId, _ -> savedCategoryId = categoryId },
                 )
             }
         }
@@ -61,6 +61,6 @@ class ShoppingScreenTest {
         compose.onNodeWithText("Kategorija: Grickalice").assertIsDisplayed()
         compose.onNodeWithText("Kategorija").assertDoesNotExist()
         compose.onNodeWithText("Dodaj").performClick()
-        compose.runOnIdle { assertEquals("Grickalice", savedCategory) }
+        compose.runOnIdle { assertEquals("cat-snacks", savedCategoryId) }
     }
 }

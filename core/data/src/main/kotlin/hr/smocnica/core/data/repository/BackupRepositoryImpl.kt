@@ -23,6 +23,8 @@ import hr.smocnica.core.model.SyncState
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.security.MessageDigest
+import java.text.Normalizer
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -116,30 +118,43 @@ class BackupRepositoryImpl @Inject constructor(
             val localPantry = database.pantryDao().get(targetPantryId)
                 ?: error("Najprije se prijavite i otvorite odgovarajuću zajedničku smočnicu.")
             val now = clock.now()
-            val categoriesById = source.categories.associateBy { it.id }
-            val defaultCategory = source.categories.firstOrNull { it.isDefault }
+            val requestedDefault = source.categories.filter { it.isDefault }.minWithOrNull(compareBy({ it.sortOrder }, { it.id }))
+            val defaultCategory = requestedDefault
+                ?: source.categories.firstOrNull { canonicalName(it.name) == canonicalName("Ostalo") }
+                ?: source.categories.minWithOrNull(compareBy({ it.sortOrder }, { it.id }))
+                ?: error("Sigurnosna kopija nema kategoriju.")
+            val canonicalCategories = source.categories.map { it.copy(isDefault = it.id == defaultCategory.id) }
+            val categoriesById = canonicalCategories.associateBy { it.id }
+            val categoriesByName = canonicalCategories.associateBy { canonicalName(it.name) }
+            val canonicalProducts = source.products.map {
+                val canonicalCategory = categoriesById[it.categoryId]
+                    ?: categoriesByName[canonicalName(it.category)]
+                    ?: error("Artikl ${it.id} nema dostupnu kategoriju.")
+                val keepPublicPhoto = it.photoSource == hr.smocnica.core.model.PhotoSource.OPEN_FOOD_FACTS &&
+                    sanitizeOpenFoodFactsImageUrl(it.photoUri) != null
+                it.copy(
+                    pantryId = targetPantryId,
+                    category = canonicalCategory.name,
+                    categoryId = canonicalCategory.id,
+                    photoUri = it.photoUri.takeIf { keepPublicPhoto },
+                    photoSource = if (keepPublicPhoto) it.photoSource else hr.smocnica.core.model.PhotoSource.NONE,
+                )
+            }
+            val productsById = canonicalProducts.associateBy { it.id }
             val incoming = source.copy(
                 pantry = source.pantry.copy(id = targetPantryId, ownerUid = localPantry.ownerUid),
                 members = source.members.map { it.copy(pantryId = targetPantryId) },
                 shelves = source.shelves.map { it.copy(pantryId = targetPantryId) },
-                categories = source.categories.map { it.copy(pantryId = targetPantryId) },
-                products = source.products.map {
-                    val canonicalCategory = categoriesById[it.categoryId]
-                        ?: source.categories.firstOrNull { category -> category.name.equals(it.category, ignoreCase = true) }
-                        ?: defaultCategory
-                        ?: error("Artikl ${it.id} nema dostupnu kategoriju.")
-                    val keepPublicPhoto = it.photoSource == hr.smocnica.core.model.PhotoSource.OPEN_FOOD_FACTS &&
-                        sanitizeOpenFoodFactsImageUrl(it.photoUri) != null
-                    it.copy(
-                        pantryId = targetPantryId,
-                        category = canonicalCategory.name,
-                        categoryId = canonicalCategory.id,
-                        photoUri = it.photoUri.takeIf { keepPublicPhoto },
-                        photoSource = if (keepPublicPhoto) it.photoSource else hr.smocnica.core.model.PhotoSource.NONE,
-                    )
-                },
+                categories = canonicalCategories.map { it.copy(pantryId = targetPantryId) },
+                products = canonicalProducts,
                 stocks = source.stocks.map { it.copy(pantryId = targetPantryId) },
-                shoppingItems = source.shoppingItems.map { it.copy(pantryId = targetPantryId) },
+                shoppingItems = source.shoppingItems.map { item ->
+                    val category = item.productId?.let(productsById::get)?.let { categoriesById[it.categoryId] }
+                        ?: categoriesById[item.categoryId]
+                        ?: categoriesByName[canonicalName(item.category)]
+                        ?: error("Stavka kupnje ${item.id} nema dostupnu kategoriju.")
+                    item.copy(pantryId = targetPantryId, category = category.name, categoryId = category.id)
+                },
                 activities = source.activities.map { it.copy(pantryId = targetPantryId) },
             )
             if (strategy == ImportStrategy.REPLACE) softDeleteMissing(incoming, now)
@@ -241,6 +256,13 @@ class BackupRepositoryImpl @Inject constructor(
         duplicates(snapshot.categories.map { it.id }, "Popis kategorija")
         duplicates(snapshot.products.map { it.id }, "Popis artikala")
         duplicates(snapshot.shoppingItems.map { it.id }, "Popis kupnje")
+        if (snapshot.shelves.map { canonicalName(it.name) }.distinct().size != snapshot.shelves.size) {
+            add("Popis polica sadrži duple nazive neovisno o velikim slovima ili razmacima.")
+        }
+        if (snapshot.categories.map { canonicalName(it.name) }.distinct().size != snapshot.categories.size) {
+            add("Popis kategorija sadrži duple nazive neovisno o velikim slovima ili razmacima.")
+        }
+        if (snapshot.categories.count { it.isDefault } != 1) add("Mora postojati točno jedna zadana kategorija.")
         snapshot.shelves.forEach {
             validId(it.id, "Polica")
             if (it.name.trim().length !in 1..100 || it.sortOrder !in 0..10_000) add("Polica ${it.id} ima neispravne podatke.")
@@ -286,6 +308,9 @@ class BackupRepositoryImpl @Inject constructor(
             if (it.manual && (it.productId != null || it.id.startsWith("auto_"))) {
                 add("Ručna stavka ${it.id} ima rezerviranu vezu ili identifikator.")
             }
+            if (categoriesById[it.categoryId] == null && snapshot.categories.none { category -> canonicalName(category.name) == canonicalName(it.category) }) {
+                add("Stavka kupnje ${it.id} upućuje na nepostojeću kategoriju.")
+            }
             if (!it.manual) {
                 val productId = it.productId
                 if (productId == null || productId !in productIds || it.id != "auto_$productId") {
@@ -298,7 +323,7 @@ class BackupRepositoryImpl @Inject constructor(
             val expected = if (product.autoShopping) (product.minimumQuantity - (totals[product.id] ?: 0)).coerceAtLeast(0) else 0
             val automatic = snapshot.shoppingItems.singleOrNull { !it.manual && it.productId == product.id }
             if (expected == 0 && automatic != null) add("Artikl ${product.id} ima suvišnu automatsku stavku kupnje.")
-            if (expected > 0 && (automatic == null || automatic.requiredQuantity != expected || automatic.name != product.name || automatic.category != product.category)) {
+            if (expected > 0 && (automatic == null || automatic.requiredQuantity != expected || automatic.name != product.name || automatic.categoryId != product.categoryId || automatic.category != product.category)) {
                 add("Automatska stavka artikla ${product.id} ne odgovara stvarnom manjku.")
             }
         }
@@ -311,8 +336,13 @@ class BackupRepositoryImpl @Inject constructor(
     private fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
         .digest(bytes).joinToString("") { "%02x".format(it) }
 
+    private fun canonicalName(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFKC)
+        .trim()
+        .replace(Regex("\\s+"), " ")
+        .lowercase(Locale.forLanguageTag("hr"))
+
     private companion object {
-        const val SCHEMA_VERSION = 1
+        const val SCHEMA_VERSION = 2
         const val MAX_IMPORT_BYTES = 20 * 1024 * 1024
         const val THIRTY_DAYS = 30L * 24 * 60 * 60 * 1_000
         const val TWELVE_MONTHS = 365L * 24 * 60 * 60 * 1_000
