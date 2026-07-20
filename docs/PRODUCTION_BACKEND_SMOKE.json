@@ -1,10 +1,10 @@
 {
   "projectId": "smocnica-aplikacija",
-  "sourceCommit": "c0730c8b30ee2693c9a44ca61652dfdeea517d13",
-  "checkedAt": "2026-07-20T13:02:05.6827330Z",
-  "backendApiVersion": 3,
+  "sourceCommit": "2c0e215afc2631504289fa3a33f7a8742434d2c9",
+  "checkedAt": "2026-07-20T14:29:10.542Z",
+  "backendApiVersion": 4,
   "deployedFunctionCount": 15,
-  "firebaseSourceHash": "2b7e3a70639629cfae76b970f1fc1f5951940dc4",
+  "firebaseSourceHash": "49ac1ee35c603d4bc7ee8ec7a235cd029c1557ef",
   "callableSmoke": {
     "getBackendCapabilities": 200,
     "createPantry": 401,
