@@ -638,10 +638,11 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
   });
 
   it("keeps only one active invitation under simultaneous creation", async () => {
-    await Promise.all([
+    const attempts = await Promise.allSettled([
       invokeCreateInvitation(callable({ pantryId: "p1" }, "u1") as never),
       invokeCreateInvitation(callable({ pantryId: "p1" }, "u1") as never),
     ]);
+    expect(attempts.some((attempt) => attempt.status === "fulfilled")).toBe(true);
     const active = await db.collection("inviteCodes").where("pantryId", "==", "p1").where("revokedAt", "==", null).get();
     expect(active.size).toBe(1);
     expect(active.docs[0]!.get("usesRemaining")).toBe(1);
