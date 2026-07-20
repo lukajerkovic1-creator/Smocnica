@@ -81,6 +81,9 @@ interface ShelfDao {
     @Query("SELECT * FROM shelves WHERE id = :id")
     suspend fun get(id: String): ShelfEntity?
 
+    @Query("SELECT * FROM shelves WHERE pantryId = :pantryId AND normalizedName = :normalizedName AND deletedAt IS NULL LIMIT 1")
+    suspend fun findActiveByNormalizedName(pantryId: String, normalizedName: String): ShelfEntity?
+
     @Query("SELECT COALESCE(MAX(sortOrder), -1) + 1 FROM shelves WHERE pantryId = :pantryId AND deletedAt IS NULL")
     suspend fun nextSortOrder(pantryId: String): Int
 
@@ -123,6 +126,9 @@ interface CategoryDao {
     @Query("SELECT * FROM categories WHERE id = :id")
     suspend fun get(id: String): CategoryEntity?
 
+    @Query("SELECT * FROM categories WHERE pantryId = :pantryId AND normalizedName = :normalizedName AND deletedAt IS NULL LIMIT 1")
+    suspend fun findActiveByNormalizedName(pantryId: String, normalizedName: String): CategoryEntity?
+
     @Query("SELECT COALESCE(MAX(sortOrder), -1) + 1 FROM categories WHERE pantryId = :pantryId AND deletedAt IS NULL")
     suspend fun nextSortOrder(pantryId: String): Int
 
@@ -130,13 +136,12 @@ interface CategoryDao {
         UPDATE products
         SET category = :replacementName, categoryId = :replacementId, updatedAt = :updatedAt
         WHERE pantryId = :pantryId
-          AND (categoryId = :oldId OR (categoryId IS NULL AND category = :oldName))
+          AND categoryId = :oldId
           AND deletedAt IS NULL
     """)
     suspend fun reassignProducts(
         pantryId: String,
         oldId: String,
-        oldName: String,
         replacementId: String,
         replacementName: String,
         updatedAt: Long,
@@ -274,8 +279,14 @@ interface ShoppingDao {
     @Query("DELETE FROM shopping_items WHERE pantryId = :pantryId")
     suspend fun deleteForPantry(pantryId: String)
 
-    @Query("UPDATE shopping_items SET category = :replacementName, updatedAt = :updatedAt WHERE pantryId = :pantryId AND category = :oldName AND deletedAt IS NULL")
-    suspend fun reassignCategory(pantryId: String, oldName: String, replacementName: String, updatedAt: Long)
+    @Query("UPDATE shopping_items SET categoryId = :replacementId, category = :replacementName, updatedAt = :updatedAt WHERE pantryId = :pantryId AND categoryId = :oldId AND deletedAt IS NULL")
+    suspend fun reassignCategory(
+        pantryId: String,
+        oldId: String,
+        replacementId: String,
+        replacementName: String,
+        updatedAt: Long,
+    )
 
     @Query("UPDATE shopping_items SET revision = :revision, syncState = 'SYNCED' WHERE id = :id")
     suspend fun markSynced(id: String, revision: Long)

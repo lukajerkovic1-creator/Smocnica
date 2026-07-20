@@ -187,11 +187,13 @@ class RealtimePantrySynchronizer @Inject constructor(
     private fun DocumentSnapshot.shelf(pantryId: String) = ShelfEntity(
         id, pantryId, string("name"), long("sortOrder").toInt(), long("revision"),
         epoch("createdAt"), epoch("updatedAt"), epochOrNull("deletedAt"), epochOrNull("purgeAfter"), SyncState.SYNCED,
+        getString("normalizedName") ?: string("name").searchKey(),
     )
 
     private fun DocumentSnapshot.category(pantryId: String) = CategoryEntity(
         id, pantryId, string("name"), long("sortOrder").toInt(), getBoolean("isDefault") ?: false,
         long("revision"), epochOrNull("deletedAt"), epochOrNull("purgeAfter"), SyncState.SYNCED,
+        getString("normalizedName") ?: string("name").searchKey(),
     )
 
     private fun DocumentSnapshot.product(pantryId: String) = ProductEntity(
@@ -224,6 +226,7 @@ class RealtimePantrySynchronizer @Inject constructor(
         id, pantryId, getString("productId"), string("name"), string("category", "Ostalo"),
         long("requiredQuantity").toInt(), getBoolean("checked") ?: false, getBoolean("manual") ?: false,
         long("revision"), epoch("createdAt"), epoch("updatedAt"), epochOrNull("deletedAt"), SyncState.SYNCED,
+        getString("categoryId"),
     )
 
     private fun DocumentSnapshot.activity(pantryId: String) = ActivityEntity(

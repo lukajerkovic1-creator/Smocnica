@@ -5,7 +5,7 @@ import { logger } from "firebase-functions";
 import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { db } from "./firebase";
-import { sha256 } from "./validation";
+import { normalizedName, sha256 } from "./validation";
 
 export const notifyLowStock = onDocumentCreated(
   { region: "europe-west1", document: "pantries/{pantryId}/notifications/{notificationId}" },
@@ -99,6 +99,15 @@ export const purgeExpiredData = onSchedule(
         } else if (collection === "shelves" && pantryId) {
           const stocks = await db.collection(`pantries/${pantryId}/stocks`).where("shelfId", "==", document.id).get();
           stocks.docs.forEach((related) => writer.delete(related.ref));
+          const normalized = typeof document.get("normalizedName") === "string"
+            ? normalizedName(document.get("normalizedName"))
+            : normalizedName(String(document.get("name") || ""));
+          writer.delete(db.doc(`pantries/${pantryId}/shelfNames/${sha256(normalized)}`));
+        } else if (collection === "categories" && pantryId) {
+          const normalized = typeof document.get("normalizedName") === "string"
+            ? normalizedName(document.get("normalizedName"))
+            : normalizedName(String(document.get("name") || ""));
+          writer.delete(db.doc(`pantries/${pantryId}/categoryNames/${sha256(normalized)}`));
         }
         writer.delete(document.ref);
       }

@@ -46,6 +46,7 @@ data class ShelfEntity(
     val deletedAt: Long?,
     val purgeAfter: Long?,
     val syncState: SyncState,
+    val normalizedName: String = "",
 )
 
 @Entity(
@@ -63,6 +64,7 @@ data class CategoryEntity(
     val deletedAt: Long?,
     val purgeAfter: Long?,
     val syncState: SyncState,
+    val normalizedName: String = "",
 )
 
 @Entity(
@@ -125,6 +127,7 @@ data class ShoppingEntity(
     val updatedAt: Long,
     val deletedAt: Long?,
     val syncState: SyncState,
+    val categoryId: String? = null,
 )
 
 @Entity(tableName = "activities", primaryKeys = ["id"], indices = [Index(value = ["pantryId", "createdAt"])])

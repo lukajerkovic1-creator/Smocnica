@@ -2,8 +2,9 @@ import { DocumentSnapshot, FieldValue } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db, daysFromNow, now } from "./firebase";
+import { migratePantryCanonicalSchema } from "./canonical-schema";
 import { PANTRY_LIMITS, assertResourceLimit } from "./limits";
-import { authUid, boolean, invitationCode, object, optionalText, requireMember, requireOwner, safeId, sha256, text } from "./validation";
+import { authUid, boolean, invitationCode, normalizedName, object, optionalText, requireMember, requireOwner, safeId, sha256, text } from "./validation";
 
 const callable = { region: "europe-west1", enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== "true" } as const;
 
@@ -54,16 +55,25 @@ export const createPantry = onCall(callable, async (request) => {
     transaction.set(db.doc(`users/${uid}`), { displayName, photoUrl, createdAt: timestamp, lastSeenAt: timestamp }, { merge: true });
     for (let index = 0; index < 3; index++) {
       const shelf = pantryRef.collection("shelves").doc();
+      const shelfName = `Polica ${index + 1}`;
+      const normalized = normalizedName(shelfName);
       transaction.create(shelf, {
-        name: `Polica ${index + 1}`, sortOrder: index, revision: 0,
+        name: shelfName, normalizedName: normalized, sortOrder: index, revision: 0,
         createdAt: timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
+      });
+      transaction.create(pantryRef.collection("shelfNames").doc(sha256(normalized)), {
+        normalizedName: normalized, shelfId: shelf.id, updatedAt: timestamp,
       });
     }
     defaultCategories.forEach((categoryName, index) => {
       const category = pantryRef.collection("categories").doc();
+      const normalized = normalizedName(categoryName);
       transaction.create(category, {
-        name: categoryName, sortOrder: index, isDefault: categoryName === "Ostalo", revision: 0,
+        name: categoryName, normalizedName: normalized, sortOrder: index, isDefault: categoryName === "Ostalo", revision: 0,
         createdAt: timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
+      });
+      transaction.create(pantryRef.collection("categoryNames").doc(sha256(normalized)), {
+        normalizedName: normalized, categoryId: category.id, updatedAt: timestamp,
       });
     });
     transaction.create(pantryRef.collection("activities").doc(), {
@@ -87,6 +97,7 @@ export const listMyPantries = onCall(callable, async (request) => {
     const pantry = await db.doc(`pantries/${pantryId}`).get();
     const member = await pantry.ref.collection("members").doc(uid).get();
     if (pantry.exists && !pantry.get("deletedAt") && member.exists && member.get("active") === true) {
+      await migratePantryCanonicalSchema(pantryId);
       return { pantries: [pantryResponse(pantry, member)] };
     }
     await accessRef.delete();
@@ -106,6 +117,7 @@ export const listMyPantries = onCall(callable, async (request) => {
     throw new HttpsError("failed-precondition", "Korisnik ima više aktivnih smočnica. Potrebna je administratorska provjera.");
   }
   if (active.length === 1) {
+    await migratePantryCanonicalSchema(active[0]!.pantry.id);
     await accessRef.set({ uid, pantryId: active[0]!.pantry.id, createRequestId: null, active: true, updatedAt: now() });
   }
   return { pantries: active };

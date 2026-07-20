@@ -331,8 +331,8 @@ fun StocksScreen(
     if (bulkMove) BulkMoveDialog(allProducts.filter { it.product.id in selectedIds }, shelves, initialShelfId, { bulkMove = false }) { from, to ->
         viewModel.moveProducts(allProducts.filter { it.product.id in selectedIds }, from, to); selectedIds = emptySet(); selecting = false; bulkMove = false
     }
-    if (bulkCategory) BulkCategoryDialog(categories.map { it.name }, { bulkCategory = false }) { categoryName ->
-        categories.firstOrNull { it.name == categoryName }?.let { category ->
+    if (bulkCategory) BulkCategoryDialog(categories, { bulkCategory = false }) { categoryId ->
+        categories.firstOrNull { it.id == categoryId }?.let { category ->
             viewModel.changeProductsCategory(allProducts.filter { it.product.id in selectedIds }, category)
             selectedIds = emptySet(); selecting = false; bulkCategory = false
         }
@@ -411,13 +411,13 @@ private fun BulkMoveDialog(products: List<ProductWithStock>, shelves: List<Shelf
 }
 
 @Composable
-private fun BulkCategoryDialog(categories: List<String>, dismiss: () -> Unit, apply: (String) -> Unit) {
-    var selected by remember { mutableStateOf(categories.firstOrNull().orEmpty()) }
+private fun BulkCategoryDialog(categories: List<Category>, dismiss: () -> Unit, apply: (String) -> Unit) {
+    var selectedId by remember { mutableStateOf(categories.firstOrNull()?.id.orEmpty()) }
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text("Promijeni kategoriju") },
-        text = { PairPicker("Kategorija", categories.map { it to it }, selected) { selected = it } },
-        confirmButton = { Button({ apply(selected) }, enabled = selected.isNotBlank()) { Text("Primijeni") } },
+        text = { PairPicker("Kategorija", categories.map { it.id to it.name }, selectedId) { selectedId = it } },
+        confirmButton = { Button({ apply(selectedId) }, enabled = categories.any { it.id == selectedId }) { Text("Primijeni") } },
         dismissButton = { TextButton(dismiss) { Text("Odustani") } },
     )
 }
@@ -431,7 +431,7 @@ private fun ProductFilterDialog(
     apply: (ProductFilter) -> Unit,
 ) {
     var shelf by remember { mutableStateOf(initial.shelfIds.firstOrNull().orEmpty()) }
-    var category by remember { mutableStateOf(initial.categories.firstOrNull().orEmpty()) }
+    var categoryId by remember { mutableStateOf(initial.categoryIds.firstOrNull().orEmpty()) }
     var quantity by remember { mutableStateOf(initial.quantityAtMost?.toString().orEmpty()) }
     var below by remember { mutableStateOf(initial.belowMinimumOnly) }
     var shopping by remember { mutableStateOf(initial.onShoppingListOnly) }
@@ -439,13 +439,15 @@ private fun ProductFilterDialog(
         onDismissRequest = dismiss,
         title = { Text("Filtri zalihe") },
         text = { LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item { SimpleDropdown("Polica", shelves.firstOrNull { it.id == shelf }?.name ?: "Sve", listOf("Sve") + shelves.map { it.name }) { selected -> shelf = shelves.firstOrNull { it.name == selected }?.id.orEmpty() } }
-            item { SimpleDropdown("Kategorija", category.ifBlank { "Sve" }, listOf("Sve") + categories.map { it.name }) { category = if (it == "Sve") "" else it } }
+            item { PairPicker("Polica", listOf("" to "Sve") + shelves.map { it.id to it.name }, shelf) { shelf = it } }
+            item { PairPicker("Kategorija", listOf("" to "Sve") + categories.map { it.id to it.name }, categoryId) { categoryId = it } }
             item { OutlinedTextField(quantity, { quantity = it.filter(Char::isDigit) }, label = { Text("Ukupna količina najviše") }, modifier = Modifier.fillMaxWidth()) }
             item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Ispod minimuma", Modifier.weight(1f)); Switch(below, { below = it }) } }
             item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Na popisu za kupnju", Modifier.weight(1f)); Switch(shopping, { shopping = it }) } }
         } },
-        confirmButton = { Button({ apply(initial.copy(shelfIds = shelf.takeIf(String::isNotBlank)?.let(::setOf) ?: emptySet(), categories = category.takeIf(String::isNotBlank)?.let(::setOf) ?: emptySet(), quantityAtMost = quantity.toIntOrNull(), belowMinimumOnly = below, onShoppingListOnly = shopping)) }) { Text("Primijeni") } },
+        confirmButton = { Button({
+            apply(initial.copy(shelfIds = shelf.takeIf(String::isNotBlank)?.let(::setOf) ?: emptySet(), categoryIds = categoryId.takeIf(String::isNotBlank)?.let(::setOf) ?: emptySet(), quantityAtMost = quantity.toIntOrNull(), belowMinimumOnly = below, onShoppingListOnly = shopping))
+        }) { Text("Primijeni") } },
         dismissButton = { Row { TextButton({ apply(ProductFilter(query = initial.query)) }) { Text("Očisti") }; TextButton(dismiss) { Text("Odustani") } } },
     )
 }
@@ -826,10 +828,10 @@ fun ProductEditor(
                     }
                 }
                 item {
-                    SimpleDropdown("Kategorija *", category, categories.map { it.name }) { selected ->
-                        categories.firstOrNull { it.name == selected }?.let {
-                            category = it.name
+                    PairPicker("Kategorija *", categories.map { it.id to it.name }, categoryId) { selectedId ->
+                        categories.firstOrNull { it.id == selectedId }?.let {
                             categoryId = it.id
+                            category = it.name
                         }
                     }
                 }
@@ -875,7 +877,7 @@ fun ProductEditor(
                     }) { Text("Uključi obavijesti o minimalnoj zalihi") }
                 }
                 if (isNew) {
-                    item { SimpleDropdown("Početna polica", shelves.firstOrNull { it.id == shelfId }?.name.orEmpty(), shelves.map { it.name }, { selected -> shelfId = shelves.first { it.name == selected }.id }) }
+                    item { PairPicker("Početna polica", shelves.map { it.id to it.name }, shelfId) { shelfId = it } }
                     item { OutlinedTextField(quantity, { quantity = it.filter(Char::isDigit) }, label = { Text("Početna količina") }, modifier = Modifier.fillMaxWidth()) }
                 }
             }
@@ -994,9 +996,7 @@ private fun ExistingBarcodeDialog(
                     Text(locations.ifBlank { "Artikl trenutačno nema količinu ni na jednoj polici." })
                 }
                 item {
-                    SimpleDropdown("Polica", shelves.firstOrNull { it.id == shelfId }?.name.orEmpty(), shelves.map { it.name }) { selected ->
-                        shelfId = shelves.first { it.name == selected }.id
-                    }
+                    PairPicker("Polica", shelves.map { it.id to it.name }, shelfId) { shelfId = it }
                 }
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1036,7 +1036,7 @@ private fun StockActionDialog(item: ProductWithStock, shelves: List<Shelf>, dism
                     AssistChip({ adding = true }, { Text("Dodaj") })
                     AssistChip({ adding = false }, { Text("Izvadi") })
                 }
-                SimpleDropdown("Polica", shelves.firstOrNull { it.id == shelfId }?.name.orEmpty(), shelves.map { it.name }, { selected -> shelfId = shelves.first { it.name == selected }.id })
+                PairPicker("Polica", shelves.map { it.id to it.name }, shelfId) { shelfId = it }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton({ if (quantity > 1) quantity-- }) { Icon(Icons.Outlined.Remove, null) }
                     Text("$quantity kom", Modifier.padding(horizontal = 12.dp), fontWeight = FontWeight.Bold)
@@ -1087,9 +1087,9 @@ fun ShoppingScreen(
             if (items.isEmpty()) item { EmptyState("Popis za kupnju je prazan.") }
         }
     }
-    if (showAdd) ManualShoppingDialog(null, categories, { showAdd = false }) { name, category, qty -> viewModel.addShopping(name, category, qty); showAdd = false }
-    editing?.let { item -> ManualShoppingDialog(item, categories, { editing = null }) { name, category, qty ->
-        viewModel.updateManualShopping(item, name, category, qty)
+    if (showAdd) ManualShoppingDialog(null, categories, { showAdd = false }) { name, categoryId, qty -> viewModel.addShopping(name, categoryId, qty); showAdd = false }
+    editing?.let { item -> ManualShoppingDialog(item, categories, { editing = null }) { name, categoryId, qty ->
+        viewModel.updateManualShopping(item, name, categoryId, qty)
         editing = null
     } }
     deleting?.let { item ->
@@ -1165,18 +1165,18 @@ internal fun ManualShoppingDialog(
     dismiss: () -> Unit,
     save: (String, String, Int) -> Unit,
 ) {
-    val categoryNames = categories.map { it.name }
-    val initialCategory = current?.category?.takeIf(categoryNames::contains)
-        ?: categories.firstOrNull { it.isDefault }?.name
-        ?: categoryNames.firstOrNull().orEmpty()
+    val initialCategoryId = current?.categoryId?.takeIf { selected -> categories.any { it.id == selected } }
+        ?: current?.category?.let { legacyName -> categories.firstOrNull { it.name == legacyName }?.id }
+        ?: categories.firstOrNull { it.isDefault }?.id
+        ?: categories.firstOrNull()?.id.orEmpty()
     var name by remember(current?.id) { mutableStateOf(current?.name.orEmpty()) }
-    var category by remember(current?.id, categoryNames) { mutableStateOf(initialCategory) }
+    var categoryId by remember(current?.id, categories) { mutableStateOf(initialCategoryId) }
     var quantity by remember(current?.id) { mutableStateOf(current?.requiredQuantity?.toString() ?: "1") }
     AlertDialog(onDismissRequest = dismiss, title = { Text(if (current == null) "Ručna stavka" else "Uredi ručnu stavku") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(name, { name = it.take(100) }, label = { Text("Naziv") })
-        SimpleDropdown("Kategorija", category, categoryNames) { category = it }
+        PairPicker("Kategorija", categories.map { it.id to it.name }, categoryId) { categoryId = it }
         OutlinedTextField(quantity, { quantity = it.filter(Char::isDigit) }, label = { Text("Količina") })
-    } }, confirmButton = { Button({ save(name, category, quantity.toIntOrNull() ?: 1) }, enabled = name.trim().length in 1..100 && category in categoryNames && quantity.toIntOrNull() in 1..1_000_000) { Text(if (current == null) "Dodaj" else "Spremi") } }, dismissButton = { TextButton(dismiss) { Text("Odustani") } })
+    } }, confirmButton = { Button({ save(name, categoryId, quantity.toIntOrNull() ?: 1) }, enabled = name.trim().length in 1..100 && categories.any { it.id == categoryId } && quantity.toIntOrNull() in 1..1_000_000) { Text(if (current == null) "Dodaj" else "Spremi") } }, dismissButton = { TextButton(dismiss) { Text("Odustani") } })
 }
 
 @Composable

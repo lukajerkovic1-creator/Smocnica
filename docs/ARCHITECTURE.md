@@ -46,13 +46,15 @@ users/{uid}
 pantries/{pantryId}
   name, ownerUid, memberUids[], revision, createdAt, updatedAt, deletedAt?, purgeAfter?
   members/{uid}: role(OWNER|MEMBER), joinedAt, invitedBy, active
-  shelves/{shelfId}: name, sortOrder, revision, deletedAt?, purgeAfter?
-  categories/{categoryId}: name, sortOrder, isDefault, revision, deletedAt?, purgeAfter?
+  shelves/{shelfId}: name, normalizedName, sortOrder, revision, deletedAt?, purgeAfter?
+  shelfNames/{sha256(normalizedName)}: normalizedName, shelfId, updatedAt
+  categories/{categoryId}: name, normalizedName, sortOrder, isDefault, revision, deletedAt?, purgeAfter?
+  categoryNames/{sha256(normalizedName)}: normalizedName, categoryId, updatedAt
   products/{productId}: name, normalizedName, barcode?, description, categoryId, category,
     photoUrl?, photoSource, minimumQuantity, autoShopping, totalQuantity, revision,
     createdAt, updatedAt, deletedAt?, purgeAfter?
   stocks/{productId_shelfId}: productId, shelfId, quantity, revision, updatedAt
-  shoppingItems/{itemId}: productId?, name, category, requiredQuantity, checked,
+  shoppingItems/{itemId}: productId?, name, categoryId, category, requiredQuantity, checked,
     manual, revision, createdAt, updatedAt, deletedAt?
   inventorySessions/{inventoryId}: shelfId, status(APPLIED), expectedRevision,
     differences[], actorUid, deviceId, deviceDisplayName, createdAt, appliedAt
@@ -70,13 +72,15 @@ Globalni `barcodes/{sha256(pantryId:barcode)}` dokument rezervira barkod u trans
 
 Za svaku novu operativnu mutaciju poslužitelj u istoj transakciji provjerava da je `deviceId` aktivan pod `users/{actorUid}/devices`. `deviceDisplayName`, naziv artikla i nazive polica izvodi isključivo iz poslužiteljskih dokumenata. Aktivnost čuva strukturirane identifikatore; Android generira opis iz trenutačnih lokalnih zapisa, uz poslužiteljski snapshot teksta samo kao kompatibilni prikaz starih aktivnosti. Room shema 2 dodaje te identifikatore aditivnom migracijom 1→2 bez brisanja podataka.
 
-`categoryId` je kanonska veza artikla na aktivni dokument kategorije. Klijent može prikazivati naziv radi offline rada, ali `applyOperation` ignorira poslani naziv i ponovno ga dohvaća iz `categories/{categoryId}`. Room shema 3 aditivnom migracijom 2→3 popunjava ID iz postojeće kategorije istog naziva ili zadane kategorije. Open Food Facts taksonomija mapira se samo na deset lokalnih kategorija; udaljena javna fotografija dopuštena je samo preko HTTPS hosta `images.openfoodfacts.org` i puta `/images/products/`.
+`categoryId` je kanonska veza artikla i svake ručne ili automatske stavke kupnje na aktivni dokument kategorije; `shelfId` je jedina veza prema polici. Klijent može spremiti poslužiteljski naziv radi offline prikaza, ali poslovna logika nikada iz njega ne izvodi ID. `applyOperation` ignorira poslani naziv i dohvaća ga iz `categories/{categoryId}`. Room shema 5 aditivnom migracijom 4→5 dodaje `categoryId` stavkama kupnje i `normalizedName` policama/kategorijama bez brisanja podataka.
+
+Nazivi polica i kategorija normaliziraju se Unicode NFKC postupkom, uklanjanjem rubnih i sažimanjem višestrukih razmaka te hrvatskim lowercaseom. Poslužitelj u istoj transakciji provjerava aktivne dokumente i determinističku rezervaciju u `shelfNames`/`categoryNames`, pa dva paralelna zahtjeva ne mogu stvoriti isto ime s različitim velikim slovima ili razmacima. Klijent nema izravan pristup rezervacijama. `listMyPantries` idempotentno kanonizira starije zapise prije realtime sinkronizacije; ako su stari podaci već dvosmisleni, odbija pristup uz jasnu administratorsku pogrešku umjesto proizvoljnog spajanja. U svakoj smočnici točno jedna aktivna kategorija ima `isDefault=true`; klijentski `isDefault` se ignorira, a zadana kategorija ne može se obrisati. Open Food Facts taksonomija mapira se samo na deset lokalnih kategorija; udaljena javna fotografija dopuštena je samo preko HTTPS hosta `images.openfoodfacts.org` i puta `/images/products/`.
 
 Nacrti inventure ostaju u Roomu dok ih korisnik ne primijeni ili odbaci. Potvrđena inventura šalje jednu atomarnu operaciju s hashom trenutačnih količina police; poslužitelj u Firestore sprema samo sanitizirani zapis primijenjene inventure, nikada nedovršeni nacrt.
 
 ## Cloud Functions
 
-- `getBackendCapabilities` je javni, neosjetljivi handshake koji vraća samo `backendApiVersion`, statičke capability oznake i očekivani manifest funkcija. Android prije registracije uređaja i obnove cloud podataka zahtijeva API 3 te `operation:delete_shopping`, `device-registration:v2`, `notification-privacy:v1` i `single-active-pantry:v1`. Potvrđena verzija lokalno se pamti samo za privremeni offline fallback; izričito zastario ili nepotpun odgovor uvijek blokira udaljene pozive.
+- `getBackendCapabilities` je javni, neosjetljivi handshake koji vraća samo `backendApiVersion`, statičke capability oznake i očekivani manifest funkcija. Android prije registracije uređaja i obnove cloud podataka zahtijeva API 4 te `operation:delete_shopping`, `device-registration:v2`, `notification-privacy:v1`, `single-active-pantry:v1` i `canonical-names:v1`. Potvrđena verzija lokalno se pamti samo za privremeni offline fallback; izričito zastario ili nepotpun odgovor uvijek blokira udaljene pozive.
 - `createPantry`, `listMyPantries`, `createInvitation`, `joinPantry`, `manageMember`, `transferOwnership`, `deletePantry`, `registerDevice`, `unregisterDevice` i `purgeTrash`.
 - `applyOperation`: validira i atomarno primjenjuje police, artikle, zalihe, kupnju i obnovu.
 - `apply_inventory` grana u `applyOperation`: atomarno validira SHA-256 izvedeni snapshot količina police i primjenjuje potvrđene razlike.

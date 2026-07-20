@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 typealias PantryId = String
 typealias ProductId = String
 typealias ShelfId = String
+typealias CategoryId = String
 typealias UserId = String
 
 @Serializable
@@ -125,6 +126,7 @@ data class ShoppingItem(
     val updatedAt: Long,
     val deletedAt: Long? = null,
     val syncState: SyncState = SyncState.SYNCED,
+    val categoryId: String = "",
 )
 
 @Serializable
@@ -336,7 +338,7 @@ data class PantrySnapshot(
 data class ProductFilter(
     val query: String = "",
     val shelfIds: Set<ShelfId> = emptySet(),
-    val categories: Set<String> = emptySet(),
+    val categoryIds: Set<CategoryId> = emptySet(),
     val quantityAtMost: Int? = null,
     val belowMinimumOnly: Boolean = false,
     val onShoppingListOnly: Boolean = false,

@@ -351,7 +351,7 @@ class MainViewModel @Inject constructor(
     }
     fun addProductsToShopping(products: List<ProductWithStock>) = withActor { pantry, uid ->
         products.forEach { item ->
-            inventory.addManualShoppingItem(pantry.id, item.product.name, item.product.category, 1, uid, deviceIdentity.displayName)
+            inventory.addManualShoppingItem(pantry.id, item.product.name, item.product.categoryId, 1, uid, deviceIdentity.displayName)
         }
     }
     fun deleteProducts(products: List<ProductWithStock>) = withActor { _, uid ->
@@ -364,15 +364,15 @@ class MainViewModel @Inject constructor(
             if (quantity > 0) inventory.moveStock(item.product.id, fromShelfId, toShelfId, quantity, uid, deviceIdentity.displayName)
         }
     }
-    fun addShopping(name: String, category: String, quantity: Int) = withActor { pantry, uid -> inventory.addManualShoppingItem(pantry.id, name, category, quantity, uid, deviceIdentity.displayName) }
+    fun addShopping(name: String, categoryId: String, quantity: Int) = withActor { pantry, uid -> inventory.addManualShoppingItem(pantry.id, name, categoryId, quantity, uid, deviceIdentity.displayName) }
     fun setChecked(item: ShoppingItem, checked: Boolean) = withActor { _, uid -> inventory.setShoppingChecked(item, checked, uid, deviceIdentity.displayName) }
     fun saveCategory(category: Category) = withActor { pantry, uid -> inventory.upsertCategory(category.copy(pantryId = pantry.id), uid, deviceIdentity.displayName) }
     fun reorderCategories(ordered: List<Category>) = withActor { pantry, uid ->
         inventory.reorderCategories(pantry.id, ordered.map(Category::id), pantry.revision, uid, deviceIdentity.displayName)
     }
     fun deleteCategory(category: Category, replacementId: String) = withActor { _, uid -> inventory.deleteCategory(category, replacementId, uid, deviceIdentity.displayName) }
-    fun updateManualShopping(item: ShoppingItem, name: String, category: String, quantity: Int) = withActor { _, uid ->
-        inventory.updateManualShoppingItem(item, name, category, quantity, uid, deviceIdentity.displayName)
+    fun updateManualShopping(item: ShoppingItem, name: String, categoryId: String, quantity: Int) = withActor { _, uid ->
+        inventory.updateManualShoppingItem(item, name, categoryId, quantity, uid, deviceIdentity.displayName)
     }
     fun deleteManualShopping(item: ShoppingItem, onDeleted: (ShoppingItem) -> Unit) = actorAction(
         block = { _, uid -> inventory.deleteManualShoppingItem(item, uid, deviceIdentity.displayName) },
@@ -382,7 +382,7 @@ class MainViewModel @Inject constructor(
         inventory.addManualShoppingItem(
             pantry.id,
             item.name,
-            item.category,
+            item.categoryId,
             item.requiredQuantity,
             uid,
             deviceIdentity.displayName,

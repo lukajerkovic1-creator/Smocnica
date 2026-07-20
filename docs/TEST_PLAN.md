@@ -14,6 +14,8 @@
 ### Data/repository
 
 - Room transakcija uvijek zajedno mijenja read-model i outbox.
+- Migracija Room 4→5 čuva podatke, popunjava normalizirane nazive, dodaje `categoryId` stavkama kupnje i ostavlja točno jednu aktivnu zadanu kategoriju.
+- Repository odbija nazive polica/kategorija jednake nakon NFKC/case/space normalizacije; artikle, filtere i stavke kupnje povezuje isključivo preko ID-a.
 - `PERMISSION_DENIED` na pantry/members listeneru odmah zaustavlja listenere, trajno karantenira smočnicu, uklanja je iz aktivnog UI toka i isključuje njezine operacije iz outboxa.
 - Karantena preživljava pozadinu i ponovno stvaranje procesa; offline potvrda ostaje blokirana, a uspješan `listMyPantries` nakon povratka mreže vraća pristup ili potpuno briše lokalne podatke opozvane smočnice.
 - Idempotentna potvrda operacije, retry, konflikt i odbijanje trajne pogreške.
@@ -29,6 +31,9 @@
 - Dva paralelna ili ponovljena zahtjeva za stvaranje koriste isti idempotency ključ i rezultiraju jednom smočnicom; korisnik s aktivnom smočnicom ne može stvoriti ni pridružiti se drugoj.
 - Izravni klijentski pristup `userPantryAccess` locku je zabranjen; uklanjanje člana i brisanje smočnice uklanjaju samo pripadajući lock.
 - Backend odbija 11. člana, 51. policu, 51. kategoriju, 501. artikl i drugu aktivnu pozivnicu bez djelomičnih zapisa ili potrošnje koda.
+- Paralelno stvaranje/preimenovanje ne može rezervirati isti normalizirani naziv police ili kategorije; klijent ne može čitati ni pisati pomoćne rezervacije.
+- Klijentski `isDefault` ne mijenja zadanu kategoriju; backend i migracija održavaju točno jednu aktivnu zadanu kategoriju.
+- Artikl i ručna/automatska stavka kupnje odbijaju nepostojeći `categoryId`, a prikazani naziv uvijek dolazi iz poslužiteljskog dokumenta kategorije.
 - Član čita; klijent ne piše izravno ni uz lažni ownerUid/quantity.
 - Samo owner callable može upravljati članovima, prijenosom i brisanjem.
 - Kôd je jednokratan/istekao/revoked; operationId je idempotentan.
@@ -48,7 +53,7 @@
 
 ### Integracija
 
-- APK s minimalnim backend API-jem 2 blokira rad uz jasan retry kada `getBackendCapabilities` ne postoji, vrati stariju verziju ili nema obveznu capability oznaku; prolazi s aktualnim odgovorom i samo pri privremenom mrežnom prekidu smije koristiti prethodno potvrđenu kompatibilnu verziju.
+- APK s minimalnim backend API-jem 4 blokira rad uz jasan retry kada `getBackendCapabilities` ne postoji, vrati stariju verziju ili nema obveznu capability oznaku; prolazi s aktualnim odgovorom i samo pri privremenom mrežnom prekidu smije koristiti prethodno potvrđenu kompatibilnu verziju.
 - Produkcijski post-deploy smoke uspoređuje `functions:list` sa statičkim manifestom svih funkcija, provjerava stvarni capability odgovor i potvrđuje da svaka zaštićena callable funkcija odbija neautorizirani zahtjev.
 - Prijava → stvaranje smočnice → polica → artikl → add/remove → auto-shopping.
 - Uređaj A offline mijenja količinu, uređaj B online mijenja istu količinu, sinkronizacija delta operacija.
