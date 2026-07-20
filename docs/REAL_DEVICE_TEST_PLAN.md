@@ -7,7 +7,7 @@ Ovaj plan provjerava postojeću produkcijsku funkcionalnost i obveznu nadogradnj
 | Provjera | Status | Dokaz / razlog |
 |---|---|---|
 | Room migracija iz stvarne rc9 sheme (v1) izravno na aktualnu shemu (v5) | PASS | Instrumentacijski test stvara realistične police, kategorije, artikl, fotografiju, zalihu, shopping stavku, inventuru i nesinkronizirani outbox te provjerava očuvanje svih podataka. |
-| Instrumentacija na API 29 i API 35 | LOKALNO PASS / CI U TIJEKU | Lokalno je na svakom API-ju prošlo 28 Room/repository i 30 app/Compose testova. Obvezna matrica dodana je u standardni CI i release workflow; udaljeni dokaz upisuje se nakon prvog prolaza. |
+| Instrumentacija na API 29 i API 35 | PASS | Lokalno i u GitHub CI runu [29768090987](https://github.com/lukajerkovic1-creator/Smocnica/actions/runs/29768090987) na svakom je API-ju prošlo 28 Room/repository i 30 app/Compose testova. Matrica je obvezna u standardnom CI-ju i release workflowu. |
 | Nadogradnja APK-a rc9 → rc19 bez deinstalacije na uređaju A | **NIJE PROVJERENO** | Potreban je stvarni uređaj i ručno evidentiranje K-01–K-08. |
 | Nadogradnja APK-a rc9 → rc19 bez deinstalacije na uređaju B | **NIJE PROVJERENO** | Potreban je drugi stvarni uređaj i ručno evidentiranje K-01–K-08. |
 | Stvarni App Check, FCM, Crashlytics, reinstalacija, fizički skener i višednevni rad | **NIJE PROVJERENO** | Repo i emulator ne mogu dokazati ponašanje produkcijskih uređaja/usluga. |

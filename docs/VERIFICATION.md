@@ -9,11 +9,11 @@ Datum zadnje provjere: 20. srpnja 2026.
 | Čisti Gradle prolaz | `gradlew --no-daemon clean test lintDebug assembleDebug` | `BUILD SUCCESSFUL` |
 | Debug i release varijante | `gradlew --no-daemon test lintDebug assembleDebug lintRelease assembleRelease` | `BUILD SUCCESSFUL`; release R8/minifikacija uspješna |
 | JVM testovi | uključeni u `test` | 34/34 prošlo kroz app/core module |
-| Android instrumentacija | `gradlew --no-daemon connectedDebugAndroidTest` | 57/57 prošlo na API 35 emulatoru: 27 Room/repository i 30 app/Compose testova |
+| Android instrumentacija | `:core:data:connectedDebugAndroidTest :app:connectedDebugAndroidTest` | 58/58 prošlo zasebno na API 29 i API 35, lokalno i u obveznom GitHub CI runu `29768090987`: 28 Room/repository (uključujući izravnu rc9 v1 → aktualnu v5 migraciju) i 30 app/Compose testova po API-ju |
 | Cloud Functions | `npm --prefix functions run build` | TypeScript kompilacija uspješna |
-| Firebase Emulator Suite | `npm --prefix functions run test:emulator` | 58/58 prošlo: Firestore/Storage pravila, kanonski nazivi, ID veze, atomske skupne operacije, istodobno offline dodavanje, integracijske operacije i tri release-workflow sigurnosna testa |
+| Firebase Emulator Suite | `npm --prefix functions run test:emulator` | 59/59 prošlo: Firestore/Storage pravila, kanonski nazivi, ID veze, atomske skupne operacije, istodobno offline dodavanje, integracijske operacije i četiri release-workflow sigurnosna testa |
 | Runtime smoke | `adb install -r`, brisanje podataka, hladni start i `logcat` | instalacija i start uspješni; hrvatski login renderiran; nema fatalne iznimke |
-| Workflow sintaksa | parsiranje svih datoteka u `.github/workflows` Node YAML parserom | `ci.yml`, `deploy-production-backend.yml` i `release.yml` valjani; sve vanjske Actions reference pinane na puni commit SHA |
+| Workflow sintaksa | parsiranje svih datoteka u `.github/workflows` Node YAML parserom | `android-instrumentation.yml`, `ci.yml`, `deploy-production-backend.yml` i `release.yml` valjani; sve vanjske Actions reference pinane na puni commit SHA; release posao ovisi o PASS rezultatu API 29/35 matrice |
 | Produkcijski backend | puni deploy Functions/rules/indexes/storage + produkcijski smoke | PASS; 15/15 funkcija ACTIVE iz commita `27e6009`, backend API 6 + `atomic-bulk-products:v1`, capability odgovor HTTP 200, 11/11 zaštićenih callable funkcija HTTP 401 bez vjerodajnice |
 | Potpisani GitHub Release | Actions run `29764569551` + anonimni ponovni download | PASS; RC26 je čekao ručno `production` odobrenje, rano brisanje tajni prošlo prije objave, a javni APK i manifest potvrđeni HTTP 200 |
 | APK manifest | `aapt dump badging` | debug `hr.smocnica.debug`, release `hr.smocnica`, `minSdk 29`, stabilni `targetSdk 36`, `versionCode 26`, `versionName 1.0.0-rc26` |
@@ -47,7 +47,7 @@ Kodom, testovima i buildom potvrđeni su verzionirana JSON validacija, UTF-8 CSV
 - dva stvarna Google računa i uređaja u produkcijskom Firebase projektu, stvarni App Check, FCM dostava, Crashlytics i oporavak podataka nakon ponovne instalacije;
 - GitHub rate-limit ponašanje i Android nadogradnja RC25→RC26 s očuvanjem lokalnih podataka na stvarnom uređaju; objava i anonimni javni download RC26 potvrđeni su;
 - kamera, bljeskalica, fotografiranje i fizički EAN-8/EAN-13/UPC-A/UPC-E kodovi na stvarnom Android 10+ uređaju;
-- Android 10 i OEM uređaji; lokalna instrumentacija izvedena je samo na API 35 emulatoru;
+- fizički Android 10 i OEM uređaji; emulatori API 29 i API 35 sada su lokalno i u CI-ju PASS, ali ne zamjenjuju stvarni hardver;
 - višednevni rad više stvarnih uređaja, stvarni prekidi procesa/mreže i cloud oporavak izvan emulatora;
 - ljudski TalkBack prolaz i sve OEM varijante instalacijskog dijaloga; semantički nazivi, dodirne površine 48 dp, font-scale 150 %/200 %, približno 360 dp i landscape ciljano su provjereni Compose testovima na API 35 emulatoru 20. srpnja 2026.;
 - produkcijski scheduled cleanup i FCM ponašanje na stvarnim podacima, koje Firebase Emulator Suite ne emulira u cijelosti;
