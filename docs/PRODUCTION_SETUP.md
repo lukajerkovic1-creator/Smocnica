@@ -131,6 +131,8 @@ Workflow `.github/workflows/deploy-production-backend.yml` odvojen je od APK rel
 
 Workflow prije objave ponovno kompajlira Functions i pokreće Emulator Suite. Nakon objave dohvaća produkcijski `functions:list`, zahtijeva cijeli manifest funkcija, poziva `getBackendCapabilities` i šalje neautorizirani, nedestruktivni zahtjev svakoj ostaloj callable funkciji. Uspjeh znači da je javni handshake vratio očekivani API/capabilities i da je svaka zaštićena funkcija dostupna te odbila zahtjev s HTTP 401/403. Izvještaj `production-smoke-report.json` ostaje kao Actions artefakt vezan uz commit.
 
+Provjera 20. srpnja 2026. pokazala je da Environment postoji i traži odobrenje, ali OIDC identifikatori još nisu postavljeni pa se workflow zaustavlja prije autentikacije i ne mijenja Firebase. API 4 je zato taj put objavljen lokalno prijavljenim administratorskim Firebase CLI-jem i zasebno potvrđen produkcijskim smokeom. Prije sljedećeg automatiziranog deploya administrator mora unijeti oba gore navedena Environment Secreta; service-account JSON se ne smije koristiti kao zamjena.
+
 ### Produkcijski App Check za GitHub APK
 
 Release varijanta koristi `PlayIntegrityAppCheckProviderFactory`; debug varijanta koristi Debug provider. Sve poslovne callable funkcije u produkciji imaju `enforceAppCheck: true`. Javni `getBackendCapabilities` namjerno je izuzet jer vraća samo statički kompatibilnosni manifest potreban prije ostalih poziva.
