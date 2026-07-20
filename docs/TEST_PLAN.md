@@ -43,6 +43,8 @@
 
 ### Integracija
 
+- APK s minimalnim backend API-jem 2 blokira rad uz jasan retry kada `getBackendCapabilities` ne postoji, vrati stariju verziju ili nema obveznu capability oznaku; prolazi s aktualnim odgovorom i samo pri privremenom mrežnom prekidu smije koristiti prethodno potvrđenu kompatibilnu verziju.
+- Produkcijski post-deploy smoke uspoređuje `functions:list` sa statičkim manifestom svih funkcija, provjerava stvarni capability odgovor i potvrđuje da svaka zaštićena callable funkcija odbija neautorizirani zahtjev.
 - Prijava → stvaranje smočnice → polica → artikl → add/remove → auto-shopping.
 - Uređaj A offline mijenja količinu, uređaj B online mijenja istu količinu, sinkronizacija delta operacija.
 - Poziv i pridruživanje drugog korisnika; owner/member negativne akcije.

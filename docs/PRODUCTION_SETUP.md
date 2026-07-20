@@ -86,13 +86,15 @@ SHA-1 je potreban Google prijavi, a SHA-256 produkcijskom Play Integrity App Che
 
 ### Firestore, Storage, Functions i FCM
 
-Produkcijsko stanje potvrđeno 13. srpnja 2026.:
+Produkcijsko stanje ponovno potvrđeno 20. srpnja 2026.:
 
 - Firebase projekt: `smocnica-aplikacija` (Blaze);
 - Firestore `(default)`: `europe-west1`;
 - Storage bucket: `gs://smocnica-aplikacija.firebasestorage.app`, `europe-west1`, Standard;
 - objavljena su aktualna Firestore i Storage pravila te indeksi;
-- aktivno je svih 14 očekivanih Node.js 22 funkcija u `europe-west1`;
+- aktivno je svih 15 očekivanih Node.js 22 funkcija u `europe-west1`, uključujući `getBackendCapabilities` API 2;
+- svih 15 funkcija objavljeno je iz commita `4d637b44e6e3e230b37ed039c4749c834bd41d17` s istim Firebase source hashom `05e31a6640024e4aeb868f526f95687789ae20d6`;
+- produkcijski smoke provjerio je capability odgovor i svih 11 zaštićenih callable funkcija; dokaz je u `docs/PRODUCTION_BACKEND_SMOKE.json`;
 - Artifact Registry automatski briše build slike starije od 7 dana radi ograničenja troška.
 
 1. Izraditi Firestore bazu u Native načinu. Lokaciju izabrati prije prvog zapisa; naknadno se ne može jednostavno promijeniti. Funkcije su konfigurirane za `europe-west1`, pa odabrati europsku lokaciju usklađenu s pravilima organizacije.
@@ -117,9 +119,21 @@ npx --prefix functions firebase-tools deploy --only firestore:rules,firestore:in
 
 Nakon deploya u Firebase Console provjeriti da su callable funkcije u `europe-west1`, Firestore indeksi završili izgradnju i da su objavljena aktualna Firestore/Storage pravila.
 
+#### Kontrolirani GitHub deployment
+
+Workflow `.github/workflows/deploy-production-backend.yml` odvojen je od APK releasea i pokreće se samo ručno (`Actions > Deploy production backend > Run workflow`). Prije prve uporabe:
+
+1. U GitHubu izraditi Environment naziva `production` i uključiti **Required reviewers**. Odobrenje u tom Environmentu je obvezna ljudska kontrola prije deploy koraka.
+2. U Google Cloudu konfigurirati Workload Identity Federation za ovaj javni repozitorij i ograničiti ga na workflow s grane `master`.
+3. U GitHub Environment Secrets dodati samo identifikatore `GCP_WORKLOAD_IDENTITY_PROVIDER` i `GCP_DEPLOY_SERVICE_ACCOUNT`. Ne spremati service-account JSON ni Firebase token.
+4. Deployment service accountu dati najmanje ovlasti potrebne za Firebase Functions 2nd gen, Firestore rules/indexes i Storage rules deploy te `iam.serviceAccounts.actAs` samo nad runtime računom.
+5. Workflow pokrenuti unosom točne potvrde `DEPLOY`, a zatim ga odobriti u Environmentu `production`.
+
+Workflow prije objave ponovno kompajlira Functions i pokreće Emulator Suite. Nakon objave dohvaća produkcijski `functions:list`, zahtijeva cijeli manifest funkcija, poziva `getBackendCapabilities` i šalje neautorizirani, nedestruktivni zahtjev svakoj ostaloj callable funkciji. Uspjeh znači da je javni handshake vratio očekivani API/capabilities i da je svaka zaštićena funkcija dostupna te odbila zahtjev s HTTP 401/403. Izvještaj `production-smoke-report.json` ostaje kao Actions artefakt vezan uz commit.
+
 ### Produkcijski App Check za GitHub APK
 
-Release varijanta koristi `PlayIntegrityAppCheckProviderFactory`; debug varijanta koristi Debug provider. Callable funkcije u produkciji imaju `enforceAppCheck: true`.
+Release varijanta koristi `PlayIntegrityAppCheckProviderFactory`; debug varijanta koristi Debug provider. Sve poslovne callable funkcije u produkciji imaju `enforceAppCheck: true`. Javni `getBackendCapabilities` namjerno je izuzet jer vraća samo statički kompatibilnosni manifest potreban prije ostalih poziva.
 
 Za APK distribuiran izvan Google Playa obvezno:
 

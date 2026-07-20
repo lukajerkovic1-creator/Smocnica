@@ -17,6 +17,8 @@ import hr.smocnica.core.domain.AppUpdate
 import hr.smocnica.core.domain.VerifiedApk
 import hr.smocnica.core.data.messaging.DeviceRegistration
 import hr.smocnica.core.data.messaging.NotificationPrivacyMode
+import hr.smocnica.core.data.remote.BackendCompatibilityChecker
+import hr.smocnica.core.data.remote.BackendCompatibilityResult
 import hr.smocnica.core.domain.ProductPhotoRepository
 import hr.smocnica.core.model.Category
 import hr.smocnica.core.model.InventorySession
@@ -36,7 +38,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.map
@@ -44,6 +45,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import javax.inject.Inject
+
+sealed interface BackendReadiness {
+    data object Checking : BackendReadiness
+    data object Ready : BackendReadiness
+    data class Blocked(val message: String) : BackendReadiness
+}
 
 @HiltViewModel
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -57,6 +64,7 @@ class MainViewModel @Inject constructor(
     private val trash: TrashRepository,
     private val photos: ProductPhotoRepository,
     private val deviceRegistration: DeviceRegistration,
+    private val backendCompatibilityChecker: BackendCompatibilityChecker,
     val deviceIdentity: DeviceIdentity,
 ) : ViewModel() {
     val session = sessions.session.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -71,6 +79,8 @@ class MainViewModel @Inject constructor(
     val notificationPrivacyMode: StateFlow<NotificationPrivacyMode> = _notificationPrivacyMode
     private val _notificationPrivacyUpdating = MutableStateFlow(false)
     val notificationPrivacyUpdating: StateFlow<Boolean> = _notificationPrivacyUpdating
+    private val _backendReadiness = MutableStateFlow<BackendReadiness>(BackendReadiness.Checking)
+    val backendReadiness: StateFlow<BackendReadiness> = _backendReadiness
 
     val selectedPantry: StateFlow<Pantry?> = selectedPantryId.flatMapLatest { id ->
         pantriesRepository.observePantries().flatMapLatest { values -> flowOf(values.firstOrNull { it.id == id } ?: values.firstOrNull()) }
@@ -138,6 +148,7 @@ class MainViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             pantries.collect { list ->
+                if (_backendReadiness.value !is BackendReadiness.Ready) return@collect
                 val selected = selectedPantryId.value
                 when {
                     list.isEmpty() && selected != null -> {
@@ -149,15 +160,44 @@ class MainViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            session.filterNotNull().collectLatest {
-                _isRestoringPantries.value = true
-                runCatching { deviceRegistration.registerCurrentToken() }
-                    .onFailure { _messages.emit(it.message ?: "Uređaj nije moguće registrirati. Provjerite mrežu i pokušajte ponovno.") }
-                runCatching { pantriesRepository.refreshPantries() }
-                    .onFailure { _messages.emit(it.message ?: "Postojeću smočnicu nije moguće dohvatiti.") }
-                _isRestoringPantries.value = false
+            session.collectLatest { currentSession ->
+                if (currentSession == null) {
+                    _backendReadiness.value = BackendReadiness.Checking
+                    _isRestoringPantries.value = false
+                } else {
+                    restoreAuthenticatedSession()
+                }
             }
         }
+    }
+
+    private suspend fun restoreAuthenticatedSession() {
+        _isRestoringPantries.value = true
+        _backendReadiness.value = BackendReadiness.Checking
+        when (val result = backendCompatibilityChecker.check()) {
+            is BackendCompatibilityResult.Blocked -> {
+                sync.stopRealtime()
+                _backendReadiness.value = BackendReadiness.Blocked(result.message)
+                _isRestoringPantries.value = false
+                return
+            }
+            is BackendCompatibilityResult.Compatible -> {
+                _backendReadiness.value = BackendReadiness.Ready
+                if (result.usedCachedConfirmation) {
+                    _messages.emit("Poslužitelj trenutačno nije dostupan; koristi se zadnja potvrđena kompatibilna verzija.")
+                }
+            }
+        }
+        runCatching { deviceRegistration.registerCurrentToken() }
+            .onFailure { _messages.emit(it.message ?: "Uređaj nije moguće registrirati. Provjerite mrežu i pokušajte ponovno.") }
+        runCatching { pantriesRepository.refreshPantries() }
+            .onFailure { _messages.emit(it.message ?: "Postojeću smočnicu nije moguće dohvatiti.") }
+        _isRestoringPantries.value = false
+    }
+
+    fun retryBackendCompatibility() {
+        if (session.value == null || _isRestoringPantries.value) return
+        viewModelScope.launch { restoreAuthenticatedSession() }
     }
 
     fun selectPantry(id: String) {

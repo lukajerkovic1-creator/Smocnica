@@ -72,6 +72,7 @@ Nacrti inventure ostaju u Roomu dok ih korisnik ne primijeni ili odbaci. Potvrđ
 
 ## Cloud Functions
 
+- `getBackendCapabilities` je javni, neosjetljivi handshake koji vraća samo `backendApiVersion`, statičke capability oznake i očekivani manifest funkcija. Android prije registracije uređaja i obnove cloud podataka zahtijeva API 2 te `operation:delete_shopping`, `device-registration:v2` i `notification-privacy:v1`. Potvrđena verzija lokalno se pamti samo za privremeni offline fallback; izričito zastario ili nepotpun odgovor uvijek blokira udaljene pozive.
 - `createPantry`, `listMyPantries`, `createInvitation`, `joinPantry`, `manageMember`, `transferOwnership`, `deletePantry`, `registerDevice`, `unregisterDevice` i `purgeTrash`.
 - `applyOperation`: validira i atomarno primjenjuje police, artikle, zalihe, kupnju i obnovu.
 - `apply_inventory` grana u `applyOperation`: atomarno validira SHA-256 izvedeni snapshot količina police i primjenjuje potvrđene razlike.
@@ -81,7 +82,7 @@ Nacrti inventure ostaju u Roomu dok ih korisnik ne primijeni ili odbaci. Potvrđ
 
 ## Sigurnost i privatnost
 
-- Auth token je obvezan; produkcijske callable funkcije provode App Check (Play Integrity), dok ga Emulator Suite namjerno isključuje.
+- Auth token je obvezan za sve poslovne funkcije; produkcijske poslovne callable funkcije provode App Check (Play Integrity), dok ga Emulator Suite namjerno isključuje. Jedina iznimka je `getBackendCapabilities`, koji je dostupan bez prijave i App Checka jer vraća samo statičku verziju/manifest bez korisničkih ili poslovnih podataka.
 - Pozivni kod koristi 16 kriptografski nasumičnih znakova iz skupa bez dvosmislenih znakova (80 bita entropije), pohranjen je samo kao SHA-256, jednokratan i vremenski ograničen.
 - Storage put je `pantries/{pantryId}/products/{productId}/main.jpg`; pravila provjeravaju aktivno članstvo, postojanje aktivnog artikla, točan put/metapodatak, JPEG MIME i najviše 5 MiB. Klijent u Room sprema privatni `gs://` URI i sliku dohvaća autoriziranim Storage SDK-om, bez trajnog bearer download tokena.
 - Crashlytics bilježi samo šifru pogreške, sloj, verziju aplikacije i nasumični installation ID. U produkciji se `setUserId` ne poziva i nema poslovnih polja u porukama iznimke.

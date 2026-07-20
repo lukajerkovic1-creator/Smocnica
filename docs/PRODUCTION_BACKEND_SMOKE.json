@@ -1,0 +1,23 @@
+{
+  "projectId": "smocnica-aplikacija",
+  "sourceCommit": "4d637b44e6e3e230b37ed039c4749c834bd41d17",
+  "checkedAt": "2026-07-20T10:09:30.794Z",
+  "backendApiVersion": 2,
+  "deployedFunctionCount": 15,
+  "firebaseSourceHash": "05e31a6640024e4aeb868f526f95687789ae20d6",
+  "callableSmoke": {
+    "getBackendCapabilities": 200,
+    "createPantry": 401,
+    "listMyPantries": 401,
+    "createInvitation": 401,
+    "joinPantry": 401,
+    "registerDevice": 401,
+    "unregisterDevice": 401,
+    "manageMember": 401,
+    "transferOwnership": 401,
+    "deletePantry": 401,
+    "purgeTrash": 401,
+    "applyOperation": 401
+  },
+  "result": "PASS"
+}
