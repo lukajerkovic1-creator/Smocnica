@@ -36,6 +36,9 @@
 - Forma validira naziv/količine/barkod; vađenje je ograničeno dostupnim stanjem.
 - Kupljena stavka je precrtana, ali ostaje prisutna.
 - Inventura ne mijenja zalihu prije potvrde.
+- Kartice polica, zaliha i dashboard na širini 360 dp ostaju čitljivi pri font-scaleu 150 % i 200 %; sekundarne akcije prelaze u izbornik ili novi red.
+- Interaktivne akcije na policama i zalihama imaju najmanje 48 × 48 dp te izložene hrvatske semantičke nazive.
+- Dashboard u tamnom načinu koristi semantičke boje teme; ključni parovi imaju najmanje 3:1 za ikone/velike brojke i 4,5:1 za tekst.
 
 ### Integracija
 
@@ -50,7 +53,8 @@
 - Android 10 i aktualni Android, uređaj s/bez Google Play usluga.
 - Kamera, bljeskalica i sva četiri formata stvarnim barkodovima.
 - Airplane mode, prekid procesa usred sinkronizacije, ponovno pokretanje i konflikt.
-- TalkBack, dinamička veličina fonta, landscape, svijetla/tamna tema.
+- Ljudski prolaz kroz TalkBack na stvarnom uređaju te svijetla/tamna tema na najmanje jednom OLED i jednom LCD zaslonu.
+- Font-scale 150 %/200 %, približno 360 dp i landscape automatizirano su pokriveni Compose testovima; prije izdanja na stvarnom uređaju vizualno potvrditi cijele ekrane, ne samo ciljane komponente.
 - Nadogradnja potpisanog starog APK-a na novi bez gubitka Room/Firestore podataka.
 
 ## Izlazni kriteriji

@@ -81,6 +81,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -507,34 +508,72 @@ internal fun ProductCard(
           modifier = Modifier.fillMaxWidth().combinedClickable(onClick = open, onLongClick = select),
       ) {
         BoxWithConstraints {
-            val showWideActions = this.maxWidth > 430.dp
-            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (selectionMode) Checkbox(selected, { select() })
-                else if (item.product.photoUri != null) ProductPhoto(item.product.photoUri, item.product.updatedAt, null, Modifier.size(54.dp))
-                else Icon(Icons.Outlined.ShoppingCart, null, Modifier.size(42.dp), tint = Purple)
-                Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
-                    Text(item.product.name, fontWeight = FontWeight.Bold)
-                    Text(item.product.description.ifBlank { item.product.category }, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                    Text(productQuantityText(item, shelves, selectedShelfId), style = MaterialTheme.typography.bodySmall)
-                    if (item.isBelowMinimum) Text("Nedostaje ${item.shortfall} kom", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
-                }
-                if (!selectionMode) {
-                    IconButton(increment) { Icon(Icons.Outlined.Add, "Dodaj jedan") }
-                    IconButton(decrement, enabled = available > 0) { Icon(Icons.Outlined.Remove, "Izvadi jedan") }
-                    if (showWideActions) {
-                        IconButton(move, enabled = item.totalQuantity > 0 && shelves.size > 1) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "Premjesti") }
-                        IconButton(edit) { Icon(Icons.Outlined.Edit, "Uredi") }
+            val compact = maxWidth < 400.dp || LocalDensity.current.fontScale >= 1.5f
+            if (compact) {
+                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        ProductCardLeading(item, selectionMode, selected, select)
+                        ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(start = 10.dp))
                     }
-                    IconButton({ menu = true }) { Icon(Icons.Outlined.MoreVert, "Dodatne radnje") }
-                    DropdownMenu(menu, { menu = false }) {
-                        DropdownMenuItem({ Text("Premjesti") }, { menu = false; move() }, enabled = item.totalQuantity > 0 && shelves.size > 1)
-                        DropdownMenuItem({ Text("Uredi") }, { menu = false; edit() })
-                        DropdownMenuItem({ Text("Obriši") }, { menu = false; delete() })
+                    if (!selectionMode) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            IconButton(increment, Modifier.size(48.dp).semantics { contentDescription = "Dodaj jedan" }) { Icon(Icons.Outlined.Add, null) }
+                            IconButton(decrement, Modifier.size(48.dp).semantics { contentDescription = "Izvadi jedan" }, enabled = available > 0) { Icon(Icons.Outlined.Remove, null) }
+                            IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
+                            ProductCardMenu(menu, { menu = false }, item, shelves, move, edit, delete)
+                        }
+                    }
+                }
+            } else {
+                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    ProductCardLeading(item, selectionMode, selected, select)
+                    ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(horizontal = 10.dp))
+                    if (!selectionMode) {
+                        IconButton(increment, Modifier.size(48.dp).semantics { contentDescription = "Dodaj jedan" }) { Icon(Icons.Outlined.Add, null) }
+                        IconButton(decrement, Modifier.size(48.dp).semantics { contentDescription = "Izvadi jedan" }, enabled = available > 0) { Icon(Icons.Outlined.Remove, null) }
+                        IconButton(move, Modifier.size(48.dp).semantics { contentDescription = "Premjesti" }, enabled = item.totalQuantity > 0 && shelves.size > 1) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) }
+                        IconButton(edit, Modifier.size(48.dp).semantics { contentDescription = "Uredi" }) { Icon(Icons.Outlined.Edit, null) }
+                        IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
+                        ProductCardMenu(menu, { menu = false }, item, shelves, move, edit, delete)
                     }
                 }
             }
         }
       }
+    }
+}
+
+@Composable
+private fun ProductCardLeading(item: ProductWithStock, selectionMode: Boolean, selected: Boolean, select: () -> Unit) {
+    if (selectionMode) Checkbox(selected, { select() })
+    else if (item.product.photoUri != null) ProductPhoto(item.product.photoUri, item.product.updatedAt, null, Modifier.size(54.dp))
+    else Icon(Icons.Outlined.ShoppingCart, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
+}
+
+@Composable
+private fun ProductCardSummary(item: ProductWithStock, shelves: List<Shelf>, selectedShelfId: String?, modifier: Modifier) {
+    Column(modifier) {
+        Text(item.product.name, fontWeight = FontWeight.Bold)
+        Text(item.product.description.ifBlank { item.product.category }, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(productQuantityText(item, shelves, selectedShelfId), style = MaterialTheme.typography.bodySmall)
+        if (item.isBelowMinimum) Text("Nedostaje ${item.shortfall} kom", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun ProductCardMenu(
+    expanded: Boolean,
+    dismiss: () -> Unit,
+    item: ProductWithStock,
+    shelves: List<Shelf>,
+    move: () -> Unit,
+    edit: () -> Unit,
+    delete: () -> Unit,
+) {
+    DropdownMenu(expanded, dismiss) {
+        DropdownMenuItem({ Text("Premjesti") }, { dismiss(); move() }, enabled = item.totalQuantity > 0 && shelves.size > 1)
+        DropdownMenuItem({ Text("Uredi") }, { dismiss(); edit() })
+        DropdownMenuItem({ Text("Obriši") }, { dismiss(); delete() })
     }
 }
 

@@ -47,7 +47,7 @@ Kodom, testovima i buildom potvrđeni su verzionirana JSON validacija, UTF-8 CSV
 - kamera, bljeskalica, fotografiranje i fizički EAN-8/EAN-13/UPC-A/UPC-E kodovi na stvarnom Android 10+ uređaju;
 - Android 10 i OEM uređaji; lokalna instrumentacija izvedena je samo na API 35 emulatoru;
 - višednevni rad više stvarnih uređaja, stvarni prekidi procesa/mreže i cloud oporavak izvan emulatora;
-- TalkBack, svi font-scale/landscape slučajevi i sve OEM varijante instalacijskog dijaloga;
+- ljudski TalkBack prolaz i sve OEM varijante instalacijskog dijaloga; semantički nazivi, dodirne površine 48 dp, font-scale 150 %/200 %, približno 360 dp i landscape ciljano su provjereni Compose testovima na API 35 emulatoru 20. srpnja 2026.;
 - produkcijski scheduled cleanup i FCM ponašanje na stvarnim podacima, koje Firebase Emulator Suite ne emulira u cijelosti;
 - vizualni dashboard nakon stvarne Google prijave; produkcijska konfiguracija sada postoji, ali tijek još nije izveden na uređaju.
 
