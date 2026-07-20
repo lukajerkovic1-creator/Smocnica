@@ -28,6 +28,8 @@ google-services.json
 firebase-debug.log*
 firestore-debug.log*
 ui-debug.log*
+functions/functions-list-production.json
+functions/production-smoke-report.json
 functions/node_modules/
 functions/lib/
 .firebase/

@@ -92,8 +92,8 @@ Produkcijsko stanje ponovno potvrđeno 20. srpnja 2026.:
 - Firestore `(default)`: `europe-west1`;
 - Storage bucket: `gs://smocnica-aplikacija.firebasestorage.app`, `europe-west1`, Standard;
 - objavljena su aktualna Firestore i Storage pravila te indeksi;
-- aktivno je svih 15 očekivanih Node.js 22 funkcija u `europe-west1`, uključujući `getBackendCapabilities` API 4, `single-active-pantry:v1` i `canonical-names:v1`;
-- svih 15 funkcija objavljeno je iz commita `2c0e215afc2631504289fa3a33f7a8742434d2c9` s istim Firebase source hashom `49ac1ee35c603d4bc7ee8ec7a235cd029c1557ef`;
+- aktivno je svih 15 očekivanih Node.js 22 funkcija u `europe-west1`, uključujući `getBackendCapabilities` API 5, `single-active-pantry:v1`, `canonical-names:v1` i `manual-shopping-merge:v1`;
+- svih 15 funkcija objavljeno je iz commita `390b391f958e836098d6accf456208c6b9a10652` s istim Firebase source hashom `4d7724bfe0576c2b51ab72f9d142c0baedd0420c`;
 - produkcijski smoke provjerio je capability odgovor i svih 11 zaštićenih callable funkcija; dokaz je u `docs/PRODUCTION_BACKEND_SMOKE.json`;
 - Artifact Registry automatski briše build slike starije od 7 dana radi ograničenja troška.
 
@@ -131,7 +131,7 @@ Workflow `.github/workflows/deploy-production-backend.yml` odvojen je od APK rel
 
 Workflow prije objave ponovno kompajlira Functions i pokreće Emulator Suite. Nakon objave dohvaća produkcijski `functions:list`, zahtijeva cijeli manifest funkcija, poziva `getBackendCapabilities` i šalje neautorizirani, nedestruktivni zahtjev svakoj ostaloj callable funkciji. Uspjeh znači da je javni handshake vratio očekivani API/capabilities i da je svaka zaštićena funkcija dostupna te odbila zahtjev s HTTP 401/403. Izvještaj `production-smoke-report.json` ostaje kao Actions artefakt vezan uz commit.
 
-Provjera 20. srpnja 2026. pokazala je da Environment postoji i traži odobrenje, ali OIDC identifikatori još nisu postavljeni pa se workflow zaustavlja prije autentikacije i ne mijenja Firebase. API 4 je zato taj put objavljen lokalno prijavljenim administratorskim Firebase CLI-jem i zasebno potvrđen produkcijskim smokeom. Prije sljedećeg automatiziranog deploya administrator mora unijeti oba gore navedena Environment Secreta; service-account JSON se ne smije koristiti kao zamjena.
+Provjera 20. srpnja 2026. pokazala je da Environment postoji i traži odobrenje, ali OIDC identifikatori još nisu postavljeni pa se workflow zaustavlja prije autentikacije i ne mijenja Firebase. API 5 je zato taj put objavljen lokalno prijavljenim administratorskim Firebase CLI-jem i zasebno potvrđen produkcijskim smokeom. Prije sljedećeg automatiziranog deploya administrator mora unijeti oba gore navedena Environment Secreta; service-account JSON se ne smije koristiti kao zamjena.
 
 ### Produkcijski App Check za GitHub APK
 

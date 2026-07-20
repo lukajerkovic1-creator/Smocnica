@@ -9,14 +9,14 @@ Datum zadnje provjere: 20. srpnja 2026.
 | Čisti Gradle prolaz | `gradlew --no-daemon clean test lintDebug assembleDebug` | `BUILD SUCCESSFUL` |
 | Debug i release varijante | `gradlew --no-daemon test lintDebug assembleDebug lintRelease assembleRelease` | `BUILD SUCCESSFUL`; release R8/minifikacija uspješna |
 | JVM testovi | uključeni u `test` | 34/34 prošlo kroz app/core module |
-| Android instrumentacija | `gradlew --no-daemon connectedDebugAndroidTest` | 54/54 prošlo na API 35 emulatoru: 24 Room/repository i 30 app/Compose testova |
+| Android instrumentacija | `gradlew --no-daemon connectedDebugAndroidTest` | 55/55 prošlo na API 35 emulatoru: 25 Room/repository i 30 app/Compose testova |
 | Cloud Functions | `npm --prefix functions run build` | TypeScript kompilacija uspješna |
-| Firebase Emulator Suite | `npm --prefix functions run test:emulator` | 51/51 prošlo: Firestore/Storage pravila, kanonski nazivi, ID veze i integracijske operacije |
+| Firebase Emulator Suite | `npm --prefix functions run test:emulator` | 52/52 prošlo: Firestore/Storage pravila, kanonski nazivi, ID veze, istodobno offline dodavanje i integracijske operacije |
 | Runtime smoke | `adb install -r`, brisanje podataka, hladni start i `logcat` | instalacija i start uspješni; hrvatski login renderiran; nema fatalne iznimke |
 | Workflow sintaksa | parsiranje `ci.yml` i `release.yml` Node YAML parserom | oba workflowa valjana |
-| Produkcijski backend | puni deploy Functions/rules/indexes/storage + produkcijski smoke | PASS; 15/15 funkcija ACTIVE, backend API 4 + `canonical-names:v1`, capability odgovor HTTP 200, 11/11 zaštićenih callable funkcija HTTP 401 bez vjerodajnice |
-| Potpisani GitHub Release | Actions run `29751074615` + anonimni ponovni download | PASS; javni RC23 APK i manifest objavljeni, HTTP 200, SHA-256 i produkcijski certifikat ponovno provjereni |
-| APK manifest | `aapt2 dump badging` | debug `hr.smocnica.debug`, release `hr.smocnica`, `minSdk 29`, stabilni `targetSdk 36`, `versionCode 23`, `versionName 1.0.0-rc23` |
+| Produkcijski backend | puni deploy Functions/rules/indexes/storage + produkcijski smoke | PASS; 15/15 funkcija ACTIVE iz commita `390b391`, backend API 5 + `manual-shopping-merge:v1`, capability odgovor HTTP 200, 11/11 zaštićenih callable funkcija HTTP 401 bez vjerodajnice |
+| Potpisani GitHub Release | Actions run `29754906618` + anonimni ponovni download | PASS; javni RC24 APK i manifest objavljeni, HTTP 200, SHA-256 i produkcijski certifikat ponovno provjereni |
+| APK manifest | `aapt2 dump badging` | debug `hr.smocnica.debug`, release `hr.smocnica`, `minSdk 29`, stabilni `targetSdk 36`, `versionCode 24`, `versionName 1.0.0-rc24` |
 
 Lint za aplikaciju i `core:data`, u debug i release varijantama, završava s 0 pogrešaka i 0 fatalnih nalaza. Preostala upozorenja su informativna (novije verzije ovisnosti/Gradlea, preporuka KTX API-ja i dinamički dohvat generirane update konfiguracije).
 
@@ -24,7 +24,7 @@ Lint za aplikaciju i `core:data`, u debug i release varijantama, završava s 0 p
 
 - debug: `app/build/outputs/apk/debug/app-debug.apk`, 116.801.555 bajta, SHA-256 `473FE35F1CDFBF44E61C47F4C8148D150D31E8BDA4389D69227734E767E3843B`;
 - debug potpis: APK Signature Scheme v2, jedan potpisnik (razvojni debug certifikat);
-- javni release: `smocnica-1.0.0-rc23.apk`, 30.226.533 bajta, SHA-256 `FEE1FB9801867AD7DDB90B20C7954068DF7F367D762D076C66028420643558EA`;
+- javni release: `smocnica-1.0.0-rc24.apk`, 30.226.530 bajta, SHA-256 `1122E6E04A8DD2D5BB18E0558801B9F7158A5E39814944160F3EDA5C949920DA`;
 - release potpis: APK Signature Scheme v3, jedan RSA-4096 potpisnik, certifikat SHA-256 `AAEDD1CFBA45A8E61F155EE6B43DF77648C82AB76408F3205D536A22EE678644`;
 - provjereni emulator: Android API 35.
 
@@ -45,7 +45,7 @@ Kodom, testovima i buildom potvrđeni su verzionirana JSON validacija, UTF-8 CSV
 ## Što nije bilo moguće stvarno provjeriti
 
 - dva stvarna Google računa i uređaja u produkcijskom Firebase projektu, stvarni App Check, FCM dostava, Crashlytics i oporavak podataka nakon ponovne instalacije;
-- GitHub rate-limit ponašanje i Android nadogradnja RC22→RC23 s očuvanjem lokalnih podataka na stvarnom uređaju; objava i anonimni javni download RC23 potvrđeni su;
+- GitHub rate-limit ponašanje i Android nadogradnja RC23→RC24 s očuvanjem lokalnih podataka na stvarnom uređaju; objava i anonimni javni download RC24 potvrđeni su;
 - kamera, bljeskalica, fotografiranje i fizički EAN-8/EAN-13/UPC-A/UPC-E kodovi na stvarnom Android 10+ uređaju;
 - Android 10 i OEM uređaji; lokalna instrumentacija izvedena je samo na API 35 emulatoru;
 - višednevni rad više stvarnih uređaja, stvarni prekidi procesa/mreže i cloud oporavak izvan emulatora;
@@ -73,4 +73,4 @@ Dodatni prolaz 13. srpnja 2026. nakon pripreme signing/Firebase/GitHub konfigura
 | App Check | debug i production aplikacije registrirane; production zahtijeva Device integrity, bez PLAY_RECOGNISED/LICENSED zahtjeva; API enforcement ostavljen isključen do testa uređaja |
 | Artifact Registry cleanup | slike buildova starije od 7 dana automatski se brišu |
 
-Objavljen je potpisani javni RC23 s očekivanim certifikatom, produkcijskom Firebase konfiguracijom i provjerenim update manifestom. Instalacija, stvarni App Check promet i nadogradnja na uređaju moraju se evidentirati u `docs/REAL_DEVICE_TEST_PLAN.md`.
+Objavljen je potpisani javni RC24 s očekivanim certifikatom, produkcijskom Firebase konfiguracijom i provjerenim update manifestom. Instalacija, stvarni App Check promet, istodobno offline dodavanje iste ručne stavke na dva uređaja i nadogradnja na uređaju moraju se evidentirati u `docs/REAL_DEVICE_TEST_PLAN.md`.
