@@ -1018,11 +1018,16 @@ fun ShoppingScreen(
     scanAndStore: (ShoppingItem) -> Unit,
 ) {
     val items by viewModel.shopping.collectAsStateWithLifecycle()
+    val categories by viewModel.categories.collectAsStateWithLifecycle()
     val sync by viewModel.syncSummary.collectAsStateWithLifecycle()
     var showAdd by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<ShoppingItem?>(null) }
+    var deleting by remember { mutableStateOf<ShoppingItem?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     Scaffold(
         modifier = Modifier.padding(padding),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = { FloatingActionButton({ showAdd = true }) { Icon(Icons.Outlined.Add, "Dodaj") } },
     ) { inner ->
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = inner.calculateTopPadding() + 12.dp, bottom = 100.dp)) {
@@ -1036,21 +1041,51 @@ fun ShoppingScreen(
                         checked = { viewModel.setChecked(item, it) },
                         scanAndStore = { scanAndStore(item) },
                         edit = { if (item.manual) editing = item },
+                        delete = { if (item.manual) deleting = item },
                     )
                 }
             }
             if (items.isEmpty()) item { EmptyState("Popis za kupnju je prazan.") }
         }
     }
-    if (showAdd) ManualShoppingDialog(null, { showAdd = false }) { name, category, qty -> viewModel.addShopping(name, category, qty); showAdd = false }
-    editing?.let { item -> ManualShoppingDialog(item, { editing = null }) { name, category, qty ->
+    if (showAdd) ManualShoppingDialog(null, categories, { showAdd = false }) { name, category, qty -> viewModel.addShopping(name, category, qty); showAdd = false }
+    editing?.let { item -> ManualShoppingDialog(item, categories, { editing = null }) { name, category, qty ->
         viewModel.updateManualShopping(item, name, category, qty)
         editing = null
     } }
+    deleting?.let { item ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text("Obriši stavku?") },
+            text = { Text("Stavka „${item.name}” uklonit će se s popisa za kupnju.") },
+            confirmButton = {
+                Button({
+                    deleting = null
+                    viewModel.deleteManualShopping(item) { deleted ->
+                        scope.launch {
+                            val result = snackbarHostState.showSnackbar(
+                                message = "Stavka je obrisana.",
+                                actionLabel = "Poništi",
+                            )
+                            if (result == SnackbarResult.ActionPerformed) viewModel.restoreManualShopping(deleted)
+                        }
+                    }
+                }) { Text("Obriši") }
+            },
+            dismissButton = { TextButton({ deleting = null }) { Text("Odustani") } },
+        )
+    }
 }
 
 @Composable
-private fun ShoppingRow(item: ShoppingItem, checked: (Boolean) -> Unit, scanAndStore: () -> Unit, edit: () -> Unit) {
+internal fun ShoppingRow(
+    item: ShoppingItem,
+    checked: (Boolean) -> Unit,
+    scanAndStore: () -> Unit,
+    edit: () -> Unit,
+    delete: () -> Unit,
+) {
+    var menuExpanded by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Checkbox(item.checked, checked)
@@ -1058,7 +1093,23 @@ private fun ShoppingRow(item: ShoppingItem, checked: (Boolean) -> Unit, scanAndS
                 Text(item.name, fontWeight = FontWeight.SemiBold, textDecoration = if (item.checked) TextDecoration.LineThrough else null, color = if (item.checked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
                 Text("${item.requiredQuantity} kom · ${if (item.manual) "ručno" else "automatski manjak"}", style = MaterialTheme.typography.bodySmall)
             }
-            if (item.manual) IconButton(edit) { Icon(Icons.Outlined.Edit, "Uredi ručnu stavku") }
+            if (item.manual) {
+                Box {
+                    IconButton({ menuExpanded = true }) { Icon(Icons.Outlined.MoreVert, "Dodatne radnje") }
+                    DropdownMenu(menuExpanded, { menuExpanded = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Uredi") },
+                            onClick = { menuExpanded = false; edit() },
+                            leadingIcon = { Icon(Icons.Outlined.Edit, null) },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Obriši") },
+                            onClick = { menuExpanded = false; delete() },
+                            leadingIcon = { Icon(Icons.Outlined.DeleteOutline, null) },
+                        )
+                    }
+                }
+            }
         }
         OutlinedButton(scanAndStore, Modifier.fillMaxWidth()) {
             Icon(Icons.Outlined.QrCodeScanner, null)
@@ -1069,13 +1120,24 @@ private fun ShoppingRow(item: ShoppingItem, checked: (Boolean) -> Unit, scanAndS
 }
 
 @Composable
-private fun ManualShoppingDialog(current: ShoppingItem?, dismiss: () -> Unit, save: (String, String, Int) -> Unit) {
-    var name by remember { mutableStateOf(current?.name.orEmpty()) }; var category by remember { mutableStateOf(current?.category ?: "Ostalo") }; var quantity by remember { mutableStateOf(current?.requiredQuantity?.toString() ?: "1") }
+internal fun ManualShoppingDialog(
+    current: ShoppingItem?,
+    categories: List<Category>,
+    dismiss: () -> Unit,
+    save: (String, String, Int) -> Unit,
+) {
+    val categoryNames = categories.map { it.name }
+    val initialCategory = current?.category?.takeIf(categoryNames::contains)
+        ?: categories.firstOrNull { it.isDefault }?.name
+        ?: categoryNames.firstOrNull().orEmpty()
+    var name by remember(current?.id) { mutableStateOf(current?.name.orEmpty()) }
+    var category by remember(current?.id, categoryNames) { mutableStateOf(initialCategory) }
+    var quantity by remember(current?.id) { mutableStateOf(current?.requiredQuantity?.toString() ?: "1") }
     AlertDialog(onDismissRequest = dismiss, title = { Text(if (current == null) "Ručna stavka" else "Uredi ručnu stavku") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedTextField(name, { name = it.take(100) }, label = { Text("Naziv") })
-        OutlinedTextField(category, { category = it.take(100) }, label = { Text("Kategorija") })
+        SimpleDropdown("Kategorija", category, categoryNames) { category = it }
         OutlinedTextField(quantity, { quantity = it.filter(Char::isDigit) }, label = { Text("Količina") })
-    } }, confirmButton = { Button({ save(name, category, quantity.toIntOrNull() ?: 1) }, enabled = name.trim().length in 1..100 && category.trim().length in 1..100 && quantity.toIntOrNull() in 1..1_000_000) { Text(if (current == null) "Dodaj" else "Spremi") } }, dismissButton = { TextButton(dismiss) { Text("Odustani") } })
+    } }, confirmButton = { Button({ save(name, category, quantity.toIntOrNull() ?: 1) }, enabled = name.trim().length in 1..100 && category in categoryNames && quantity.toIntOrNull() in 1..1_000_000) { Text(if (current == null) "Dodaj" else "Spremi") } }, dismissButton = { TextButton(dismiss) { Text("Odustani") } })
 }
 
 @Composable

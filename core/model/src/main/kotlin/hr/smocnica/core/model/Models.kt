@@ -297,6 +297,10 @@ sealed interface OperationPayload {
     data class UpsertShopping(val item: ShoppingItem) : OperationPayload
 
     @Serializable
+    @SerialName("delete_shopping")
+    data class DeleteShopping(val itemId: String) : OperationPayload
+
+    @Serializable
     @SerialName("apply_inventory")
     data class ApplyInventory(val session: InventorySession) : OperationPayload
 

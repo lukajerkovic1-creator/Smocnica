@@ -437,14 +437,40 @@ class LocalInventoryRepository @Inject constructor(
         quantity: Int,
         actorUid: String,
         deviceName: String,
+        checked: Boolean,
     ): ShoppingItem = database.withTransaction {
         require(quantity > 0) { "Količina mora biti veća od nule." }
         require(quantity <= MAX_QUANTITY) { "Količina je previsoka." }
         val now = clock.now()
-        val item = ShoppingItem(ids.next(), pantryId, null, requireName(name, "Naziv stavke"), requireName(category, "Kategorija"), quantity, manual = true, createdAt = now, updatedAt = now, syncState = SyncState.PENDING)
-        shopping.upsert(item.entity())
-        enqueue(pantryId, AggregateType.SHOPPING, item.id, 0, OperationPayload.UpsertShopping(item), actorUid, deviceName, now)
-        item
+        val canonicalName = requireName(name, "Naziv stavke").replace(Regex("\\s+"), " ")
+        val canonicalCategory = activeCategoryName(pantryId, category)
+        val duplicate = shopping.listActive(pantryId).firstOrNull {
+            it.manual && manualShoppingIdentity(it.name, it.category) == manualShoppingIdentity(canonicalName, canonicalCategory)
+        }
+        if (duplicate != null) {
+            val mergedQuantity = duplicate.requiredQuantity.toLong() + quantity
+            require(mergedQuantity <= MAX_QUANTITY) { "Ukupna količina je previsoka." }
+            val merged = duplicate.copy(
+                name = duplicate.name,
+                category = canonicalCategory,
+                requiredQuantity = mergedQuantity.toInt(),
+                checked = false,
+                updatedAt = now,
+                syncState = SyncState.PENDING,
+            )
+            shopping.upsert(merged)
+            enqueueOrReplaceShoppingUpsert(merged, actorUid, deviceName, now)
+            merged.model()
+        } else {
+            val item = ShoppingItem(
+                ids.next(), pantryId, null, canonicalName, canonicalCategory, quantity,
+                checked = checked, manual = true, createdAt = now, updatedAt = now, syncState = SyncState.PENDING,
+            )
+            val entity = item.entity()
+            shopping.upsert(entity)
+            enqueueOrReplaceShoppingUpsert(entity, actorUid, deviceName, now)
+            item
+        }
     }
 
     override suspend fun updateManualShoppingItem(
@@ -461,16 +487,49 @@ class LocalInventoryRepository @Inject constructor(
             val current = shopping.get(item.id) ?: error("Stavka više ne postoji.")
             require(current.manual && current.deletedAt == null) { "Stavka nije dostupna za uređivanje." }
             val now = clock.now()
+            val canonicalName = requireName(name, "Naziv stavke").replace(Regex("\\s+"), " ")
+            val canonicalCategory = activeCategoryName(item.pantryId, category)
+            val duplicate = shopping.listActive(item.pantryId).firstOrNull {
+                it.manual && it.id != item.id &&
+                    manualShoppingIdentity(it.name, it.category) == manualShoppingIdentity(canonicalName, canonicalCategory)
+            }
+            if (duplicate != null) {
+                val mergedQuantity = duplicate.requiredQuantity.toLong() + quantity
+                require(mergedQuantity <= MAX_QUANTITY) { "Ukupna količina je previsoka." }
+                val merged = duplicate.copy(
+                    name = duplicate.name,
+                    category = canonicalCategory,
+                    requiredQuantity = mergedQuantity.toInt(),
+                    checked = false,
+                    updatedAt = now,
+                    syncState = SyncState.PENDING,
+                )
+                shopping.upsert(merged)
+                enqueueOrReplaceShoppingUpsert(merged, actorUid, deviceName, now)
+                stageManualShoppingDeletion(current, actorUid, deviceName, now)
+                return@withTransaction
+            }
             val updated = current.copy(
-                name = requireName(name, "Naziv stavke"),
-                category = requireName(category, "Kategorija"),
+                name = canonicalName,
+                category = canonicalCategory,
                 requiredQuantity = quantity,
                 updatedAt = now,
                 syncState = SyncState.PENDING,
             )
             shopping.upsert(updated)
-            enqueue(item.pantryId, AggregateType.SHOPPING, item.id, current.revision, OperationPayload.UpsertShopping(updated.model()), actorUid, deviceName, now)
+            enqueueOrReplaceShoppingUpsert(updated, actorUid, deviceName, now)
         }
+    }
+
+    override suspend fun deleteManualShoppingItem(
+        item: ShoppingItem,
+        actorUid: String,
+        deviceName: String,
+    ): ShoppingItem = database.withTransaction {
+        val current = shopping.get(item.id) ?: error("Stavka više ne postoji.")
+        require(current.manual && current.deletedAt == null) { "Samo aktivna ručna stavka može se obrisati." }
+        stageManualShoppingDeletion(current, actorUid, deviceName, clock.now())
+        current.model()
     }
 
     override suspend fun setShoppingChecked(item: ShoppingItem, checked: Boolean, actorUid: String, deviceName: String) {
@@ -479,7 +538,7 @@ class LocalInventoryRepository @Inject constructor(
             val now = clock.now()
             val updated = current.copy(checked = checked, updatedAt = now, syncState = SyncState.PENDING)
             shopping.upsert(updated)
-            enqueue(item.pantryId, AggregateType.SHOPPING, item.id, current.revision, OperationPayload.UpsertShopping(updated.model()), actorUid, deviceName, now)
+            enqueueOrReplaceShoppingUpsert(updated, actorUid, deviceName, now)
         }
     }
 
@@ -593,12 +652,69 @@ class LocalInventoryRepository @Inject constructor(
                     name = product.name,
                     category = product.category,
                     requiredQuantity = required,
-                    checked = if (aligned.deletedAt != null) false else aligned.checked,
+                    checked = if (aligned.deletedAt != null || required > aligned.requiredQuantity) false else aligned.checked,
                     deletedAt = null,
                     updatedAt = now,
                     syncState = SyncState.PENDING,
                 ),
             )
+        }
+    }
+
+    private suspend fun activeCategoryName(pantryId: String, requested: String): String {
+        val normalized = requireName(requested, "Kategorija")
+        return categories.listActive(pantryId)
+            .firstOrNull { it.name.equals(normalized, ignoreCase = true) }
+            ?.name
+            ?: error("Odabrana kategorija više nije dostupna.")
+    }
+
+    private fun manualShoppingIdentity(name: String, category: String): String {
+        fun normalized(value: String) = value.trim()
+            .replace(Regex("\\s+"), " ")
+            .lowercase(Locale.forLanguageTag("hr"))
+        return "${normalized(name)}\u0000${normalized(category)}"
+    }
+
+    private suspend fun enqueueOrReplaceShoppingUpsert(
+        item: ShoppingEntity,
+        actorUid: String,
+        deviceName: String,
+        now: Long,
+    ) {
+        val payload = OperationPayload.UpsertShopping(item.model())
+        val pending = operations.pendingForAggregate(item.pantryId, AggregateType.SHOPPING.name, item.id)
+        if (pending != null) {
+            operations.replacePendingPayload(
+                pending.operationId,
+                json.encodeToString(OperationPayload.serializer(), payload),
+            )
+        } else {
+            enqueue(item.pantryId, AggregateType.SHOPPING, item.id, item.revision, payload, actorUid, deviceName, now)
+        }
+    }
+
+    private suspend fun stageManualShoppingDeletion(
+        item: ShoppingEntity,
+        actorUid: String,
+        deviceName: String,
+        now: Long,
+    ) {
+        val pending = operations.pendingForAggregate(item.pantryId, AggregateType.SHOPPING.name, item.id)
+        if (item.revision == 0L && pending != null) {
+            operations.delete(pending.operationId)
+            shopping.deleteHard(item.id)
+            return
+        }
+        shopping.upsert(item.copy(deletedAt = now, updatedAt = now, syncState = SyncState.PENDING))
+        val payload = OperationPayload.DeleteShopping(item.id)
+        if (pending != null) {
+            operations.replacePendingPayload(
+                pending.operationId,
+                json.encodeToString(OperationPayload.serializer(), payload),
+            )
+        } else {
+            enqueue(item.pantryId, AggregateType.SHOPPING, item.id, item.revision, payload, actorUid, deviceName, now)
         }
     }
 

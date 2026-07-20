@@ -57,8 +57,9 @@ interface InventoryRepository {
     suspend fun adjustStock(productId: String, shelfId: String, delta: Int, actorUid: String, deviceName: String)
     suspend fun restoreProductAndAdjustStock(pantryId: String, productId: String, shelfId: String, quantity: Int, actorUid: String, deviceName: String)
     suspend fun moveStock(productId: String, fromShelfId: String, toShelfId: String, quantity: Int, actorUid: String, deviceName: String)
-    suspend fun addManualShoppingItem(pantryId: String, name: String, category: String, quantity: Int, actorUid: String, deviceName: String): ShoppingItem
+    suspend fun addManualShoppingItem(pantryId: String, name: String, category: String, quantity: Int, actorUid: String, deviceName: String, checked: Boolean = false): ShoppingItem
     suspend fun updateManualShoppingItem(item: ShoppingItem, name: String, category: String, quantity: Int, actorUid: String, deviceName: String)
+    suspend fun deleteManualShoppingItem(item: ShoppingItem, actorUid: String, deviceName: String): ShoppingItem
     suspend fun setShoppingChecked(item: ShoppingItem, checked: Boolean, actorUid: String, deviceName: String)
     suspend fun previewInventory(pantryId: String, shelfId: String, counts: Map<String, Int>, actorUid: String, deviceName: String): InventorySession
     suspend fun applyInventory(session: InventorySession, actorUid: String, deviceName: String)

@@ -4,7 +4,7 @@ import { db, daysFromNow, now } from "./firebase";
 import { Data, authUid, barcode, boolean, integer, object, safeId, sha256, stringArray, text } from "./validation";
 
 const callable = { region: "europe-west1", enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== "true", timeoutSeconds: 60, memory: "512MiB" as const };
-const metadataTypes = new Set(["rename_shelf", "reorder_shelves", "reorder_categories", "delete_shelf", "upsert_category", "delete_category", "upsert_product", "upsert_shopping", "soft_delete", "restore"]);
+const metadataTypes = new Set(["rename_shelf", "reorder_shelves", "reorder_categories", "delete_shelf", "upsert_category", "delete_category", "upsert_product", "upsert_shopping", "delete_shopping", "soft_delete", "restore"]);
 
 type HandlerContext = {
   tx: Transaction;
@@ -103,6 +103,7 @@ async function handle(context: HandlerContext): Promise<HandlerResult> {
     case "adjust_stock": return adjustStock(context);
     case "move_stock": return moveStock(context);
     case "upsert_shopping": return upsertShopping(context);
+    case "delete_shopping": return deleteShopping(context);
     case "apply_inventory": return applyInventory(context);
     case "soft_delete": return softDelete(context);
     case "restore": return restore(context);
@@ -405,14 +406,36 @@ async function upsertShopping({ tx, pantryRef, payload, baseRevision, timestamp 
   if (item.productId !== null && item.productId !== undefined) {
     throw new HttpsError("invalid-argument", "Ručna stavka ne smije biti povezana s artiklom.");
   }
+  const requestedCategory = text(item, "category", 1, 100);
+  const categoryMatches = await tx.get(pantryRef.collection("categories").where("name", "==", requestedCategory).limit(2));
+  const activeCategory = categoryMatches.docs.find((category) => !category.get("deletedAt"));
+  if (!activeCategory) throw new HttpsError("failed-precondition", "Odabrana kategorija nije aktivna.");
   tx.set(ref, {
     productId: null,
-    name: text(item, "name", 1, 100), category: text(item, "category", 1, 100),
+    name: text(item, "name", 1, 100), category: activeCategory.get("name"),
     requiredQuantity: integer(item, "requiredQuantity", 1, 1_000_000),
     checked: boolean(item, "checked"), manual: true, revision,
     createdAt: existing.get("createdAt") || timestamp, updatedAt: timestamp, deletedAt: null,
   }, { merge: true });
   return revision;
+}
+
+async function deleteShopping({ tx, pantryRef, payload, baseRevision, timestamp }: HandlerContext): Promise<HandlerResult> {
+  const itemId = safeId(text(payload, "itemId"));
+  const ref = pantryRef.collection("shoppingItems").doc(itemId);
+  const item = await tx.get(ref);
+  assertRevision(item, baseRevision, "Stavka za kupnju");
+  if (item.get("manual") !== true) {
+    throw new HttpsError("failed-precondition", "Automatska stavka uklanja se promjenom stvarnog manjka.");
+  }
+  const revision = baseRevision + 1;
+  tx.update(ref, {
+    deletedAt: timestamp,
+    purgeAfter: daysFromNow(30),
+    updatedAt: timestamp,
+    revision,
+  });
+  return { revision, activity: { displayLabel: serverActivityLabel(item.get("name"), "Stavka kupnje") } };
 }
 
 async function applyInventory({ tx, pantryRef, payload, baseRevision, operationId, uid, deviceId, deviceDisplayName, timestamp }: HandlerContext): Promise<HandlerResult> {
@@ -757,7 +780,9 @@ function reconcileShopping(
   }
   tx.set(ref, {
     productId: product.id, name: product.name, category: product.category,
-    requiredQuantity: required, checked: existing.exists && !existing.get("deletedAt") && existing.get("checked") === true,
+    requiredQuantity: required,
+    checked: existing.exists && !existing.get("deletedAt") && existing.get("checked") === true &&
+      required <= Number(existing.get("requiredQuantity") || 0),
     manual: false, revision: Number(existing.get("revision") || 0) + 1,
     createdAt: existing.get("createdAt") || timestamp, updatedAt: timestamp, deletedAt: null,
   }, { merge: true });
@@ -802,7 +827,7 @@ function activityType(type: string, payload: Data): string {
   const map: Record<string, string> = {
     create_shelf: "SHELF_CREATED", rename_shelf: "SHELF_RENAMED", reorder_shelves: "SHELF_REORDERED",
     delete_shelf: "SHELF_DELETED", upsert_category: "CATEGORY_UPDATED", reorder_categories: "CATEGORY_REORDERED",
-    delete_category: "CATEGORY_DELETED", upsert_shopping: "SHOPPING_UPDATED",
+    delete_category: "CATEGORY_DELETED", upsert_shopping: "SHOPPING_UPDATED", delete_shopping: "ITEM_DELETED",
     upsert_product: "PRODUCT_UPDATED", adjust_stock: "STOCK_ADDED", move_stock: "STOCK_MOVED",
     apply_inventory: "INVENTORY_APPLIED", soft_delete: "ITEM_DELETED", restore: "ITEM_RESTORED",
     import_snapshot: "IMPORT_APPLIED",
