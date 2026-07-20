@@ -312,6 +312,12 @@ interface OperationDao {
     @Query("SELECT * FROM pending_operations WHERE operationId = :id")
     suspend fun get(id: String): PendingOperationEntity?
 
+    @Query("SELECT * FROM pending_operations WHERE pantryId = :pantryId AND aggregateType = :aggregateType AND aggregateId = :aggregateId AND state = 'PENDING' ORDER BY createdAt, rowid LIMIT 1")
+    suspend fun pendingForAggregate(pantryId: String, aggregateType: String, aggregateId: String): PendingOperationEntity?
+
+    @Query("UPDATE pending_operations SET payloadJson = :payloadJson WHERE operationId = :id AND state = 'PENDING'")
+    suspend fun replacePendingPayload(id: String, payloadJson: String)
+
     @Query("SELECT * FROM pending_operations WHERE pantryId = :pantryId AND state IN ('CONFLICT', 'PERMANENT_FAILURE') ORDER BY createdAt")
     fun observeConflicts(pantryId: String): Flow<List<PendingOperationEntity>>
 

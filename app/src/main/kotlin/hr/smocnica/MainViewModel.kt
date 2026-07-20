@@ -308,6 +308,21 @@ class MainViewModel @Inject constructor(
     fun updateManualShopping(item: ShoppingItem, name: String, category: String, quantity: Int) = withActor { _, uid ->
         inventory.updateManualShoppingItem(item, name, category, quantity, uid, deviceIdentity.displayName)
     }
+    fun deleteManualShopping(item: ShoppingItem, onDeleted: (ShoppingItem) -> Unit) = actorAction(
+        block = { _, uid -> inventory.deleteManualShoppingItem(item, uid, deviceIdentity.displayName) },
+        onSuccess = onDeleted,
+    )
+    fun restoreManualShopping(item: ShoppingItem) = withActor { pantry, uid ->
+        inventory.addManualShoppingItem(
+            pantry.id,
+            item.name,
+            item.category,
+            item.requiredQuantity,
+            uid,
+            deviceIdentity.displayName,
+            checked = item.checked,
+        )
+    }
 
     suspend fun previewInventory(shelfId: String, counts: Map<String, Int>): InventorySession {
         inventoryDraftJob?.cancel()

@@ -11,13 +11,16 @@ import hr.smocnica.core.data.PrivacySafeCrashReporter
 import hr.smocnica.core.data.local.PantryEntity
 import hr.smocnica.core.data.local.ShelfEntity
 import hr.smocnica.core.data.local.CategoryEntity
+import hr.smocnica.core.data.local.ShoppingEntity
 import hr.smocnica.core.data.local.SmocnicaDatabase
+import hr.smocnica.core.data.local.model
 import hr.smocnica.core.domain.ImportPreview
 import hr.smocnica.core.domain.ImportStrategy
 import hr.smocnica.core.model.Pantry
 import hr.smocnica.core.model.PantrySnapshot
 import hr.smocnica.core.model.Product
 import hr.smocnica.core.model.SyncState
+import hr.smocnica.core.model.ShoppingItem
 import hr.smocnica.core.model.AggregateType
 import hr.smocnica.core.model.ActivityType
 import hr.smocnica.core.model.OperationPayload
@@ -110,6 +113,61 @@ class LocalInventoryRepositoryTest {
             )
         }
         assertTrue(invalid.isFailure)
+    }
+
+    @Test
+    fun identicalManualShoppingItemsAreMergedAndReactivated() = runTest {
+        repository.addManualShoppingItem("p1", "  Mlijeko   bez laktoze ", "ostalo", 1, "u1", "Test uređaj", checked = true)
+        repository.addManualShoppingItem("p1", "mlijeko bez laktoze", "Ostalo", 2, "u1", "Test uređaj")
+
+        val active = database.shoppingDao().listActive("p1")
+        assertEquals(1, active.size)
+        assertEquals("Mlijeko bez laktoze", active.single().name)
+        assertEquals("Ostalo", active.single().category)
+        assertEquals(3, active.single().requiredQuantity)
+        assertEquals(false, active.single().checked)
+        assertEquals(1, database.operationDao().next().size)
+        val payload = json.decodeFromString(OperationPayload.serializer(), database.operationDao().next().single().payloadJson)
+            as OperationPayload.UpsertShopping
+        assertEquals(3, payload.item.requiredQuantity)
+    }
+
+    @Test
+    fun deletingSyncedManualShoppingItemCreatesTombstoneAndDeleteOperation() = runTest {
+        val item = ShoppingItem(
+            id = "manual-1", pantryId = "p1", productId = null, name = "Kruh", category = "Ostalo",
+            requiredQuantity = 1, checked = false, manual = true, revision = 3,
+            createdAt = 1, updatedAt = 1, syncState = SyncState.SYNCED,
+        )
+        database.shoppingDao().upsert(
+            ShoppingEntity("manual-1", "p1", null, "Kruh", "Ostalo", 1, false, true, 3, 1, 1, null, SyncState.SYNCED),
+        )
+
+        val deleted = repository.deleteManualShoppingItem(item, "u1", "Test uređaj")
+
+        assertEquals(item.id, deleted.id)
+        assertTrue(database.shoppingDao().get(item.id)?.deletedAt != null)
+        val operation = database.operationDao().next().single()
+        assertEquals(3, operation.baseRevision)
+        val payload = json.decodeFromString(OperationPayload.serializer(), operation.payloadJson) as OperationPayload.DeleteShopping
+        assertEquals(item.id, payload.itemId)
+    }
+
+    @Test
+    fun automaticShoppingItemIsUncheckedWhenShortageGrows() = runTest {
+        val product = repository.upsertProduct(
+            Product("", "p1", "Riža", category = "Ostalo", categoryId = "cat-other", minimumQuantity = 5, createdAt = 1, updatedAt = 1),
+            "u1", "Test uređaj",
+        )
+        repository.adjustStock(product.id, "s1", 2, "u1", "Test uređaj")
+        val automatic = database.shoppingDao().forProduct("p1", product.id)!!.model()
+        repository.setShoppingChecked(automatic, true, "u1", "Test uređaj")
+
+        repository.adjustStock(product.id, "s1", -1, "u1", "Test uređaj")
+
+        val refreshed = database.shoppingDao().forProduct("p1", product.id)!!
+        assertEquals(4, refreshed.requiredQuantity)
+        assertEquals(false, refreshed.checked)
     }
 
     @Test

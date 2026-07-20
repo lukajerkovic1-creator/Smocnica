@@ -73,6 +73,56 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect((await db.collection("pantries/p1/notifications").get()).size).toBe(2);
   });
 
+  it("reactivates a checked automatic item when the real shortage grows", async () => {
+    await invoke(operation("op-shortage-1", -1) as never);
+    await invoke(callable({
+      operationId: "op-check-shortage", pantryId: "p1", aggregateType: "SHOPPING", aggregateId: "auto_a", baseRevision: 1,
+      payload: { type: "upsert_shopping", item: {
+        id: "auto_a", productId: "a", name: "Klijentski naziv", category: "Namirnice",
+        requiredQuantity: 1, checked: true, manual: false,
+      } },
+      deviceId: "device-0001", deviceDisplayName: "Klijentski uređaj",
+    }, "u1") as never);
+    expect((await db.doc("pantries/p1/shoppingItems/auto_a").get()).get("checked")).toBe(true);
+
+    await invoke(operation("op-shortage-2", -1) as never);
+    const automatic = await db.doc("pantries/p1/shoppingItems/auto_a").get();
+    expect(automatic.get("requiredQuantity")).toBe(2);
+    expect(automatic.get("checked")).toBe(false);
+  });
+
+  it("deletes only manual shopping items and validates their active category", async () => {
+    const upsertManual = (operationId: string, category: string) => callable({
+      operationId, pantryId: "p1", aggregateType: "SHOPPING", aggregateId: "manual-1", baseRevision: 0,
+      payload: { type: "upsert_shopping", item: {
+        id: "manual-1", productId: null, name: "Kruh", category,
+        requiredQuantity: 2, checked: false, manual: true,
+      } },
+      deviceId: "device-0001", deviceDisplayName: "Klijentski uređaj",
+    }, "u1");
+    await expect(invoke(upsertManual("op-manual-invalid-category", "Nepostojeća") as never))
+      .rejects.toMatchObject({ code: "failed-precondition" });
+    await invoke(upsertManual("op-manual-create", "Namirnice") as never);
+
+    await invoke(callable({
+      operationId: "op-manual-delete", pantryId: "p1", aggregateType: "SHOPPING", aggregateId: "manual-1", baseRevision: 1,
+      payload: { type: "delete_shopping", itemId: "manual-1" },
+      deviceId: "device-0001", deviceDisplayName: "Klijentski uređaj",
+    }, "u1") as never);
+    const deleted = await db.doc("pantries/p1/shoppingItems/manual-1").get();
+    expect(deleted.get("deletedAt")).toBeTruthy();
+    expect(deleted.get("purgeAfter")).toBeTruthy();
+    expect((await db.doc("pantries/p1/activities/op-manual-delete").get()).get("displayLabel")).toBe("Kruh");
+
+    await invoke(operation("op-auto-for-delete", -1) as never);
+    await expect(invoke(callable({
+      operationId: "op-auto-delete", pantryId: "p1", aggregateType: "SHOPPING", aggregateId: "auto_a", baseRevision: 1,
+      payload: { type: "delete_shopping", itemId: "auto_a" },
+      deviceId: "device-0001", deviceDisplayName: "Klijentski uređaj",
+    }, "u1") as never)).rejects.toMatchObject({ code: "failed-precondition" });
+    expect((await db.doc("pantries/p1/shoppingItems/auto_a").get()).get("deletedAt")).toBeFalsy();
+  });
+
   it("never permits concurrent-style removal beyond available stock", async () => {
     await expect(invoke(operation("op-00000003", -6) as never)).rejects.toMatchObject({ code: "failed-precondition" });
     expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(5);

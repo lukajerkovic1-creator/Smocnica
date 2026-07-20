@@ -44,7 +44,7 @@ export const purgeExpiredData = onSchedule(
   { region: "europe-west1", schedule: "every day 03:15", timeZone: "Europe/Zagreb", timeoutSeconds: 540, memory: "512MiB" },
   async () => {
     const timestamp = Timestamp.now();
-    for (const collection of ["products", "shelves", "categories"] as const) {
+    for (const collection of ["products", "shelves", "categories", "shoppingItems"] as const) {
       const expired = await db.collectionGroup(collection).where("purgeAfter", "<=", timestamp).limit(350).get();
       const writer = db.bulkWriter();
       for (const document of expired.docs) {
