@@ -15,7 +15,8 @@ val Purple = Color(0xFF6B2FC6)
 val PurpleDark = Color(0xFF4E1B9A)
 val PurpleSoft = Color(0xFFF3ECFF)
 val Rose = Color(0xFFD81B52)
-val Amber = Color(0xFFE99512)
+// Dovoljno taman za ikone i velike brojke na svijetloj pozadini (WCAG AA, >= 3:1).
+val Amber = Color(0xFF8B5000)
 
 private val LightColors = lightColorScheme(
     primary = Purple,

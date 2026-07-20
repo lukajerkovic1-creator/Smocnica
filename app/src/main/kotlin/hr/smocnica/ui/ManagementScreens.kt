@@ -4,12 +4,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,10 +38,13 @@ import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material.icons.outlined.QrCodeScanner
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -57,6 +64,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -161,6 +169,7 @@ internal fun ShelfCard(
     onAdd: () -> Unit,
     onMoveHere: () -> Unit,
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
     Card(
         onClick = onOpen,
         shape = RoundedCornerShape(18.dp),
@@ -168,38 +177,65 @@ internal fun ShelfCard(
             .fillMaxWidth()
             .semantics { contentDescription = "Otvori ${shelf.name}" },
     ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clickable(onClick = onOpen)
-                    .padding(bottom = 6.dp),
-            ) {
-                Text(shelf.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                Text(
-                    "$count komada",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                AssistChip(onScan, { Text("Skeniraj") }, leadingIcon = { Icon(Icons.Outlined.QrCodeScanner, null) })
-                AssistChip(onAdd, { Text("Dodaj") }, leadingIcon = { Icon(Icons.Outlined.Add, null) })
-                AssistChip(onMoveHere, { Text("Premjesti ovamo") }, leadingIcon = { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) })
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onMoveUp, enabled = canMoveUp) { Icon(Icons.Outlined.ArrowUpward, "Pomakni gore") }
-                IconButton(onMoveDown, enabled = canMoveDown) { Icon(Icons.Outlined.ArrowDownward, "Pomakni dolje") }
-                IconButton(onMoveStock, enabled = canMoveStock) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, "Premjesti sve") }
-                IconButton(onEdit) { Icon(Icons.Outlined.Edit, "Preimenuj") }
-                IconButton(onDelete, enabled = count == 0) { Icon(Icons.Outlined.DeleteOutline, if (count == 0) "Obriši" else "Polica nije prazna") }
+        BoxWithConstraints {
+            val compact = maxWidth < 400.dp || LocalDensity.current.fontScale >= 1.5f
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onOpen)
+                        .padding(bottom = 6.dp),
+                ) {
+                    Text(shelf.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "$count komada",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    AssistChip(onScan, { Text("Skeniraj") }, Modifier.heightIn(min = 48.dp), leadingIcon = { Icon(Icons.Outlined.QrCodeScanner, null) })
+                    AssistChip(onAdd, { Text("Dodaj") }, Modifier.heightIn(min = 48.dp), leadingIcon = { Icon(Icons.Outlined.Add, null) })
+                    AssistChip(onMoveHere, { Text("Premjesti ovamo") }, Modifier.heightIn(min = 48.dp), leadingIcon = { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) })
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onMoveUp, Modifier.size(48.dp).semantics { contentDescription = "Pomakni gore" }, enabled = canMoveUp) { Icon(Icons.Outlined.ArrowUpward, null) }
+                    IconButton(onMoveDown, Modifier.size(48.dp).semantics { contentDescription = "Pomakni dolje" }, enabled = canMoveDown) { Icon(Icons.Outlined.ArrowDownward, null) }
+                    if (!compact) {
+                        IconButton(onMoveStock, Modifier.size(48.dp).semantics { contentDescription = "Premjesti sve" }, enabled = canMoveStock) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) }
+                        IconButton(onEdit, Modifier.size(48.dp).semantics { contentDescription = "Preimenuj" }) { Icon(Icons.Outlined.Edit, null) }
+                        IconButton(onDelete, Modifier.size(48.dp).semantics { contentDescription = if (count == 0) "Obriši" else "Polica nije prazna" }, enabled = count == 0) { Icon(Icons.Outlined.DeleteOutline, null) }
+                    } else {
+                        IconButton({ menuExpanded = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje police" }) { Icon(Icons.Outlined.MoreVert, null) }
+                        DropdownMenu(menuExpanded, { menuExpanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Premjesti sve") },
+                                onClick = { menuExpanded = false; onMoveStock() },
+                                enabled = canMoveStock,
+                                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Preimenuj") },
+                                onClick = { menuExpanded = false; onEdit() },
+                                leadingIcon = { Icon(Icons.Outlined.Edit, null) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (count == 0) "Obriši" else "Polica nije prazna") },
+                                onClick = { menuExpanded = false; onDelete() },
+                                enabled = count == 0,
+                                leadingIcon = { Icon(Icons.Outlined.DeleteOutline, null) },
+                            )
+                        }
+                    }
+                }
             }
         }
     }

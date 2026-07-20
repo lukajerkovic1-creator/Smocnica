@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,7 +22,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowForwardIos
-import androidx.compose.material.icons.outlined.ArrowForwardIos
 import androidx.compose.material.icons.outlined.AssignmentTurnedIn
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Inventory2
@@ -37,12 +38,18 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,9 +57,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import hr.smocnica.MainViewModel
 import hr.smocnica.core.model.Activity
 import hr.smocnica.core.model.ActivityType
-import hr.smocnica.ui.theme.Amber
-import hr.smocnica.ui.theme.Purple
-import hr.smocnica.ui.theme.Rose
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -74,13 +78,21 @@ fun DashboardScreen(viewModel: MainViewModel, padding: PaddingValues, navigate: 
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Surface(Modifier.size(56.dp), shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                    Icon(Icons.Outlined.Inventory2, null, Modifier.padding(12.dp), tint = Purple)
+            val largeText = LocalDensity.current.fontScale >= 1.5f
+            if (largeText) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        PantryLogo()
+                        Spacer(Modifier.weight(1f))
+                        ProfileButton(navigate)
+                    }
+                    Text("Smočnica", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
                 }
-                Text("Smočnica", Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-                IconButton({ navigate("menu") }, Modifier.background(MaterialTheme.colorScheme.primaryContainer, CircleShape)) {
-                    Icon(Icons.Outlined.PersonOutline, "Profil i postavke")
+            } else {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    PantryLogo()
+                    Text("Smočnica", Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+                    ProfileButton(navigate)
                 }
             }
         }
@@ -102,21 +114,31 @@ fun DashboardScreen(viewModel: MainViewModel, padding: PaddingValues, navigate: 
                 onClick = { navigate("scanner") },
                 modifier = Modifier.fillMaxWidth().height(64.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Purple),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             ) {
                 Icon(Icons.Outlined.QrCodeScanner, null, Modifier.size(30.dp))
                 Text("Skeniraj proizvod", Modifier.padding(start = 14.dp), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             }
         }
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    DashboardTile("Police", "Organiziraj po lokacijama", Icons.Outlined.Inventory2, "shelves", Modifier.weight(1f), navigate)
-                    DashboardTile("Sve zalihe", "Pregled svih artikala", Icons.Outlined.AssignmentTurnedIn, "stocks", Modifier.weight(1f), navigate)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    DashboardTile("Popis za kupnju", "${shopping.size} stavki na popisu", Icons.Outlined.ShoppingCart, "shopping", Modifier.weight(1f), navigate)
-                    DashboardTile("Inventura", "Provjeri i ažuriraj zalihe", Icons.Outlined.AssignmentTurnedIn, "inventory", Modifier.weight(1f), navigate)
+            BoxWithConstraints {
+                val singleColumn = maxWidth < 400.dp || LocalDensity.current.fontScale >= 1.5f
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (singleColumn) {
+                        DashboardTile("Police", "Organiziraj po lokacijama", Icons.Outlined.Inventory2, "shelves", Modifier.fillMaxWidth(), navigate, compact = true)
+                        DashboardTile("Sve zalihe", "Pregled svih artikala", Icons.Outlined.AssignmentTurnedIn, "stocks", Modifier.fillMaxWidth(), navigate, compact = true)
+                        DashboardTile("Popis za kupnju", "${shopping.size} stavki na popisu", Icons.Outlined.ShoppingCart, "shopping", Modifier.fillMaxWidth(), navigate, compact = true)
+                        DashboardTile("Inventura", "Provjeri i ažuriraj zalihe", Icons.Outlined.AssignmentTurnedIn, "inventory", Modifier.fillMaxWidth(), navigate, compact = true)
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            DashboardTile("Police", "Organiziraj po lokacijama", Icons.Outlined.Inventory2, "shelves", Modifier.weight(1f), navigate)
+                            DashboardTile("Sve zalihe", "Pregled svih artikala", Icons.Outlined.AssignmentTurnedIn, "stocks", Modifier.weight(1f), navigate)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            DashboardTile("Popis za kupnju", "${shopping.size} stavki na popisu", Icons.Outlined.ShoppingCart, "shopping", Modifier.weight(1f), navigate)
+                            DashboardTile("Inventura", "Provjeri i ažuriraj zalihe", Icons.Outlined.AssignmentTurnedIn, "inventory", Modifier.weight(1f), navigate)
+                        }
+                    }
                 }
             }
         }
@@ -125,7 +147,7 @@ fun DashboardScreen(viewModel: MainViewModel, padding: PaddingValues, navigate: 
                 Column {
                     Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("Zadnje aktivnosti", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("Prikaži sve", Modifier.clickable { navigate("history") }, color = Purple, fontWeight = FontWeight.SemiBold)
+                        TextButton({ navigate("history") }) { Text("Prikaži sve", fontWeight = FontWeight.SemiBold) }
                     }
                     activities.take(4).forEachIndexed { index, activity ->
                         ActivityRow(
@@ -143,7 +165,21 @@ fun DashboardScreen(viewModel: MainViewModel, padding: PaddingValues, navigate: 
 }
 
 @Composable
-private fun OverviewCard(
+private fun PantryLogo() {
+    Surface(Modifier.size(56.dp), shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+        Icon(Icons.Outlined.Inventory2, null, Modifier.padding(12.dp), tint = MaterialTheme.colorScheme.primary)
+    }
+}
+
+@Composable
+private fun ProfileButton(navigate: (String) -> Unit) {
+    IconButton({ navigate("menu") }, Modifier.background(MaterialTheme.colorScheme.primaryContainer, CircleShape)) {
+        Icon(Icons.Outlined.PersonOutline, "Profil i postavke", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+    }
+}
+
+@Composable
+internal fun OverviewCard(
     below: Int,
     shopping: Int,
     products: Int,
@@ -162,27 +198,50 @@ private fun OverviewCard(
                     Text("Brz pregled vaše smočnice", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.Bottom) {
+                    val colors = listOf(
+                        MaterialTheme.colorScheme.tertiary,
+                        MaterialTheme.colorScheme.secondary,
+                        MaterialTheme.colorScheme.error,
+                        MaterialTheme.colorScheme.primary,
+                    )
                     listOf(44, 54, 38, 48).forEachIndexed { index, height ->
                         Box(
                             Modifier.size(width = 24.dp, height = height.dp)
-                                .background(listOf(Color(0xFFD6B38B), Color(0xFFE9D7B8), Color(0xFFC88455), Color(0xFFB99AD8))[index], RoundedCornerShape(7.dp)),
+                                .background(colors[index], RoundedCornerShape(7.dp)),
                         )
                     }
                 }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f))
-            Row(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
-                Metric(below, "Ispod minimuma", Icons.Outlined.ErrorOutline, Rose, Modifier.weight(1f), openBelowMinimum)
-                Metric(shopping, "Na popisu za kupnju", Icons.Outlined.ShoppingCart, Amber, Modifier.weight(1f), openShopping)
-                Metric(products, "Ukupno artikala", Icons.Outlined.Inventory2, Purple, Modifier.weight(1f), openProducts)
+            val largeText = LocalDensity.current.fontScale >= 1.5f
+            if (largeText) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    Metric(below, "Ispod minimuma", Icons.Outlined.ErrorOutline, MaterialTheme.colorScheme.error, Modifier.fillMaxWidth(), openBelowMinimum, horizontal = true)
+                    Metric(shopping, "Na popisu za kupnju", Icons.Outlined.ShoppingCart, MaterialTheme.colorScheme.tertiary, Modifier.fillMaxWidth(), openShopping, horizontal = true)
+                    Metric(products, "Ukupno artikala", Icons.Outlined.Inventory2, MaterialTheme.colorScheme.primary, Modifier.fillMaxWidth(), openProducts, horizontal = true)
+                }
+            } else {
+                Row(Modifier.fillMaxWidth().padding(vertical = 16.dp)) {
+                    Metric(below, "Ispod minimuma", Icons.Outlined.ErrorOutline, MaterialTheme.colorScheme.error, Modifier.weight(1f), openBelowMinimum)
+                    Metric(shopping, "Na popisu za kupnju", Icons.Outlined.ShoppingCart, MaterialTheme.colorScheme.tertiary, Modifier.weight(1f), openShopping)
+                    Metric(products, "Ukupno artikala", Icons.Outlined.Inventory2, MaterialTheme.colorScheme.primary, Modifier.weight(1f), openProducts)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun Metric(value: Int, label: String, icon: ImageVector, color: Color, modifier: Modifier, open: () -> Unit) {
-    Column(modifier.clickable(onClick = open).padding(vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+private fun Metric(value: Int, label: String, icon: ImageVector, color: Color, modifier: Modifier, open: () -> Unit, horizontal: Boolean = false) {
+    val accessibleModifier = modifier
+        .clickable(onClick = open)
+        .semantics { contentDescription = "$label: $value"; role = Role.Button }
+        .padding(horizontal = 12.dp, vertical = 8.dp)
+    if (horizontal) Row(accessibleModifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Surface(shape = CircleShape, color = color.copy(alpha = .12f)) { Icon(icon, null, Modifier.padding(8.dp).size(22.dp), tint = color) }
+        Text(value.toString(), style = MaterialTheme.typography.headlineMedium, color = color, fontWeight = FontWeight.Bold)
+        Text(label, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
+    } else Column(accessibleModifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(shape = CircleShape, color = color.copy(alpha = .12f)) { Icon(icon, null, Modifier.padding(8.dp).size(22.dp), tint = color) }
         Text(value.toString(), style = MaterialTheme.typography.headlineMedium, color = color, fontWeight = FontWeight.Bold)
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
@@ -190,14 +249,15 @@ private fun Metric(value: Int, label: String, icon: ImageVector, color: Color, m
 }
 
 @Composable
-private fun DashboardTile(title: String, subtitle: String, icon: ImageVector, route: String, modifier: Modifier, navigate: (String) -> Unit) {
-    Card(modifier.aspectRatio(1.42f).clickable { navigate(route) }, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+internal fun DashboardTile(title: String, subtitle: String, icon: ImageVector, route: String, modifier: Modifier, navigate: (String) -> Unit, compact: Boolean = false) {
+    val cardModifier = if (compact) modifier.heightIn(min = 124.dp) else modifier.aspectRatio(1.42f)
+    Card(cardModifier.clickable { navigate(route) }, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Icon(icon, null, Modifier.size(42.dp), tint = Purple)
+            Icon(icon, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(title, fontWeight = FontWeight.Bold, maxLines = 1)
-                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(title, fontWeight = FontWeight.Bold, maxLines = 2)
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = if (compact) 3 else 2, overflow = TextOverflow.Ellipsis)
                 }
                 Icon(Icons.AutoMirrored.Outlined.ArrowForwardIos, null, Modifier.size(16.dp))
             }
@@ -209,7 +269,7 @@ private fun DashboardTile(title: String, subtitle: String, icon: ImageVector, ro
 private fun ActivityRow(activity: Activity, productNames: Map<String, String>, shelfNames: Map<String, String>) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-            Icon(Icons.Outlined.Inventory2, null, Modifier.padding(9.dp), tint = Purple)
+            Icon(Icons.Outlined.Inventory2, null, Modifier.padding(9.dp), tint = MaterialTheme.colorScheme.primary)
         }
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(activityDisplayLabel(activity, productNames), fontWeight = FontWeight.SemiBold, maxLines = 1)
