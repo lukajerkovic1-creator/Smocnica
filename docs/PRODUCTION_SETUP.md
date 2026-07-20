@@ -197,7 +197,7 @@ Za lokalni updater izraditi ignorirani `app/src/release/res/values/update_config
 
 Repozitorij mora biti javan. Aplikacija ne ugrađuje GitHub token; dohvaća javni Releases API, javni `release-manifest.json` i javni APK.
 
-U Settings > Secrets and variables > Actions postaviti:
+U Settings > Environments izraditi Environment `production`, uključiti **Required reviewers**, ograničiti deployment na granu `master` i tek u njegov **Environment secrets** postaviti:
 
 - `ANDROID_KEYSTORE_BASE64`
 - `ANDROID_KEYSTORE_PASSWORD`
@@ -209,17 +209,17 @@ Siguran PowerShell unos binarnih tajni kroz GitHub CLI:
 
 ```powershell
 [Convert]::ToBase64String([IO.File]::ReadAllBytes('C:\SIGURNA\PUTANJA\smocnica-release.jks')) |
-  gh secret set ANDROID_KEYSTORE_BASE64
+  gh secret set ANDROID_KEYSTORE_BASE64 --env production
 
 [Convert]::ToBase64String([IO.File]::ReadAllBytes('C:\SIGURNA\PUTANJA\google-services.json')) |
-  gh secret set GOOGLE_SERVICES_JSON_BASE64
+  gh secret set GOOGLE_SERVICES_JSON_BASE64 --env production
 
-gh secret set ANDROID_KEYSTORE_PASSWORD
-gh secret set ANDROID_KEY_ALIAS
-gh secret set ANDROID_KEY_PASSWORD
+gh secret set ANDROID_KEYSTORE_PASSWORD --env production
+gh secret set ANDROID_KEY_ALIAS --env production
+gh secret set ANDROID_KEY_PASSWORD --env production
 ```
 
-Zadnje tri naredbe vrijednost traže interaktivno. Base64 nije enkripcija; smije postojati samo kao vrijednost enkriptiranog Actions Secreta.
+Zadnje tri naredbe vrijednost traže interaktivno. Base64 nije enkripcija; smije postojati samo kao vrijednost enkriptiranog Environment Secreta. Isti signing Secrets ne smiju ostati i na razini repozitorija. Job `release` koristi Environment `production`, pa se osjetljive vrijednosti ne učitavaju prije ručnog odobrenja.
 
 Release workflow:
 
@@ -231,8 +231,11 @@ Release workflow:
 6. generira updater konfiguraciju s javnim repo URL-om i certifikatom;
 7. izvodi `lintRelease`, signing provjeru i `assembleRelease` nakon već dovršenog clean/test prolaza;
 8. `apksigner` potvrđuje APK i uspoređuje stvarni certifikat s očekivanim;
-9. generira stvarne release notes i `release-manifest.json` sa SHA-256;
-10. objavljuje APK i manifest kao javne release assets te briše dekodirane tajne s runnera.
+9. odmah nakon provjere APK-a briše dekodirani keystore i produkcijski `google-services.json` te potvrđuje da datoteke više ne postoje;
+10. tek nakon brisanja tajni generira stvarne release notes i `release-manifest.json` sa SHA-256;
+11. objavljuje APK i manifest ugrađenim GitHub CLI-jem (`gh release create`), bez vanjske release Action komponente.
+
+Sve vanjske Action komponente u svim workflowima moraju biti pinane na puni commit SHA. Verzijske oznake poput `@v2`, `@v3` ili `@v4` nisu dopuštene; komentar uz SHA smije navesti ljudski čitljivu glavnu verziju.
 
 Za ručni run u Actions > Signed Android release unijeti `version_name`, `version_code`, `minimum_supported_version_code`, opcionalni `force_update` i release notes. Za tag push workflow koristi tag kao `versionName` i rastući `github.run_number` kao `versionCode`.
 
