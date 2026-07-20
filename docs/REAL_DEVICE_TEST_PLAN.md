@@ -98,6 +98,8 @@ Status svakog testa mora biti točno jedan od: **PASS**, **FAIL**, **NIJE PROVJE
 | F-06 | Vratiti stanje na/iznad minimuma pa ponovno prijeći ispod. | Threshold se ponovno aktivira i dolazi točno jedna nova obavijest. |  |  |
 | F-07 | Dodati/urediti/označiti ručnu stavku istog naziva. | Ručna stavka ostaje neovisna i ne kvari automatsku stavku. |  |  |
 | F-08 | U App Check/Functions logovima pregledati FCM tijek. | Pozivi imaju valjan App Check; nema slanja uklonjenom uređaju/članu ni osobnih podataka u logovima. |  |  |
+| F-09 | Na uređaju odabrati Privatne obavijesti, zaključati zaslon i izazvati novi prijelaz ispod minimuma. | Na zaključanom zaslonu piše „Jedan artikl je ispod minimalne zalihe.” bez naziva artikla i količina. |  |  |
+| F-10 | Na drugom uređaju odabrati Detaljne obavijesti i izazvati novi prijelaz ispod minimuma. | Samo taj uređaj prikazuje naziv artikla i količine; privatni uređaj i dalje prikazuje generički tekst. |  |  |
 
 ## G. Inventura po polici
 

@@ -6,6 +6,7 @@
 
 - Zbroj zalihe po policama, zabrana negativne količine.
 - Izračun točne razlike do minimuma i detekcija samo prijelaza ispod minimuma.
+- Privatne obavijesti zadano ne sadrže naziv ni količine; detaljni sadržaj šalje se samo uređajima s izričito potvrđenom postavkom. Testirati i stari uređaj bez polja te duplicirani token kod kojeg privatnost mora imati prednost.
 - Jedinstvenost barkoda i podržani EAN/UPC formati.
 - Sigurno brisanje police, inventurne razlike, merge/replace uvoza.
 - Debounce skenera, filtriranje i statusni prijelazi sinkronizacije.

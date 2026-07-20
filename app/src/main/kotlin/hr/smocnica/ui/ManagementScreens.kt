@@ -71,6 +71,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import hr.smocnica.MainViewModel
+import hr.smocnica.core.data.messaging.NotificationPrivacyMode
 import hr.smocnica.core.model.Category
 import hr.smocnica.core.model.Shelf
 import hr.smocnica.ui.theme.Purple
@@ -362,6 +363,8 @@ fun MenuScreen(
     val selected by viewModel.selectedPantry.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
     val summary by viewModel.syncSummary.collectAsStateWithLifecycle()
+    val notificationPrivacyMode by viewModel.notificationPrivacyMode.collectAsStateWithLifecycle()
+    val notificationPrivacyUpdating by viewModel.notificationPrivacyUpdating.collectAsStateWithLifecycle()
     var editDeviceName by remember { mutableStateOf(false) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = padding.calculateTopPadding() + 12.dp, bottom = padding.calculateBottomPadding() + 30.dp)) {
         item { ScreenTitle("Izbornik", selected?.name ?: "Postavke smočnice") }
@@ -387,6 +390,13 @@ fun MenuScreen(
                 }
             }
         }
+        item {
+            NotificationPrivacySetting(
+                mode = notificationPrivacyMode,
+                updating = notificationPrivacyUpdating,
+                onChange = viewModel::updateNotificationPrivacy,
+            )
+        }
         item { MenuEntry("Povijest aktivnosti", Icons.Outlined.History) { navigate("history") } }
         item { MenuEntry("Naziv uređaja: ${viewModel.deviceIdentity.displayName}", Icons.Outlined.Edit) { editDeviceName = true } }
         item { MenuEntry("Kategorije", Icons.Outlined.Category) { navigate("categories") } }
@@ -402,6 +412,45 @@ fun MenuScreen(
     if (editDeviceName) NameDialog("Naziv ovog uređaja", viewModel.deviceIdentity.displayName, { editDeviceName = false }) {
         viewModel.renameDevice(it)
         editDeviceName = false
+    }
+}
+
+@Composable
+internal fun NotificationPrivacySetting(
+    mode: NotificationPrivacyMode,
+    updating: Boolean,
+    onChange: (NotificationPrivacyMode) -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text("Privatnost obavijesti", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(
+                selected = mode == NotificationPrivacyMode.PRIVATE,
+                onClick = { onChange(NotificationPrivacyMode.PRIVATE) },
+                enabled = !updating,
+                modifier = Modifier.heightIn(min = 48.dp),
+                label = { Text("Privatne") },
+            )
+            FilterChip(
+                selected = mode == NotificationPrivacyMode.DETAILED,
+                onClick = { onChange(NotificationPrivacyMode.DETAILED) },
+                enabled = !updating,
+                modifier = Modifier.heightIn(min = 48.dp),
+                label = { Text("Detaljne") },
+            )
+        }
+        Text(
+            when {
+                updating -> "Spremanje postavke…"
+                mode == NotificationPrivacyMode.DETAILED -> "Na zaključanom zaslonu prikazuju se naziv artikla i količina."
+                else -> "Na zaključanom zaslonu piše samo da je jedan artikl ispod minimalne zalihe."
+            },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
 

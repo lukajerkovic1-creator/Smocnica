@@ -76,6 +76,7 @@ Nacrti inventure ostaju u Roomu dok ih korisnik ne primijeni ili odbaci. Potvrđ
 - `applyOperation`: validira i atomarno primjenjuje police, artikle, zalihe, kupnju i obnovu.
 - `apply_inventory` grana u `applyOperation`: atomarno validira SHA-256 izvedeni snapshot količina police i primjenjuje potvrđene razlike.
 - Transakcija zalihe na prijelazu ispod minimuma stvara jedinstveni notification dokument; Firestore trigger šalje FCM svim aktivnim uređajima samo za taj prijelaz.
+- `users/{uid}/devices/{deviceId}.detailedNotifications` je poslužiteljski izvor postavke privatnosti zaključanog zaslona. Nedostajuća ili neispravna vrijednost tretira se kao privatna. Trigger grupira tokene prema postavci, a kod dupliciranog tokena uvijek pobjeđuje privatni način, tako da generički primatelji nikada ne dobivaju naziv ni količine u FCM notification payloadu.
 - dnevni `purgeExpiredData` briše tombstone i pripadajuće Storage objekte nakon 30 dana; `purgeOldActivities` briše aktivnosti starije od 365 dana.
 
 ## Sigurnost i privatnost

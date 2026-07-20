@@ -2,7 +2,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db, daysFromNow, now } from "./firebase";
-import { authUid, invitationCode, object, optionalText, requireMember, requireOwner, safeId, sha256, text } from "./validation";
+import { authUid, boolean, invitationCode, object, optionalText, requireMember, requireOwner, safeId, sha256, text } from "./validation";
 
 const callable = { region: "europe-west1", enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== "true" } as const;
 
@@ -167,8 +167,9 @@ export const registerDevice = onCall(callable, async (request) => {
   const deviceId = safeId(text(data, "deviceId", 1, 128), "deviceId");
   const deviceDisplayName = text(data, "deviceDisplayName", 2, 40);
   const fcmToken = optionalText(data, "fcmToken", 4096);
+  const detailedNotifications = boolean(data, "detailedNotifications", false);
   const update: Record<string, unknown> = {
-    name: deviceDisplayName, platform: "ANDROID", updatedAt: now(), active: true,
+    name: deviceDisplayName, platform: "ANDROID", detailedNotifications, updatedAt: now(), active: true,
   };
   if (fcmToken) update.fcmToken = fcmToken;
   await db.doc(`users/${uid}/devices/${deviceId}`).set(update, { merge: true });

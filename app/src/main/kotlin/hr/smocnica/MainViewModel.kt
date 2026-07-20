@@ -16,6 +16,7 @@ import hr.smocnica.core.domain.UpdateRepository
 import hr.smocnica.core.domain.AppUpdate
 import hr.smocnica.core.domain.VerifiedApk
 import hr.smocnica.core.data.messaging.DeviceRegistration
+import hr.smocnica.core.data.messaging.NotificationPrivacyMode
 import hr.smocnica.core.domain.ProductPhotoRepository
 import hr.smocnica.core.model.Category
 import hr.smocnica.core.model.InventorySession
@@ -66,6 +67,10 @@ class MainViewModel @Inject constructor(
     val messages = _messages.asSharedFlow()
     private val _isRestoringPantries = MutableStateFlow(false)
     val isRestoringPantries: StateFlow<Boolean> = _isRestoringPantries
+    private val _notificationPrivacyMode = MutableStateFlow(deviceRegistration.notificationPrivacyMode)
+    val notificationPrivacyMode: StateFlow<NotificationPrivacyMode> = _notificationPrivacyMode
+    private val _notificationPrivacyUpdating = MutableStateFlow(false)
+    val notificationPrivacyUpdating: StateFlow<Boolean> = _notificationPrivacyUpdating
 
     val selectedPantry: StateFlow<Pantry?> = selectedPantryId.flatMapLatest { id ->
         pantriesRepository.observePantries().flatMapLatest { values -> flowOf(values.firstOrNull { it.id == id } ?: values.firstOrNull()) }
@@ -184,6 +189,27 @@ class MainViewModel @Inject constructor(
     fun renameDevice(name: String) = action {
         deviceIdentity.displayName = name
         deviceRegistration.registerCurrentToken()
+    }
+    fun updateNotificationPrivacy(mode: NotificationPrivacyMode) {
+        if (_notificationPrivacyUpdating.value || mode == _notificationPrivacyMode.value) return
+        viewModelScope.launch {
+            _notificationPrivacyUpdating.value = true
+            runCatching { deviceRegistration.updateNotificationPrivacy(mode) }
+                .onSuccess {
+                    _notificationPrivacyMode.value = mode
+                    _messages.emit(
+                        if (mode == NotificationPrivacyMode.DETAILED) {
+                            "Detaljne obavijesti su uključene na ovom uređaju."
+                        } else {
+                            "Privatne obavijesti su uključene na ovom uređaju."
+                        },
+                    )
+                }
+                .onFailure {
+                    _messages.emit("Postavku obavijesti nije moguće spremiti. Provjerite mrežu i pokušajte ponovno.")
+                }
+            _notificationPrivacyUpdating.value = false
+        }
     }
     fun createPantry(name: String, deviceName: String) {
         deviceIdentity.displayName = deviceName

@@ -217,6 +217,8 @@ Ne postoji posebna ciljana zaliha.
 - Push-obavijest šalje se svim registriranim uređajima samo pri prijelazu iz stanja `na minimumu ili iznad` u stanje `ispod minimuma`.
 - Ne ponavljati obavijest dok je artikl i dalje ispod minimuma.
 - Kad se zaliha vrati na minimum ili iznad, budući novi pad ponovno može poslati obavijest.
+- Svaki uređaj bira privatnost sadržaja push-obavijesti. Zadani način je **Privatne obavijesti** s generičkim tekstom bez naziva artikla i količina. **Detaljne obavijesti** izričito uključuju naziv artikla i količine na zaključanom zaslonu.
+- Promjena na manje privatni način vrijedi tek nakon što je sigurno spremljena uz registraciju tog uređaja na poslužitelju.
 - Dodirom otvoriti odgovarajući artikl/stavku kupnje.
 - Primjer:
   - „Glatko brašno 1 kg: preostao je 1 kom, na popis je dodan 1 kom.”
@@ -563,4 +565,3 @@ Dovršena je kada:
 - nema P0 ni P1 grešaka
 - nema nedokumentiranih placeholdera, lažnih gumba ni praznih implementacija
 - README omogućuje drugom developeru ponoviti postavljanje projekta
-
