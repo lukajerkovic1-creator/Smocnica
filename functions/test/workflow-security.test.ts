@@ -61,6 +61,7 @@ describe("GitHub Actions supply-chain controls", () => {
 
     expect(instrumentation).toContain("workflow_call:");
     expect(instrumentation).toMatch(/api-level:\s*\[29, 35\]/);
+    expect(instrumentation).toContain("chmod +x gradlew");
     expect(instrumentation).toContain(":core:data:connectedDebugAndroidTest");
     expect(instrumentation).toContain(":app:connectedDebugAndroidTest");
     expect(ci).toMatch(/instrumentation:\s+uses:\s+\.\/\.github\/workflows\/android-instrumentation\.yml/);
