@@ -8,6 +8,7 @@
     "build": "tsc",
     "test": "vitest run --fileParallelism=false",
     "test:emulator": "firebase emulators:exec --only firestore,storage --project demo-smocnica \"npm test\"",
+    "smoke:production": "node scripts/smoke-production.mjs",
     "serve": "npm run build && firebase emulators:start --only auth,firestore,functions,storage",
     "deploy": "firebase deploy --only functions,firestore:rules,firestore:indexes,storage"
   },

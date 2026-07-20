@@ -3,15 +3,25 @@ package hr.smocnica.ui
 import android.content.Context
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
@@ -22,6 +32,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import hr.smocnica.MainViewModel
+import hr.smocnica.BackendReadiness
 import hr.smocnica.ui.theme.ThemeMode
 
 @Composable
@@ -35,6 +46,7 @@ fun SmocnicaApp(
     val session by viewModel.session.collectAsStateWithLifecycle()
     val pantries by viewModel.pantries.collectAsStateWithLifecycle()
     val restoringPantries by viewModel.isRestoringPantries.collectAsStateWithLifecycle()
+    val backendReadiness by viewModel.backendReadiness.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { viewModel.messages.collect { snackbar.showSnackbar(it) } }
@@ -48,6 +60,10 @@ fun SmocnicaApp(
                         .onFailure { snackbar.showSnackbar(it.message ?: "Google prijava nije uspjela.") }
                 },
             )
+            backendReadiness is BackendReadiness.Blocked -> BackendCompatibilityScreen(
+                message = (backendReadiness as BackendReadiness.Blocked).message,
+                onRetry = viewModel::retryBackendCompatibility,
+            )
             restoringPantries -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             pantries.isEmpty() -> OnboardingScreen(
                 viewModel.deviceIdentity.displayName,
@@ -59,6 +75,31 @@ fun SmocnicaApp(
             else -> MainNavigation(viewModel, requestedRoute, onRouteConsumed, themeMode, onThemeModeChange)
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
+    }
+}
+
+@Composable
+internal fun BackendCompatibilityScreen(message: String, onRetry: () -> Unit) {
+    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        Column(
+            modifier = Modifier.widthIn(max = 480.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                text = "Poslužitelj treba ažurirati",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+            )
+            Text(message, textAlign = TextAlign.Center)
+            Text(
+                text = "Podaci na uređaju nisu promijenjeni. Nakon objave kompatibilnog backenda pokušajte ponovno.",
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+            )
+            Button(onClick = onRetry) { Text("Pokušaj ponovno") }
+        }
     }
 }
 

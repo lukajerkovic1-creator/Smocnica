@@ -117,9 +117,21 @@ npx --prefix functions firebase-tools deploy --only firestore:rules,firestore:in
 
 Nakon deploya u Firebase Console provjeriti da su callable funkcije u `europe-west1`, Firestore indeksi završili izgradnju i da su objavljena aktualna Firestore/Storage pravila.
 
+#### Kontrolirani GitHub deployment
+
+Workflow `.github/workflows/deploy-production-backend.yml` odvojen je od APK releasea i pokreće se samo ručno (`Actions > Deploy production backend > Run workflow`). Prije prve uporabe:
+
+1. U GitHubu izraditi Environment naziva `production` i uključiti **Required reviewers**. Odobrenje u tom Environmentu je obvezna ljudska kontrola prije deploy koraka.
+2. U Google Cloudu konfigurirati Workload Identity Federation za ovaj javni repozitorij i ograničiti ga na workflow s grane `master`.
+3. U GitHub Environment Secrets dodati samo identifikatore `GCP_WORKLOAD_IDENTITY_PROVIDER` i `GCP_DEPLOY_SERVICE_ACCOUNT`. Ne spremati service-account JSON ni Firebase token.
+4. Deployment service accountu dati najmanje ovlasti potrebne za Firebase Functions 2nd gen, Firestore rules/indexes i Storage rules deploy te `iam.serviceAccounts.actAs` samo nad runtime računom.
+5. Workflow pokrenuti unosom točne potvrde `DEPLOY`, a zatim ga odobriti u Environmentu `production`.
+
+Workflow prije objave ponovno kompajlira Functions i pokreće Emulator Suite. Nakon objave dohvaća produkcijski `functions:list`, zahtijeva cijeli manifest funkcija, poziva `getBackendCapabilities` i šalje neautorizirani, nedestruktivni zahtjev svakoj ostaloj callable funkciji. Uspjeh znači da je javni handshake vratio očekivani API/capabilities i da je svaka zaštićena funkcija dostupna te odbila zahtjev s HTTP 401/403. Izvještaj `production-smoke-report.json` ostaje kao Actions artefakt vezan uz commit.
+
 ### Produkcijski App Check za GitHub APK
 
-Release varijanta koristi `PlayIntegrityAppCheckProviderFactory`; debug varijanta koristi Debug provider. Callable funkcije u produkciji imaju `enforceAppCheck: true`.
+Release varijanta koristi `PlayIntegrityAppCheckProviderFactory`; debug varijanta koristi Debug provider. Sve poslovne callable funkcije u produkciji imaju `enforceAppCheck: true`. Javni `getBackendCapabilities` namjerno je izuzet jer vraća samo statički kompatibilnosni manifest potreban prije ostalih poziva.
 
 Za APK distribuiran izvan Google Playa obvezno:
 

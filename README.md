@@ -27,7 +27,9 @@ cd ..
 npx --prefix functions firebase-tools deploy --only firestore:rules,firestore:indexes,storage,functions
 ```
 
-Firestore i Storage klijentski write je namjerno zabranjen osim ograničenog uploada fotografija; sve poslovne mutacije prolaze kroz Functions. Produkcijske callable funkcije zahtijevaju valjani Firebase Auth i App Check token.
+Firestore i Storage klijentski write je namjerno zabranjen osim ograničenog uploada fotografija; sve poslovne mutacije prolaze kroz Functions. Produkcijske poslovne callable funkcije zahtijevaju valjani Firebase Auth i App Check token; javni `getBackendCapabilities` vraća samo statički kompatibilnosni manifest.
+
+Za produkciju se preporučuje ručni workflow `Deploy production backend` s GitHub Environment odobrenjem i Workload Identity Federationom. On objavljuje Functions, oba skupa pravila i indekse te nakon deploya provjerava cijeli manifest i svaku callable krajnju točku. APK prije prvog udaljenog poziva dodatno provjerava `getBackendCapabilities`, pa zastarjeli backend više ne može tiho raditi s novijim klijentom.
 
 Za 12-mjesečno automatsko čišćenje može se dodatno uključiti Firestore TTL na polju `expiresAt` kolekcijske grupe `activities`; zakazana funkcija i dalje provodi pravilo koša od 30 dana.
 

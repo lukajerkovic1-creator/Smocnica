@@ -12,3 +12,4 @@ export {
 } from "./pantry";
 export { applyOperation } from "./operations";
 export { notifyLowStock, purgeExpiredData, purgeOldActivities } from "./maintenance";
+export { getBackendCapabilities } from "./system";
