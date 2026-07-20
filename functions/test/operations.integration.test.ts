@@ -21,15 +21,26 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
   afterAll(() => testEnvironment.cleanup());
   beforeEach(async () => {
     await db.recursiveDelete(db.doc("pantries/p1"));
+    await db.recursiveDelete(db.doc("pantries/p2"));
+    const createdPantries = await db.collection("pantries").where("memberUids", "array-contains", "u-create").get();
+    const parallelPantries = await db.collection("pantries").where("memberUids", "array-contains", "u-parallel").get();
+    await Promise.all([...createdPantries.docs, ...parallelPantries.docs].map((pantry) => db.recursiveDelete(pantry.ref)));
+    await Promise.all([
+      db.doc("userPantryAccess/u1").delete(), db.doc("userPantryAccess/u2").delete(),
+      db.doc("userPantryAccess/u3").delete(), db.doc("userPantryAccess/u-create").delete(),
+      db.doc("userPantryAccess/u-parallel").delete(),
+    ]);
     const batch = db.batch();
     batch.set(db.doc("pantries/p1"), { name: "Test", ownerUid: "u1", memberUids: ["u1", "u2"], revision: 1, createdAt: new Date(), updatedAt: new Date() });
     batch.set(db.doc("pantries/p1/members/u1"), { role: "OWNER", active: true, joinedAt: new Date() });
     batch.set(db.doc("pantries/p1/members/u2"), { role: "MEMBER", active: true, joinedAt: new Date() });
+    batch.set(db.doc("userPantryAccess/u1"), { uid: "u1", pantryId: "p1", active: true, updatedAt: new Date() });
+    batch.set(db.doc("userPantryAccess/u2"), { uid: "u2", pantryId: "p1", active: true, updatedAt: new Date() });
     batch.set(db.doc("users/u1/devices/device-0001"), { name: "Poslužiteljski telefon", active: true, platform: "ANDROID", updatedAt: new Date() });
-    batch.set(db.doc("pantries/p1/shelves/s1"), { name: "Polica 1", sortOrder: 0, revision: 1, createdAt: new Date(), updatedAt: new Date() });
-    batch.set(db.doc("pantries/p1/shelves/s2"), { name: "Polica 2", sortOrder: 1, revision: 1, createdAt: new Date(), updatedAt: new Date() });
-    batch.set(db.doc("pantries/p1/categories/c1"), { name: "Namirnice", sortOrder: 0, isDefault: true, revision: 1, createdAt: new Date(), updatedAt: new Date() });
-    batch.set(db.doc("pantries/p1/products/a"), { name: "Riža", category: "Namirnice", categoryId: "c1", minimumQuantity: 5, autoShopping: true, totalQuantity: 5, revision: 1, createdAt: new Date(), updatedAt: new Date() });
+    batch.set(db.doc("pantries/p1/shelves/s1"), { name: "Polica 1", sortOrder: 0, revision: 1, createdAt: new Date(), updatedAt: new Date(), deletedAt: null });
+    batch.set(db.doc("pantries/p1/shelves/s2"), { name: "Polica 2", sortOrder: 1, revision: 1, createdAt: new Date(), updatedAt: new Date(), deletedAt: null });
+    batch.set(db.doc("pantries/p1/categories/c1"), { name: "Namirnice", sortOrder: 0, isDefault: true, revision: 1, createdAt: new Date(), updatedAt: new Date(), deletedAt: null });
+    batch.set(db.doc("pantries/p1/products/a"), { name: "Riža", category: "Namirnice", categoryId: "c1", minimumQuantity: 5, autoShopping: true, totalQuantity: 5, revision: 1, createdAt: new Date(), updatedAt: new Date(), deletedAt: null });
     batch.set(db.doc("pantries/p1/stocks/a_s1"), { productId: "a", shelfId: "s1", quantity: 5, revision: 1, updatedAt: new Date() });
     await batch.commit();
   });
@@ -341,9 +352,11 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
 
   it("restores only active memberships and deactivates the signed-out device", async () => {
     await db.doc("users/u1/devices/d1").set({ active: true, fcmToken: "token-that-must-not-survive-signout" });
+    await db.doc("userPantryAccess/u1").delete();
     const listed = await invokeListMyPantries(callable({}, "u1") as never);
     expect(listed.pantries).toHaveLength(1);
     expect(listed.pantries[0].pantry.id).toBe("p1");
+    expect((await db.doc("userPantryAccess/u1").get()).get("pantryId")).toBe("p1");
     await invokeUnregisterDevice(callable({ deviceId: "d1" }, "u1") as never);
     const device = await db.doc("users/u1/devices/d1").get();
     expect(device.get("active")).toBe(false);
@@ -358,6 +371,7 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     await expect(invokeManageMember(callable({ pantryId: "p1", memberUid: "u1", action: "REMOVE", ...device }, "u2") as never)).rejects.toMatchObject({ code: "permission-denied" });
     await invokeManageMember(callable({ pantryId: "p1", memberUid: "u2", action: "REMOVE", ...device }, "u1") as never);
     expect((await db.doc("pantries/p1/members/u2").get()).get("active")).toBe(false);
+    expect((await db.doc("userPantryAccess/u2").get()).exists).toBe(false);
     const activity = (await db.collection("pantries/p1/activities").where("type", "==", "MEMBER_REMOVED").get()).docs[0];
     expect(activity.get("deviceDisplayName")).toBe("Poslužiteljski telefon");
   });
@@ -389,13 +403,99 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect(activity.get("deviceDisplayName")).toBe("Poslužiteljski telefon");
   });
 
-  it("attributes pantry creation to the registered device instead of the client label", async () => {
-    const result = await invokeCreatePantry(callable({
-      name: "Nova smočnica", deviceId: "device-0001", deviceDisplayName: "Lažni telefon",
-    }, "u1") as never);
+  it("creates at most one pantry and returns the same pantry for an idempotent retry", async () => {
+    await db.doc("users/u-create/devices/device-create").set({ name: "Telefon za stvaranje", active: true });
+    const request = callable({
+      name: "Nova smočnica", deviceId: "device-create", requestId: "create-request-0001",
+      deviceDisplayName: "Lažni telefon",
+    }, "u-create");
+    const result = await invokeCreatePantry(request as never);
+    const retry = await invokeCreatePantry(request as never);
+    expect(retry.pantry.id).toBe(result.pantry.id);
+    expect((await db.doc("userPantryAccess/u-create").get()).get("pantryId")).toBe(result.pantry.id);
     const activity = (await db.collection(`pantries/${result.pantry.id}/activities`).get()).docs[0];
-    expect(activity.get("deviceId")).toBe("device-0001");
-    expect(activity.get("deviceDisplayName")).toBe("Poslužiteljski telefon");
+    expect(activity.get("deviceId")).toBe("device-create");
+    expect(activity.get("deviceDisplayName")).toBe("Telefon za stvaranje");
+    await expect(invokeCreatePantry(callable({
+      name: "Druga smočnica", deviceId: "device-create", requestId: "create-request-0002",
+    }, "u-create") as never)).rejects.toMatchObject({ code: "already-exists" });
+    await expect(invokeCreatePantry(callable({
+      name: "Skrivena smočnica", deviceId: "device-0001", requestId: "create-request-u1",
+    }, "u1") as never)).rejects.toMatchObject({ code: "already-exists" });
+  });
+
+  it("serializes simultaneous pantry creation from two devices", async () => {
+    await Promise.all([
+      db.doc("users/u-parallel/devices/device-a").set({ name: "Telefon A", active: true }),
+      db.doc("users/u-parallel/devices/device-b").set({ name: "Telefon B", active: true }),
+    ]);
+    const attempts = await Promise.allSettled([
+      invokeCreatePantry(callable({ name: "Prva", deviceId: "device-a", requestId: "parallel-request-a" }, "u-parallel") as never),
+      invokeCreatePantry(callable({ name: "Druga", deviceId: "device-b", requestId: "parallel-request-b" }, "u-parallel") as never),
+    ]);
+
+    expect(attempts.filter((attempt) => attempt.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.filter((attempt) => attempt.status === "rejected")).toHaveLength(1);
+    const pantries = await db.collection("pantries").where("memberUids", "array-contains", "u-parallel").get();
+    expect(pantries.size).toBe(1);
+    expect((await db.doc("userPantryAccess/u-parallel").get()).get("pantryId")).toBe(pantries.docs[0]!.id);
+  });
+
+  it("keeps only one active invitation under simultaneous creation", async () => {
+    await Promise.all([
+      invokeCreateInvitation(callable({ pantryId: "p1" }, "u1") as never),
+      invokeCreateInvitation(callable({ pantryId: "p1" }, "u1") as never),
+    ]);
+    const active = await db.collection("inviteCodes").where("pantryId", "==", "p1").where("revokedAt", "==", null).get();
+    expect(active.size).toBe(1);
+    expect(active.docs[0]!.get("usesRemaining")).toBe(1);
+  });
+
+  it("rejects joining a second pantry without consuming its invitation", async () => {
+    const secondPantry = db.doc("pantries/p2");
+    const code = "SECOND-PANTRY-01";
+    const inviteRef = db.doc(`inviteCodes/${sha256(code)}`);
+    await secondPantry.set({ name: "Druga", ownerUid: "owner2", memberUids: ["owner2"], revision: 0, createdAt: new Date(), updatedAt: new Date(), deletedAt: null });
+    await inviteRef.set({ pantryId: "p2", createdBy: "owner2", createdAt: new Date(), expiresAt: new Date(Date.now() + 60_000), usesRemaining: 1, revokedAt: null });
+    await db.doc("users/u1/devices/device-0001").set({ name: "Poslužiteljski telefon", active: true });
+
+    await expect(invokeJoinPantry(callable({ code, deviceId: "device-0001" }, "u1") as never))
+      .rejects.toMatchObject({ code: "already-exists" });
+    expect((await inviteRef.get()).get("usesRemaining")).toBe(1);
+    expect((await secondPantry.collection("members").doc("u1").get()).exists).toBe(false);
+  });
+
+  it("rejects an eleventh active member without consuming the invitation", async () => {
+    const additions = db.batch();
+    for (let index = 3; index <= 10; index++) {
+      additions.set(db.doc(`pantries/p1/members/u${index}`), { role: "MEMBER", active: true, joinedAt: new Date() });
+    }
+    await additions.commit();
+    const invitation = await invokeCreateInvitation(callable({ pantryId: "p1" }, "u1") as never);
+    const inviteRef = db.doc(`inviteCodes/${sha256(invitation.code)}`);
+    await db.doc("users/u11/devices/device-u11").set({ name: "Telefon u11", active: true });
+
+    await expect(invokeJoinPantry(callable({ code: invitation.code, deviceId: "device-u11" }, "u11") as never))
+      .rejects.toMatchObject({ code: "resource-exhausted" });
+    expect((await inviteRef.get()).get("usesRemaining")).toBe(1);
+    expect((await db.doc("pantries/p1/members/u11").get()).exists).toBe(false);
+  });
+
+  it("rejects creating a shelf after the pantry limit is reached", async () => {
+    const additions = db.batch();
+    for (let index = 3; index <= 50; index++) {
+      additions.set(db.doc(`pantries/p1/shelves/limit-${index}`), {
+        name: `Polica ${index}`, sortOrder: index, revision: 1,
+        createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+      });
+    }
+    await additions.commit();
+    await expect(invoke(callable({
+      operationId: "op-shelf-limit", pantryId: "p1", aggregateType: "SHELF", aggregateId: "s51", baseRevision: 0,
+      payload: { type: "create_shelf", shelf: { id: "s51", name: "Polica 51", sortOrder: 51 } },
+      deviceId: "device-0001", deviceDisplayName: "Klijentski uređaj",
+    }, "u1") as never)).rejects.toMatchObject({ code: "resource-exhausted" });
+    expect((await db.doc("pantries/p1/shelves/s51").get()).exists).toBe(false);
   });
 });
 

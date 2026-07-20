@@ -26,6 +26,9 @@
 
 - Neprijavljen korisnik nema pristup.
 - Ne-član ne čita smočnicu, podkolekcije ni slike.
+- Dva paralelna ili ponovljena zahtjeva za stvaranje koriste isti idempotency ključ i rezultiraju jednom smočnicom; korisnik s aktivnom smočnicom ne može stvoriti ni pridružiti se drugoj.
+- Izravni klijentski pristup `userPantryAccess` locku je zabranjen; uklanjanje člana i brisanje smočnice uklanjaju samo pripadajući lock.
+- Backend odbija 11. člana, 51. policu, 51. kategoriju, 501. artikl i drugu aktivnu pozivnicu bez djelomičnih zapisa ili potrošnje koda.
 - Član čita; klijent ne piše izravno ni uz lažni ownerUid/quantity.
 - Samo owner callable može upravljati članovima, prijenosom i brisanjem.
 - Kôd je jednokratan/istekao/revoked; operationId je idempotentan.

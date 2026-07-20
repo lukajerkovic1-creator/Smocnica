@@ -1,6 +1,7 @@
 import { FieldValue, Transaction, DocumentReference, DocumentSnapshot, Timestamp } from "firebase-admin/firestore";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db, daysFromNow, now } from "./firebase";
+import { PANTRY_LIMITS, assertFinalResourceLimit, assertResourceLimit } from "./limits";
 import { Data, authUid, barcode, boolean, integer, object, safeId, sha256, stringArray, text } from "./validation";
 
 const callable = { region: "europe-west1", enforceAppCheck: process.env.FUNCTIONS_EMULATOR !== "true", timeoutSeconds: 60, memory: "512MiB" as const };
@@ -117,7 +118,12 @@ async function createShelf({ tx, pantryRef, payload, timestamp }: HandlerContext
   const id = safeId(text(shelf, "id"));
   const name = text(shelf, "name", 1, 100);
   const ref = pantryRef.collection("shelves").doc(id);
-  if ((await tx.get(ref)).exists) throw new HttpsError("already-exists", "Polica već postoji.");
+  const [existing, active] = await Promise.all([
+    tx.get(ref),
+    tx.get(pantryRef.collection("shelves").where("deletedAt", "==", null).limit(PANTRY_LIMITS.shelves + 1)),
+  ]);
+  if (existing.exists) throw new HttpsError("already-exists", "Polica već postoji.");
+  assertResourceLimit(active.size, PANTRY_LIMITS.shelves, "polica");
   tx.create(ref, {
     name, sortOrder: integer(shelf, "sortOrder", 0, 10_000),
     revision: 1, createdAt: timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
@@ -187,6 +193,10 @@ async function upsertCategory({ tx, pantryRef, payload, baseRevision, timestamp 
   const ref = pantryRef.collection("categories").doc(id);
   const existing = await tx.get(ref);
   if (existing.exists && Number(existing.get("revision") || 0) !== baseRevision) return conflict(Number(existing.get("revision") || 0));
+  if (!existing.exists || existing.get("deletedAt")) {
+    const active = await tx.get(pantryRef.collection("categories").where("deletedAt", "==", null).limit(PANTRY_LIMITS.categories + 1));
+    assertResourceLimit(active.size, PANTRY_LIMITS.categories, "kategorija");
+  }
   const name = text(category, "name", 1, 100);
   if (existing.exists && existing.get("name") !== name) {
     const [products, shopping] = await Promise.all([
@@ -244,6 +254,10 @@ async function upsertProduct(context: HandlerContext): Promise<HandlerResult> {
   const shoppingRef = pantryRef.collection("shoppingItems").doc(`auto_${id}`);
   const [existing, currentShopping] = await Promise.all([tx.get(ref), tx.get(shoppingRef)]);
   if (existing.exists && Number(existing.get("revision") || 0) !== baseRevision) return conflict(Number(existing.get("revision") || 0));
+  if (!existing.exists || existing.get("deletedAt")) {
+    const active = await tx.get(pantryRef.collection("products").where("deletedAt", "==", null).limit(PANTRY_LIMITS.products + 1));
+    assertResourceLimit(active.size, PANTRY_LIMITS.products, "artikala");
+  }
   let categoryId: string;
   let categoryName: string;
   if (typeof product.categoryId === "string" && product.categoryId.trim() !== "") {
@@ -531,6 +545,10 @@ async function restore({ tx, pantryRef, payload, timestamp }: HandlerContext): P
   const [doc, shopping] = await Promise.all([tx.get(ref), shoppingRef ? tx.get(shoppingRef) : Promise.resolve(null)]);
   if (!doc.exists || !doc.get("deletedAt")) throw new HttpsError("not-found", "Zapis nije pronađen u košu.");
   if (doc.get("purgeAfter")?.toMillis() <= Date.now()) throw new HttpsError("failed-precondition", "Rok za vraćanje je istekao.");
+  const limit = kind === "PRODUCT" ? PANTRY_LIMITS.products : kind === "SHELF" ? PANTRY_LIMITS.shelves : PANTRY_LIMITS.categories;
+  const label = kind === "PRODUCT" ? "artikala" : kind === "SHELF" ? "polica" : "kategorija";
+  const active = await tx.get(pantryRef.collection(collectionForAggregate(kind)).where("deletedAt", "==", null).limit(limit + 1));
+  assertResourceLimit(active.size, limit, label);
   if (kind === "PRODUCT" && typeof doc.get("barcode") === "string") {
     const code = String(doc.get("barcode"));
     const reservationRef = db.doc(`barcodes/${sha256(`${pantryRef.id}:${code}`)}`);
@@ -669,6 +687,9 @@ async function importSnapshot({ tx, pantryRef, payload, timestamp }: HandlerCont
   if (replaceExisting) { finalShelfIds.clear(); finalProductIds.clear(); }
   shelfEntries.forEach((entry) => finalShelfIds.add(entry.id));
   productEntries.forEach((entry) => finalProductIds.add(entry.id));
+  assertFinalResourceLimit(finalShelfIds.size, PANTRY_LIMITS.shelves, "polica");
+  assertFinalResourceLimit(finalCategories.size, PANTRY_LIMITS.categories, "kategorija");
+  assertFinalResourceLimit(finalProductIds.size, PANTRY_LIMITS.products, "artikala");
   stockEntries.forEach((entry) => {
     if (!finalShelfIds.has(entry.shelfId) || !finalProductIds.has(entry.productId)) throw new HttpsError("failed-precondition", "Zaliha upućuje na nepostojeći artikl ili policu.");
   });

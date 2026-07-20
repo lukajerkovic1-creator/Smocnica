@@ -12,6 +12,7 @@ import hr.smocnica.core.model.Pantry
 import hr.smocnica.core.model.SyncState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -44,7 +45,14 @@ class FirebasePantryRepository @Inject constructor(
     override suspend fun createPantry(name: String, deviceId: String): Pantry {
         val cleanName = name.trim()
         require(cleanName.length in 1..60) { "Naziv smočnice mora imati između 1 i 60 znakova." }
-        val result = client.call("createPantry", mapOf("name" to cleanName, "deviceId" to deviceId))
+        val result = client.call(
+            "createPantry",
+            mapOf(
+                "name" to cleanName,
+                "deviceId" to deviceId,
+                "requestId" to pantryCreationRequestId(deviceId, cleanName),
+            ),
+        )
         return cachePantry(result)
     }
 
@@ -110,6 +118,12 @@ class FirebasePantryRepository @Inject constructor(
         }
         return pantry
     }
+}
+
+internal fun pantryCreationRequestId(deviceId: String, pantryName: String): String {
+    val normalized = "${deviceId.trim()}:${pantryName.trim().lowercase()}"
+    val digest = MessageDigest.getInstance("SHA-256").digest(normalized.toByteArray(Charsets.UTF_8))
+    return "create-${digest.joinToString("") { byte -> "%02x".format(byte) }}"
 }
 
 internal fun Map<*, *>.string(key: String): String = this[key]?.toString() ?: error("Nedostaje polje $key.")

@@ -62,6 +62,10 @@ pantries/{pantryId}
   operations/{operationId}: actorUid, resultRevision, appliedAt, resultDigest
 ```
 
+`userPantryAccess/{uid}` je posžlužiteljski upravljan, kanonski lock za točno jednu aktivnu smočnicu po korisniku. Stvaranje smočnice u istoj transakciji zapisuje lock i prihvaća obvezni `requestId`; ponavljanje istog zahtjeva vraća isti zapis, dok drugi zahtjev ili pridruživanje drugoj smočnici završava s `ALREADY_EXISTS`. Uklanjanje člana i brisanje smočnice uklanjaju odgovarajući lock. Klijent nema izravan read/write pristup toj kolekciji.
+
+Poslužiteljski limiti su 10 aktivnih članova, 50 aktivnih polica, 50 aktivnih kategorija, 500 aktivnih artikala i jedna aktivna pozivnica po smočnici. Limiti se provjeravaju u istoj transakciji za stvaranje, vraćanje i uvoz kako paralelni zahtjevi ne bi prekoračili granicu.
+
 Globalni `barcodes/{sha256(pantryId:barcode)}` dokument rezervira barkod u transakciji i pokazuje na `productId`. `inviteCodes/{sha256(code)}` pokazuje na smočnicu bez otkrivanja koda u čistom obliku. Svi klijentski zapisi idu kroz callable funkcije; pravila dopuštaju izravan read aktivnim članovima, a write samo administrativnom SDK-u. Time se složene transakcijske invarijante ne mogu zaobići modificiranim klijentom.
 
 Za svaku novu operativnu mutaciju poslužitelj u istoj transakciji provjerava da je `deviceId` aktivan pod `users/{actorUid}/devices`. `deviceDisplayName`, naziv artikla i nazive polica izvodi isključivo iz poslužiteljskih dokumenata. Aktivnost čuva strukturirane identifikatore; Android generira opis iz trenutačnih lokalnih zapisa, uz poslužiteljski snapshot teksta samo kao kompatibilni prikaz starih aktivnosti. Room shema 2 dodaje te identifikatore aditivnom migracijom 1→2 bez brisanja podataka.
@@ -72,7 +76,7 @@ Nacrti inventure ostaju u Roomu dok ih korisnik ne primijeni ili odbaci. Potvrđ
 
 ## Cloud Functions
 
-- `getBackendCapabilities` je javni, neosjetljivi handshake koji vraća samo `backendApiVersion`, statičke capability oznake i očekivani manifest funkcija. Android prije registracije uređaja i obnove cloud podataka zahtijeva API 2 te `operation:delete_shopping`, `device-registration:v2` i `notification-privacy:v1`. Potvrđena verzija lokalno se pamti samo za privremeni offline fallback; izričito zastario ili nepotpun odgovor uvijek blokira udaljene pozive.
+- `getBackendCapabilities` je javni, neosjetljivi handshake koji vraća samo `backendApiVersion`, statičke capability oznake i očekivani manifest funkcija. Android prije registracije uređaja i obnove cloud podataka zahtijeva API 3 te `operation:delete_shopping`, `device-registration:v2`, `notification-privacy:v1` i `single-active-pantry:v1`. Potvrđena verzija lokalno se pamti samo za privremeni offline fallback; izričito zastario ili nepotpun odgovor uvijek blokira udaljene pozive.
 - `createPantry`, `listMyPantries`, `createInvitation`, `joinPantry`, `manageMember`, `transferOwnership`, `deletePantry`, `registerDevice`, `unregisterDevice` i `purgeTrash`.
 - `applyOperation`: validira i atomarno primjenjuje police, artikle, zalihe, kupnju i obnovu.
 - `apply_inventory` grana u `applyOperation`: atomarno validira SHA-256 izvedeni snapshot količina police i primjenjuje potvrđene razlike.
