@@ -329,16 +329,24 @@ fun StocksScreen(
         { chooseMoveProduct = false },
     ) { item -> moveDestinationId = selectedShelf.id; movingProduct = item; chooseMoveProduct = false }
     if (bulkMove) BulkMoveDialog(allProducts.filter { it.product.id in selectedIds }, shelves, initialShelfId, { bulkMove = false }) { from, to ->
-        viewModel.moveProducts(allProducts.filter { it.product.id in selectedIds }, from, to); selectedIds = emptySet(); selecting = false; bulkMove = false
+        bulkMove = false
+        viewModel.moveProducts(allProducts.filter { it.product.id in selectedIds }, from, to) {
+            selectedIds = emptySet(); selecting = false
+        }
     }
     if (bulkCategory) BulkCategoryDialog(categories, { bulkCategory = false }) { categoryId ->
         categories.firstOrNull { it.id == categoryId }?.let { category ->
-            viewModel.changeProductsCategory(allProducts.filter { it.product.id in selectedIds }, category)
-            selectedIds = emptySet(); selecting = false; bulkCategory = false
+            bulkCategory = false
+            viewModel.changeProductsCategory(allProducts.filter { it.product.id in selectedIds }, category) {
+                selectedIds = emptySet(); selecting = false
+            }
         }
     }
     if (bulkDelete) ConfirmDialog("Obrisati ${selectedIds.size} artikala?", "Artikli će biti premješteni u koš na 30 dana.", { bulkDelete = false }) {
-        viewModel.deleteProducts(allProducts.filter { it.product.id in selectedIds }); selectedIds = emptySet(); selecting = false; bulkDelete = false
+        bulkDelete = false
+        viewModel.deleteProducts(allProducts.filter { it.product.id in selectedIds }) {
+            selectedIds = emptySet(); selecting = false
+        }
     }
     lastRemoval?.let { (item, shelfId) -> ConfirmDialog("Izvaditi zadnji komad?", "${item.product.name} više neće biti na ovoj polici.", { lastRemoval = null }) {
         viewModel.adjustStock(item.product.id, shelfId, -1) {

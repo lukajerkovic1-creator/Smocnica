@@ -270,12 +270,10 @@ class MainViewModel @Inject constructor(
     fun reorderShelves(ordered: List<Shelf>) = withActor { pantry, uid ->
         inventory.reorderShelves(pantry.id, ordered.map(Shelf::id), pantry.revision, uid, deviceIdentity.displayName)
     }
-    fun moveAllStock(fromShelfId: String, toShelfId: String, values: List<ProductWithStock>) = withActor { _, uid ->
+    fun moveAllStock(fromShelfId: String, toShelfId: String, values: List<ProductWithStock>) = withActor { pantry, uid ->
         require(fromShelfId != toShelfId) { "Odaberite drugu policu." }
-        values.forEach { item ->
-            val quantity = item.stocks.firstOrNull { it.shelfId == fromShelfId }?.quantity ?: 0
-            if (quantity > 0) inventory.moveStock(item.product.id, fromShelfId, toShelfId, quantity, uid, deviceIdentity.displayName)
-        }
+        val productIds = values.filter { item -> item.stocks.any { it.shelfId == fromShelfId && it.quantity > 0 } }.map { it.product.id }
+        inventory.moveProducts(pantry.id, productIds, fromShelfId, toShelfId, uid, deviceIdentity.displayName)
     }
     fun deleteShelf(shelf: Shelf) = withActor { _, uid -> inventory.deleteShelf(shelf, uid, deviceIdentity.displayName) }
     fun saveProduct(
@@ -339,31 +337,28 @@ class MainViewModel @Inject constructor(
     fun moveStock(productId: String, fromShelfId: String, toShelfId: String, quantity: Int, onMoved: (() -> Unit)? = null) = actorAction({ _, uid ->
         inventory.moveStock(productId, fromShelfId, toShelfId, quantity, uid, deviceIdentity.displayName)
     }, { onMoved?.invoke() })
-    fun changeProductsCategory(products: List<ProductWithStock>, category: Category) = withActor { _, uid ->
-        val now = System.currentTimeMillis()
-        products.forEach { item ->
-            inventory.upsertProduct(
-                item.product.copy(category = category.name, categoryId = category.id, updatedAt = now),
-                uid,
-                deviceIdentity.displayName,
-            )
-        }
-    }
+    fun changeProductsCategory(products: List<ProductWithStock>, category: Category, onChanged: () -> Unit = {}) = actorAction(
+        block = { pantry, uid ->
+            inventory.changeProductsCategory(pantry.id, products.map { it.product.id }, category.id, uid, deviceIdentity.displayName)
+        },
+        onSuccess = { onChanged() },
+    )
     fun addProductsToShopping(products: List<ProductWithStock>) = withActor { pantry, uid ->
         products.forEach { item ->
             inventory.addManualShoppingItem(pantry.id, item.product.name, item.product.categoryId, 1, uid, deviceIdentity.displayName)
         }
     }
-    fun deleteProducts(products: List<ProductWithStock>) = withActor { _, uid ->
-        products.forEach { item -> inventory.deleteProduct(item.product, uid, deviceIdentity.displayName) }
-    }
-    fun moveProducts(products: List<ProductWithStock>, fromShelfId: String, toShelfId: String) = withActor { _, uid ->
-        require(fromShelfId != toShelfId) { "Odaberite različite police." }
-        products.forEach { item ->
-            val quantity = item.stocks.firstOrNull { it.shelfId == fromShelfId }?.quantity ?: 0
-            if (quantity > 0) inventory.moveStock(item.product.id, fromShelfId, toShelfId, quantity, uid, deviceIdentity.displayName)
-        }
-    }
+    fun deleteProducts(products: List<ProductWithStock>, onDeleted: () -> Unit = {}) = actorAction(
+        block = { pantry, uid -> inventory.deleteProducts(pantry.id, products.map { it.product.id }, uid, deviceIdentity.displayName) },
+        onSuccess = { onDeleted() },
+    )
+    fun moveProducts(products: List<ProductWithStock>, fromShelfId: String, toShelfId: String, onMoved: () -> Unit = {}) = actorAction(
+        block = { pantry, uid ->
+            val productIds = products.filter { item -> item.stocks.any { it.shelfId == fromShelfId && it.quantity > 0 } }.map { it.product.id }
+            inventory.moveProducts(pantry.id, productIds, fromShelfId, toShelfId, uid, deviceIdentity.displayName)
+        },
+        onSuccess = { onMoved() },
+    )
     fun addShopping(name: String, categoryId: String, quantity: Int) = withActor { pantry, uid -> inventory.addManualShoppingItem(pantry.id, name, categoryId, quantity, uid, deviceIdentity.displayName) }
     fun setChecked(item: ShoppingItem, checked: Boolean) = withActor { _, uid -> inventory.setShoppingChecked(item, checked, uid, deviceIdentity.displayName) }
     fun saveCategory(category: Category) = withActor { pantry, uid -> inventory.upsertCategory(category.copy(pantryId = pantry.id), uid, deviceIdentity.displayName) }

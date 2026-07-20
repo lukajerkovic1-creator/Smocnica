@@ -57,6 +57,9 @@ interface InventoryRepository {
     suspend fun adjustStock(productId: String, shelfId: String, delta: Int, actorUid: String, deviceName: String)
     suspend fun restoreProductAndAdjustStock(pantryId: String, productId: String, shelfId: String, quantity: Int, actorUid: String, deviceName: String)
     suspend fun moveStock(productId: String, fromShelfId: String, toShelfId: String, quantity: Int, actorUid: String, deviceName: String)
+    suspend fun changeProductsCategory(pantryId: String, productIds: List<String>, categoryId: String, actorUid: String, deviceName: String)
+    suspend fun deleteProducts(pantryId: String, productIds: List<String>, actorUid: String, deviceName: String)
+    suspend fun moveProducts(pantryId: String, productIds: List<String>, fromShelfId: String, toShelfId: String, actorUid: String, deviceName: String)
     suspend fun addManualShoppingItem(pantryId: String, name: String, categoryId: String, quantity: Int, actorUid: String, deviceName: String, checked: Boolean = false): ShoppingItem
     suspend fun updateManualShoppingItem(item: ShoppingItem, name: String, categoryId: String, quantity: Int, actorUid: String, deviceName: String)
     suspend fun deleteManualShoppingItem(item: ShoppingItem, actorUid: String, deviceName: String): ShoppingItem

@@ -20,6 +20,7 @@ import hr.smocnica.core.domain.StockPolicy
 import hr.smocnica.core.model.Activity
 import hr.smocnica.core.model.ActivityType
 import hr.smocnica.core.model.AggregateType
+import hr.smocnica.core.model.BulkStockMove
 import hr.smocnica.core.model.Category
 import hr.smocnica.core.model.InventoryCount
 import hr.smocnica.core.model.InventorySession
@@ -443,6 +444,170 @@ class LocalInventoryRepository @Inject constructor(
         }
     }
 
+    override suspend fun changeProductsCategory(
+        pantryId: String,
+        productIds: List<String>,
+        categoryId: String,
+        actorUid: String,
+        deviceName: String,
+    ) {
+        database.withTransaction {
+            val selected = requireActiveBulkProducts(pantryId, productIds)
+            val category = activeCategory(pantryId, categoryId)
+            val now = clock.now()
+            val operationId = enqueue(
+                pantryId,
+                AggregateType.PANTRY,
+                pantryId,
+                0,
+                OperationPayload.BulkChangeProductCategory(selected.map { it.id }, category.id),
+                actorUid,
+                deviceName,
+                now,
+            )
+            selected.forEachIndexed { index, current ->
+                val updated = current.copy(
+                    category = category.name,
+                    categoryId = category.id,
+                    updatedAt = now,
+                    syncState = SyncState.PENDING,
+                )
+                products.upsert(updated)
+                reconcileAutomaticShopping(updated.model(), stocks.total(updated.id), now)
+                record(
+                    "${operationId}_$index",
+                    ActivityType.PRODUCT_UPDATED,
+                    pantryId,
+                    current.id,
+                    current.name,
+                    actorUid,
+                    deviceName,
+                    old = current.category,
+                    new = category.name,
+                    productId = current.id,
+                    now = now,
+                )
+            }
+        }
+    }
+
+    override suspend fun deleteProducts(
+        pantryId: String,
+        productIds: List<String>,
+        actorUid: String,
+        deviceName: String,
+    ) {
+        database.withTransaction {
+            val selected = requireActiveBulkProducts(pantryId, productIds)
+            val now = clock.now()
+            val operationId = enqueue(
+                pantryId,
+                AggregateType.PANTRY,
+                pantryId,
+                0,
+                OperationPayload.BulkDeleteProducts(selected.map { it.id }),
+                actorUid,
+                deviceName,
+                now,
+            )
+            selected.forEachIndexed { index, current ->
+                products.upsert(
+                    current.copy(
+                        deletedAt = now,
+                        purgeAfter = now + THIRTY_DAYS,
+                        updatedAt = now,
+                        syncState = SyncState.PENDING,
+                    ),
+                )
+                shopping.forProduct(pantryId, current.id)?.let { item ->
+                    shopping.upsert(item.copy(deletedAt = now, updatedAt = now, syncState = SyncState.PENDING))
+                }
+                record(
+                    "${operationId}_$index",
+                    ActivityType.ITEM_DELETED,
+                    pantryId,
+                    current.id,
+                    current.name,
+                    actorUid,
+                    deviceName,
+                    productId = current.id,
+                    now = now,
+                )
+            }
+        }
+    }
+
+    override suspend fun moveProducts(
+        pantryId: String,
+        productIds: List<String>,
+        fromShelfId: String,
+        toShelfId: String,
+        actorUid: String,
+        deviceName: String,
+    ) {
+        require(fromShelfId != toShelfId) { "Odaberite različite police." }
+        database.withTransaction {
+            val selected = requireActiveBulkProducts(pantryId, productIds)
+            val sourceShelf = shelves.get(fromShelfId)
+                ?.takeIf { it.pantryId == pantryId && it.deletedAt == null }
+                ?: error("Izvorna polica nije dostupna.")
+            val targetShelf = shelves.get(toShelfId)
+                ?.takeIf { it.pantryId == pantryId && it.deletedAt == null }
+                ?: error("Odredišna polica nije dostupna.")
+            val sources = selected.map { product ->
+                stocks.get(product.id, fromShelfId)
+                    ?.takeIf { it.quantity > 0 }
+                    ?: error("Artikl ${product.name} nema zalihu na izvornoj polici.")
+            }
+            val targets = selected.map { product -> stocks.get(product.id, toShelfId) }
+            sources.zip(targets).forEach { (source, target) ->
+                StockPolicy.move(source.quantity, source.quantity)
+                require((target?.quantity ?: 0).toLong() + source.quantity <= MAX_QUANTITY) {
+                    "Količina na odredišnoj polici je previsoka."
+                }
+            }
+            val moves = selected.indices.map { index ->
+                BulkStockMove(selected[index].id, fromShelfId, toShelfId, sources[index].quantity)
+            }
+            val now = clock.now()
+            val operationId = enqueue(
+                pantryId,
+                AggregateType.PANTRY,
+                pantryId,
+                0,
+                OperationPayload.BulkMoveStock(moves),
+                actorUid,
+                deviceName,
+                now,
+            )
+            selected.forEachIndexed { index, product ->
+                val source = sources[index]
+                val target = targets[index]
+                stocks.upsert(source.copy(quantity = 0, updatedAt = now, syncState = SyncState.PENDING))
+                stocks.upsert(
+                    (target ?: hr.smocnica.core.data.local.StockEntity(pantryId, product.id, toShelfId, 0, 0, now, SyncState.PENDING))
+                        .copy(quantity = (target?.quantity ?: 0) + source.quantity, updatedAt = now, syncState = SyncState.PENDING),
+                )
+                record(
+                    "${operationId}_$index",
+                    ActivityType.STOCK_MOVED,
+                    pantryId,
+                    product.id,
+                    product.name,
+                    actorUid,
+                    deviceName,
+                    quantity = source.quantity,
+                    old = sourceShelf.name,
+                    new = targetShelf.name,
+                    productId = product.id,
+                    fromShelfId = fromShelfId,
+                    toShelfId = toShelfId,
+                    now = now,
+                )
+            }
+        }
+    }
+
     override suspend fun addManualShoppingItem(
         pantryId: String,
         name: String,
@@ -831,8 +996,23 @@ class LocalInventoryRepository @Inject constructor(
         }
     }
 
+    private suspend fun requireActiveBulkProducts(
+        pantryId: String,
+        requestedIds: List<String>,
+    ): List<hr.smocnica.core.data.local.ProductEntity> {
+        require(requestedIds.isNotEmpty()) { "Odaberite barem jedan artikl." }
+        require(requestedIds.size <= MAX_BULK_PRODUCTS) { "Odjednom je moguće promijeniti najviše $MAX_BULK_PRODUCTS artikala." }
+        require(requestedIds.distinct().size == requestedIds.size) { "Isti artikl ne smije biti odabran više puta." }
+        return requestedIds.map { productId ->
+            products.get(productId)
+                ?.takeIf { it.pantryId == pantryId && it.deletedAt == null }
+                ?: error("Jedan od odabranih artikala više nije dostupan.")
+        }
+    }
+
     private companion object {
         const val THIRTY_DAYS = 30L * 24 * 60 * 60 * 1_000
         const val MAX_QUANTITY = 1_000_000
+        const val MAX_BULK_PRODUCTS = 100
     }
 }

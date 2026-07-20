@@ -160,6 +160,9 @@ class OutboxSyncRepository @Inject constructor(
         is OperationPayload.ReorderShelves -> "Promjena redoslijeda polica"
         is OperationPayload.UpsertProduct -> "Promjena artikla ${payload.product.name}"
         is OperationPayload.UpsertCategory -> "Promjena kategorije ${payload.category.name}"
+        is OperationPayload.BulkChangeProductCategory -> "Skupna promjena kategorije (${payload.productIds.size})"
+        is OperationPayload.BulkDeleteProducts -> "Skupno brisanje artikala (${payload.productIds.size})"
+        is OperationPayload.BulkMoveStock -> "Skupno premještanje artikala (${payload.moves.size})"
         is OperationPayload.DeleteShelf, is OperationPayload.DeleteCategory, is OperationPayload.SoftDelete -> "Brisanje zapisa"
         else -> "Promjena ${payload::class.simpleName.orEmpty()}"
     }
@@ -188,7 +191,7 @@ class OutboxSyncRepository @Inject constructor(
                 else -> Unit
             }
             AggregateType.PANTRY -> {
-                when (json.decodeFromString(OperationPayload.serializer(), operation.payloadJson)) {
+                when (val payload = json.decodeFromString(OperationPayload.serializer(), operation.payloadJson)) {
                     is OperationPayload.ReorderShelves -> database.shelfDao().allowRemoteForPantry(operation.pantryId)
                     is OperationPayload.ReorderCategories -> database.categoryDao().allowRemoteForPantry(operation.pantryId)
                     is OperationPayload.ImportSnapshot -> {
@@ -197,6 +200,22 @@ class OutboxSyncRepository @Inject constructor(
                         database.productDao().allowRemoteForPantry(operation.pantryId)
                         database.stockDao().allowRemoteForPantry(operation.pantryId)
                         database.shoppingDao().allowRemoteForPantry(operation.pantryId)
+                    }
+                    is OperationPayload.BulkChangeProductCategory -> {
+                        payload.productIds.forEach { productId ->
+                            database.productDao().allowRemote(productId)
+                            database.shoppingDao().allowRemote("auto_$productId")
+                        }
+                    }
+                    is OperationPayload.BulkDeleteProducts -> {
+                        payload.productIds.forEach { productId ->
+                            database.productDao().allowRemote(productId)
+                            database.shoppingDao().allowRemote("auto_$productId")
+                        }
+                    }
+                    is OperationPayload.BulkMoveStock -> payload.moves.forEach { move ->
+                        database.stockDao().allowRemote(move.productId, move.fromShelfId)
+                        database.stockDao().allowRemote(move.productId, move.toShelfId)
                     }
                     else -> Unit
                 }
@@ -242,6 +261,22 @@ class OutboxSyncRepository @Inject constructor(
                     database.productDao().allowRemoteForPantry(operation.pantryId)
                     database.stockDao().allowRemoteForPantry(operation.pantryId)
                     database.shoppingDao().allowRemoteForPantry(operation.pantryId)
+                    }
+                    is OperationPayload.BulkChangeProductCategory -> {
+                        payload.productIds.forEach { productId ->
+                            database.productDao().allowRemote(productId)
+                            database.shoppingDao().allowRemote("auto_$productId")
+                        }
+                    }
+                    is OperationPayload.BulkDeleteProducts -> {
+                        payload.productIds.forEach { productId ->
+                            database.productDao().allowRemote(productId)
+                            database.shoppingDao().allowRemote("auto_$productId")
+                        }
+                    }
+                    is OperationPayload.BulkMoveStock -> payload.moves.forEach { move ->
+                        database.stockDao().allowRemote(move.productId, move.fromShelfId)
+                        database.stockDao().allowRemote(move.productId, move.toShelfId)
                     }
                     else -> Unit
                 }

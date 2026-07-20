@@ -28,9 +28,10 @@ type ActivityMetadata = {
   displayLabel?: string;
   oldValue?: string | null;
   newValue?: string | null;
+  quantityDelta?: number | null;
 };
 
-type HandlerResult = number | { revision: number; activity: ActivityMetadata };
+type HandlerResult = number | { revision: number; activity?: ActivityMetadata; activities?: ActivityMetadata[] };
 
 export const applyOperation = onCall(callable, async (request) => {
   const uid = authUid(request);
@@ -68,23 +69,27 @@ export const applyOperation = onCall(callable, async (request) => {
 
     const handled = await handle({ tx, pantryRef, pantryId, payload, baseRevision, operationId, uid, deviceId, deviceDisplayName, timestamp });
     const revision = typeof handled === "number" ? handled : handled.revision;
-    const metadata = typeof handled === "number" ? {} : handled.activity;
+    const metadata = typeof handled === "number" ? {} : handled.activity || {};
     tx.create(operationRef, {
       actorUid: uid, aggregateType, aggregateId, payloadType: type,
       resultRevision: revision, appliedAt: timestamp,
       resultDigest: sha256(JSON.stringify({ operationId, revision })),
     });
-    const values = activityValues(metadata);
-    const references = activityReferences(payload, type, metadata);
-    tx.create(pantryRef.collection("activities").doc(operationId), {
-      type: activityType(type, payload), aggregateId,
-      displayLabel: metadata.displayLabel || activityLabel(payload, type),
-      quantityDelta: quantityDelta(payload, type),
-      oldValue: values.oldValue, newValue: values.newValue,
-      productId: references.productId, shelfId: references.shelfId,
-      fromShelfId: references.fromShelfId, toShelfId: references.toShelfId,
-      actorUid: uid, deviceId, deviceDisplayName,
-      createdAt: timestamp, expiresAt: daysFromNow(365),
+    const activityEntries = typeof handled === "number" || !handled.activities ? [metadata] : handled.activities;
+    activityEntries.forEach((entry, index) => {
+      const values = activityValues(entry);
+      const references = activityReferences(payload, type, entry);
+      const activityId = activityEntries.length === 1 ? operationId : `${operationId}_${index}`;
+      tx.create(pantryRef.collection("activities").doc(activityId), {
+        type: activityType(type, payload), aggregateId: references.productId || aggregateId,
+        displayLabel: entry.displayLabel || activityLabel(payload, type),
+        quantityDelta: entry.quantityDelta !== undefined ? entry.quantityDelta : quantityDelta(payload, type),
+        oldValue: values.oldValue, newValue: values.newValue,
+        productId: references.productId, shelfId: references.shelfId,
+        fromShelfId: references.fromShelfId, toShelfId: references.toShelfId,
+        actorUid: uid, deviceId, deviceDisplayName,
+        createdAt: timestamp, expiresAt: daysFromNow(365),
+      });
     });
     return { status: "APPLIED", revision };
   });
@@ -103,6 +108,9 @@ async function handle(context: HandlerContext): Promise<HandlerResult> {
     case "upsert_product": return upsertProduct(context);
     case "adjust_stock": return adjustStock(context);
     case "move_stock": return moveStock(context);
+    case "bulk_change_product_category": return bulkChangeProductCategory(context);
+    case "bulk_delete_products": return bulkDeleteProducts(context);
+    case "bulk_move_stock": return bulkMoveStock(context);
     case "upsert_shopping": return upsertShopping(context);
     case "delete_shopping": return deleteShopping(context);
     case "apply_inventory": return applyInventory(context);
@@ -424,6 +432,167 @@ async function moveStock({ tx, pantryRef, payload, timestamp }: HandlerContext):
       newValue: serverActivityLabel(targetShelf.get("name"), "Odredišna polica"),
     },
   };
+}
+
+async function bulkChangeProductCategory({ tx, pantryRef, payload, timestamp }: HandlerContext): Promise<HandlerResult> {
+  const productIds = bulkProductIds(payload);
+  const categoryId = safeId(text(payload, "categoryId"), "categoryId");
+  const categoryRef = pantryRef.collection("categories").doc(categoryId);
+  const productRefs = productIds.map((id) => pantryRef.collection("products").doc(id));
+  const shoppingRefs = productIds.map((id) => pantryRef.collection("shoppingItems").doc(`auto_${id}`));
+  const [category, productDocs, shoppingDocs] = await Promise.all([
+    tx.get(categoryRef), tx.getAll(...productRefs), tx.getAll(...shoppingRefs),
+  ]);
+  if (!category.exists || category.get("deletedAt")) {
+    throw new HttpsError("failed-precondition", "Odabrana kategorija nije aktivna.");
+  }
+  productDocs.forEach((product) => {
+    if (!product.exists || product.get("deletedAt")) {
+      throw new HttpsError("failed-precondition", "Jedan od odabranih artikala više nije dostupan.");
+    }
+  });
+  const categoryName = serverActivityLabel(category.get("name"), "Kategorija");
+  let revision = 0;
+  const activities: ActivityMetadata[] = [];
+  productDocs.forEach((product, index) => {
+    const nextRevision = Number(product.get("revision") || 0) + 1;
+    revision = Math.max(revision, nextRevision);
+    tx.update(productRefs[index]!, { categoryId, category: categoryName, revision: nextRevision, updatedAt: timestamp });
+    reconcileShopping(
+      tx,
+      shoppingRefs[index]!,
+      shoppingDocs[index]!,
+      { id: productIds[index]!, name: product.get("name"), category: categoryName, categoryId },
+      Number(product.get("minimumQuantity") || 0),
+      Number(product.get("totalQuantity") || 0),
+      product.get("autoShopping") !== false,
+      timestamp,
+    );
+    activities.push({
+      productId: productIds[index],
+      displayLabel: serverActivityLabel(product.get("name"), "Artikl"),
+      oldValue: serverActivityLabel(product.get("category"), "Kategorija"),
+      newValue: categoryName,
+    });
+  });
+  return { revision, activities };
+}
+
+async function bulkDeleteProducts({ tx, pantryRef, payload, timestamp }: HandlerContext): Promise<HandlerResult> {
+  const productIds = bulkProductIds(payload);
+  const productRefs = productIds.map((id) => pantryRef.collection("products").doc(id));
+  const shoppingRefs = productIds.map((id) => pantryRef.collection("shoppingItems").doc(`auto_${id}`));
+  const [productDocs, shoppingDocs] = await Promise.all([
+    tx.getAll(...productRefs), tx.getAll(...shoppingRefs),
+  ]);
+  productDocs.forEach((product) => {
+    if (!product.exists || product.get("deletedAt")) {
+      throw new HttpsError("failed-precondition", "Jedan od odabranih artikala više nije dostupan.");
+    }
+  });
+  let revision = 0;
+  const activities: ActivityMetadata[] = [];
+  productDocs.forEach((product, index) => {
+    const nextRevision = Number(product.get("revision") || 0) + 1;
+    revision = Math.max(revision, nextRevision);
+    tx.update(productRefs[index]!, {
+      deletedAt: timestamp,
+      purgeAfter: daysFromNow(30),
+      revision: nextRevision,
+      updatedAt: timestamp,
+    });
+    if (shoppingDocs[index]!.exists) {
+      tx.update(shoppingRefs[index]!, { deletedAt: timestamp, updatedAt: timestamp });
+    }
+    activities.push({
+      productId: productIds[index],
+      displayLabel: serverActivityLabel(product.get("name"), "Artikl"),
+    });
+  });
+  return { revision, activities };
+}
+
+async function bulkMoveStock({ tx, pantryRef, payload, timestamp }: HandlerContext): Promise<HandlerResult> {
+  const rawMoves = array(payload.moves, "moves");
+  if (rawMoves.length < 1 || rawMoves.length > 100) {
+    throw new HttpsError("invalid-argument", "Skupna radnja mora sadržavati između 1 i 100 artikala.");
+  }
+  const moves = rawMoves.map((value) => {
+    const move = object(value, "move");
+    const productId = safeId(text(move, "productId"));
+    const fromShelfId = safeId(text(move, "fromShelfId"));
+    const toShelfId = safeId(text(move, "toShelfId"));
+    if (fromShelfId === toShelfId) throw new HttpsError("invalid-argument", "Police moraju biti različite.");
+    return { productId, fromShelfId, toShelfId, quantity: integer(move, "quantity", 1, 1_000_000) };
+  });
+  if (new Set(moves.map((move) => move.productId)).size !== moves.length) {
+    throw new HttpsError("invalid-argument", "Isti artikl ne smije biti premješten više puta u jednoj skupnoj radnji.");
+  }
+  const shelfIds = [...new Set(moves.flatMap((move) => [move.fromShelfId, move.toShelfId]))];
+  const shelfRefs = shelfIds.map((id) => pantryRef.collection("shelves").doc(id));
+  const productRefs = moves.map((move) => pantryRef.collection("products").doc(move.productId));
+  const sourceRefs = moves.map((move) => pantryRef.collection("stocks").doc(`${move.productId}_${move.fromShelfId}`));
+  const targetRefs = moves.map((move) => pantryRef.collection("stocks").doc(`${move.productId}_${move.toShelfId}`));
+  const [shelfDocs, productDocs, sources, targets] = await Promise.all([
+    tx.getAll(...shelfRefs), tx.getAll(...productRefs), tx.getAll(...sourceRefs), tx.getAll(...targetRefs),
+  ]);
+  const shelvesById = new Map(shelfDocs.map((shelf) => [shelf.id, shelf]));
+  shelfDocs.forEach((shelf) => {
+    if (!shelf.exists || shelf.get("deletedAt")) throw new HttpsError("failed-precondition", "Jedna od odabranih polica nije dostupna.");
+  });
+  moves.forEach((move, index) => {
+    const product = productDocs[index]!;
+    const source = sources[index]!;
+    const target = targets[index]!;
+    if (!product.exists || product.get("deletedAt")) {
+      throw new HttpsError("failed-precondition", "Jedan od odabranih artikala više nije dostupan.");
+    }
+    if (!source.exists || Number(source.get("quantity") || 0) < move.quantity) {
+      throw new HttpsError("failed-precondition", "Jedan od artikala nema dovoljnu količinu na izvornoj polici.");
+    }
+    const targetQuantity = Number(target.get("quantity") || 0) + move.quantity;
+    if (!Number.isSafeInteger(targetQuantity) || targetQuantity > 1_000_000) {
+      throw new HttpsError("resource-exhausted", "Količina na odredišnoj polici je previsoka.");
+    }
+  });
+  let revision = 0;
+  const activities: ActivityMetadata[] = [];
+  moves.forEach((move, index) => {
+    const source = sources[index]!;
+    const target = targets[index]!;
+    const nextRevision = Math.max(Number(source.get("revision") || 0), Number(target.get("revision") || 0)) + 1;
+    revision = Math.max(revision, nextRevision);
+    tx.update(sourceRefs[index]!, { quantity: Number(source.get("quantity")) - move.quantity, revision: nextRevision, updatedAt: timestamp });
+    tx.set(targetRefs[index]!, {
+      productId: move.productId,
+      shelfId: move.toShelfId,
+      quantity: Number(target.get("quantity") || 0) + move.quantity,
+      revision: nextRevision,
+      updatedAt: timestamp,
+    }, { merge: true });
+    activities.push({
+      productId: move.productId,
+      fromShelfId: move.fromShelfId,
+      toShelfId: move.toShelfId,
+      displayLabel: serverActivityLabel(productDocs[index]!.get("name"), "Artikl"),
+      oldValue: serverActivityLabel(shelvesById.get(move.fromShelfId)?.get("name"), "Izvorna polica"),
+      newValue: serverActivityLabel(shelvesById.get(move.toShelfId)?.get("name"), "Odredišna polica"),
+      quantityDelta: move.quantity,
+    });
+  });
+  return { revision, activities };
+}
+
+function bulkProductIds(payload: Data): string[] {
+  const rawIds = array(payload.productIds, "productIds");
+  if (rawIds.length < 1 || rawIds.length > 100) {
+    throw new HttpsError("invalid-argument", "Skupna radnja mora sadržavati između 1 i 100 artikala.");
+  }
+  const ids = rawIds.map((value) => safeId(typeof value === "string" ? value : ""));
+  if (new Set(ids).size !== ids.length) {
+    throw new HttpsError("invalid-argument", "Isti artikl ne smije biti odabran više puta.");
+  }
+  return ids;
 }
 
 async function upsertShopping({ tx, pantryRef, pantryId, payload, baseRevision, timestamp }: HandlerContext): Promise<HandlerResult> {
@@ -1089,6 +1258,7 @@ function activityType(type: string, payload: Data): string {
     delete_shelf: "SHELF_DELETED", upsert_category: "CATEGORY_UPDATED", reorder_categories: "CATEGORY_REORDERED",
     delete_category: "CATEGORY_DELETED", upsert_shopping: "SHOPPING_UPDATED", delete_shopping: "ITEM_DELETED",
     upsert_product: "PRODUCT_UPDATED", adjust_stock: "STOCK_ADDED", move_stock: "STOCK_MOVED",
+    bulk_change_product_category: "PRODUCT_UPDATED", bulk_delete_products: "ITEM_DELETED", bulk_move_stock: "STOCK_MOVED",
     apply_inventory: "INVENTORY_APPLIED", soft_delete: "ITEM_DELETED", restore: "ITEM_RESTORED",
     import_snapshot: "IMPORT_APPLIED",
   };

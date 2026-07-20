@@ -270,6 +270,74 @@ class LocalInventoryRepositoryTest {
     }
 
     @Test
+    fun bulkProductActionsRollbackWhenTheMiddleProductIsUnavailable() = runTest {
+        database.shelfDao().upsert(ShelfEntity("s2", "p1", "Polica 2", 1, 0, 1, 1, null, null, SyncState.SYNCED))
+        val first = repository.upsertProduct(
+            Product("", "p1", "Prvi", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
+            "u1", "Test uređaj",
+        )
+        val third = repository.upsertProduct(
+            Product("", "p1", "Treći", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
+            "u1", "Test uređaj",
+        )
+        repository.adjustStock(first.id, "s1", 2, "u1", "Test uređaj")
+        repository.adjustStock(third.id, "s1", 3, "u1", "Test uređaj")
+        database.operationDao().deleteForPantry("p1")
+        database.activityDao().deleteForPantry("p1")
+        val selected = listOf(first.id, "missing-middle", third.id)
+
+        assertTrue(runCatching {
+            repository.changeProductsCategory("p1", selected, "cat-other", "u1", "Test uređaj")
+        }.isFailure)
+        assertEquals("cat-other", database.productDao().get(first.id)?.categoryId)
+        assertEquals("cat-other", database.productDao().get(third.id)?.categoryId)
+
+        assertTrue(runCatching {
+            repository.moveProducts("p1", selected, "s1", "s2", "u1", "Test uređaj")
+        }.isFailure)
+        assertEquals(2, database.stockDao().get(first.id, "s1")?.quantity)
+        assertEquals(0, database.stockDao().get(first.id, "s2")?.quantity ?: 0)
+        assertEquals(3, database.stockDao().get(third.id, "s1")?.quantity)
+        assertEquals(0, database.stockDao().get(third.id, "s2")?.quantity ?: 0)
+
+        assertTrue(runCatching {
+            repository.deleteProducts("p1", selected, "u1", "Test uređaj")
+        }.isFailure)
+        assertEquals(null, database.productDao().get(first.id)?.deletedAt)
+        assertEquals(null, database.productDao().get(third.id)?.deletedAt)
+        assertEquals(0, database.operationDao().countUnsynced())
+        assertTrue(database.activityDao().listSince("p1", 0).isEmpty())
+    }
+
+    @Test
+    fun successfulBulkMoveCreatesOneOutboxOperation() = runTest {
+        database.shelfDao().upsert(ShelfEntity("s2", "p1", "Polica 2", 1, 0, 1, 1, null, null, SyncState.SYNCED))
+        val first = repository.upsertProduct(
+            Product("", "p1", "Prvi", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
+            "u1", "Test uređaj",
+        )
+        val second = repository.upsertProduct(
+            Product("", "p1", "Drugi", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
+            "u1", "Test uređaj",
+        )
+        repository.adjustStock(first.id, "s1", 2, "u1", "Test uređaj")
+        repository.adjustStock(second.id, "s1", 3, "u1", "Test uređaj")
+        database.operationDao().deleteForPantry("p1")
+        database.activityDao().deleteForPantry("p1")
+
+        repository.moveProducts("p1", listOf(first.id, second.id), "s1", "s2", "u1", "Test uređaj")
+
+        assertEquals(0, database.stockDao().get(first.id, "s1")?.quantity)
+        assertEquals(2, database.stockDao().get(first.id, "s2")?.quantity)
+        assertEquals(0, database.stockDao().get(second.id, "s1")?.quantity)
+        assertEquals(3, database.stockDao().get(second.id, "s2")?.quantity)
+        val operation = database.operationDao().next().single()
+        val payload = json.decodeFromString(OperationPayload.serializer(), operation.payloadJson) as OperationPayload.BulkMoveStock
+        assertEquals(2, payload.moves.size)
+        assertEquals(2, database.activityDao().listSince("p1", 0).size)
+    }
+
+    @Test
     fun inventoryDraftSurvivesObservationAndCanBeDiscarded() = runTest {
         val product = repository.upsertProduct(
             Product("", "p1", "Sol", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1), "u1", "Test uređaj",

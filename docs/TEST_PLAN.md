@@ -14,6 +14,7 @@
 ### Data/repository
 
 - Room transakcija uvijek zajedno mijenja read-model i outbox.
+- Skupna promjena kategorije, brisanje i premještanje unaprijed validiraju cijeli odabir. Namjerno nepostojeći srednji artikl mora poništiti promjene prvog i zadnjeg, aktivnosti i outbox; uspješan skupni potez stvara točno jednu outbox operaciju.
 - Migracija Room 4→5 čuva podatke, popunjava normalizirane nazive, dodaje `categoryId` stavkama kupnje i ostavlja točno jednu aktivnu zadanu kategoriju.
 - Repository odbija nazive polica/kategorija jednake nakon NFKC/case/space normalizacije; artikle, filtere i stavke kupnje povezuje isključivo preko ID-a.
 - `PERMISSION_DENIED` na pantry/members listeneru odmah zaustavlja listenere, trajno karantenira smočnicu, uklanja je iz aktivnog UI toka i isključuje njezine operacije iz outboxa.
@@ -35,6 +36,7 @@
 - Klijentski `isDefault` ne mijenja zadanu kategoriju; backend i migracija održavaju točno jednu aktivnu zadanu kategoriju.
 - Artikl i ručna/automatska stavka kupnje odbijaju nepostojeći `categoryId`, a prikazani naziv uvijek dolazi iz poslužiteljskog dokumenta kategorije.
 - Dva registrirana uređaja istodobno šalju offline dodavanje iste normalizirane ručne stavke: postoji jedan deterministički dokument, količine se zbrajaju, checked se vraća na false, retry istog operationId-a ne povećava količinu i drugačiji identitet nad istim ID-em se odbija.
+- Skupna promjena kategorije, brisanje i premještanje odbijaju cijelu operaciju ako je srednji artikl nepostojeći, obrisan ili nema dovoljnu zalihu; nijedan dokument ni activity zapis ne smije biti djelomično promijenjen. Uspješna skupna operacija stvara jedan idempotentni operation zapis i zasebnu strukturiranu aktivnost za svaki artikl.
 - Član čita; klijent ne piše izravno ni uz lažni ownerUid/quantity.
 - Samo owner callable može upravljati članovima, prijenosom i brisanjem.
 - Kôd je jednokratan/istekao/revoked; operationId je idempotentan.
@@ -54,7 +56,7 @@
 
 ### Integracija
 
-- APK s minimalnim backend API-jem 5 blokira rad uz jasan retry kada `getBackendCapabilities` ne postoji, vrati stariju verziju ili nema obveznu capability oznaku; prolazi s aktualnim odgovorom i samo pri privremenom mrežnom prekidu smije koristiti prethodno potvrđenu kompatibilnu verziju.
+- APK s minimalnim backend API-jem 6 blokira rad uz jasan retry kada `getBackendCapabilities` ne postoji, vrati stariju verziju ili nema `atomic-bulk-products:v1` ili drugu obveznu capability oznaku; prolazi s aktualnim odgovorom i samo pri privremenom mrežnom prekidu smije koristiti prethodno potvrđenu kompatibilnu verziju.
 - Produkcijski post-deploy smoke uspoređuje `functions:list` sa statičkim manifestom svih funkcija, provjerava stvarni capability odgovor i potvrđuje da svaka zaštićena callable funkcija odbija neautorizirani zahtjev.
 - Prijava → stvaranje smočnice → polica → artikl → add/remove → auto-shopping.
 - Uređaj A offline mijenja količinu, uređaj B online mijenja istu količinu, sinkronizacija delta operacija.

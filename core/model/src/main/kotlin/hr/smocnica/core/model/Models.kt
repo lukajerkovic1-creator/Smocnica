@@ -219,6 +219,14 @@ enum class AggregateType { PANTRY, SHELF, CATEGORY, PRODUCT, STOCK, SHOPPING, IN
 enum class OperationState { PENDING, IN_FLIGHT, CONFLICT, PERMANENT_FAILURE }
 
 @Serializable
+data class BulkStockMove(
+    val productId: ProductId,
+    val fromShelfId: ShelfId,
+    val toShelfId: ShelfId,
+    val quantity: Int,
+)
+
+@Serializable
 data class PendingOperation(
     val operationId: String,
     val pantryId: PantryId,
@@ -301,6 +309,21 @@ sealed interface OperationPayload {
         /** Positive, idempotent addition. Null means an absolute edit/check-state update. */
         val quantityDelta: Int? = null,
     ) : OperationPayload
+
+    @Serializable
+    @SerialName("bulk_change_product_category")
+    data class BulkChangeProductCategory(
+        val productIds: List<ProductId>,
+        val categoryId: CategoryId,
+    ) : OperationPayload
+
+    @Serializable
+    @SerialName("bulk_delete_products")
+    data class BulkDeleteProducts(val productIds: List<ProductId>) : OperationPayload
+
+    @Serializable
+    @SerialName("bulk_move_stock")
+    data class BulkMoveStock(val moves: List<BulkStockMove>) : OperationPayload
 
     @Serializable
     @SerialName("delete_shopping")

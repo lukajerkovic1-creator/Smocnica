@@ -239,6 +239,116 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect(activity.get("toShelfId")).toBe("s2");
   });
 
+  it("rejects every bulk action atomically when the middle product is unavailable", async () => {
+    const setup = db.batch();
+    setup.set(db.doc("pantries/p1/products/b"), {
+      name: "Brašno", category: "Namirnice", categoryId: "c1", minimumQuantity: 0,
+      autoShopping: true, totalQuantity: 3, revision: 1, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    });
+    setup.set(db.doc("pantries/p1/stocks/b_s1"), {
+      productId: "b", shelfId: "s1", quantity: 3, revision: 1, updatedAt: new Date(),
+    });
+    await setup.commit();
+    const bulk = (operationId: string, payload: Record<string, unknown>) => callable({
+      operationId, pantryId: "p1", aggregateType: "PANTRY", aggregateId: "p1", baseRevision: 0,
+      payload, deviceId: "device-0001", deviceDisplayName: "Klijentski uređaj",
+    }, "u1");
+
+    await expect(invoke(bulk("op-bulk-category-invalid", {
+      type: "bulk_change_product_category", productIds: ["a", "missing-middle", "b"], categoryId: "c1",
+    }) as never)).rejects.toMatchObject({ code: "failed-precondition" });
+    expect((await db.doc("pantries/p1/products/a").get()).get("revision")).toBe(1);
+    expect((await db.doc("pantries/p1/products/b").get()).get("revision")).toBe(1);
+
+    await expect(invoke(bulk("op-bulk-move-invalid", {
+      type: "bulk_move_stock",
+      moves: [
+        { productId: "a", fromShelfId: "s1", toShelfId: "s2", quantity: 2 },
+        { productId: "missing-middle", fromShelfId: "s1", toShelfId: "s2", quantity: 1 },
+        { productId: "b", fromShelfId: "s1", toShelfId: "s2", quantity: 3 },
+      ],
+    }) as never)).rejects.toMatchObject({ code: "failed-precondition" });
+    expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(5);
+    expect((await db.doc("pantries/p1/stocks/b_s1").get()).get("quantity")).toBe(3);
+    expect((await db.doc("pantries/p1/stocks/a_s2").get()).exists).toBe(false);
+    expect((await db.doc("pantries/p1/stocks/b_s2").get()).exists).toBe(false);
+
+    await expect(invoke(bulk("op-bulk-delete-invalid", {
+      type: "bulk_delete_products", productIds: ["a", "missing-middle", "b"],
+    }) as never)).rejects.toMatchObject({ code: "failed-precondition" });
+    expect((await db.doc("pantries/p1/products/a").get()).get("deletedAt")).toBeNull();
+    expect((await db.doc("pantries/p1/products/b").get()).get("deletedAt")).toBeNull();
+    expect((await db.collection("pantries/p1/operations").where("payloadType", ">=", "bulk_").get()).size).toBe(0);
+    expect((await db.collection("pantries/p1/activities").get()).size).toBe(0);
+  });
+
+  it("applies a valid bulk move as one operation with per-product activities", async () => {
+    const setup = db.batch();
+    setup.set(db.doc("pantries/p1/products/b"), {
+      name: "Brašno", category: "Namirnice", categoryId: "c1", minimumQuantity: 0,
+      autoShopping: true, totalQuantity: 3, revision: 1, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    });
+    setup.set(db.doc("pantries/p1/stocks/b_s1"), {
+      productId: "b", shelfId: "s1", quantity: 3, revision: 1, updatedAt: new Date(),
+    });
+    await setup.commit();
+
+    const request = callable({
+      operationId: "op-bulk-move-valid", pantryId: "p1", aggregateType: "PANTRY", aggregateId: "p1", baseRevision: 0,
+      payload: {
+        type: "bulk_move_stock",
+        moves: [
+          { productId: "a", fromShelfId: "s1", toShelfId: "s2", quantity: 2 },
+          { productId: "b", fromShelfId: "s1", toShelfId: "s2", quantity: 3 },
+        ],
+      },
+      deviceId: "device-0001", deviceDisplayName: "Klijentski uređaj",
+    }, "u1");
+    await invoke(request as never);
+    await invoke(request as never);
+
+    expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(3);
+    expect((await db.doc("pantries/p1/stocks/a_s2").get()).get("quantity")).toBe(2);
+    expect((await db.doc("pantries/p1/stocks/b_s1").get()).get("quantity")).toBe(0);
+    expect((await db.doc("pantries/p1/stocks/b_s2").get()).get("quantity")).toBe(3);
+    expect((await db.doc("pantries/p1/operations/op-bulk-move-valid").get()).exists).toBe(true);
+    const activities = await db.collection("pantries/p1/activities").where("type", "==", "STOCK_MOVED").get();
+    expect(activities.size).toBe(2);
+    expect(activities.docs.map((activity) => activity.get("displayLabel")).sort()).toEqual(["Brašno", "Riža"]);
+  });
+
+  it("applies bulk category change and deletion atomically", async () => {
+    const setup = db.batch();
+    setup.set(db.doc("pantries/p1/categories/c2"), {
+      name: "Pića", sortOrder: 1, isDefault: false, revision: 1,
+      createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    });
+    setup.set(db.doc("pantries/p1/products/b"), {
+      name: "Brašno", category: "Namirnice", categoryId: "c1", minimumQuantity: 0,
+      autoShopping: true, totalQuantity: 0, revision: 1, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    });
+    await setup.commit();
+    const bulk = (operationId: string, payload: Record<string, unknown>) => callable({
+      operationId, pantryId: "p1", aggregateType: "PANTRY", aggregateId: "p1", baseRevision: 0,
+      payload, deviceId: "device-0001", deviceDisplayName: "Klijentski uređaj",
+    }, "u1");
+
+    await invoke(bulk("op-bulk-category-valid", {
+      type: "bulk_change_product_category", productIds: ["a", "b"], categoryId: "c2",
+    }) as never);
+    expect((await db.doc("pantries/p1/products/a").get()).get("categoryId")).toBe("c2");
+    expect((await db.doc("pantries/p1/products/a").get()).get("category")).toBe("Pića");
+    expect((await db.doc("pantries/p1/products/b").get()).get("categoryId")).toBe("c2");
+    expect((await db.collection("pantries/p1/activities").where("type", "==", "PRODUCT_UPDATED").get()).size).toBe(2);
+
+    await invoke(bulk("op-bulk-delete-valid", {
+      type: "bulk_delete_products", productIds: ["a", "b"],
+    }) as never);
+    expect((await db.doc("pantries/p1/products/a").get()).get("deletedAt")).toBeTruthy();
+    expect((await db.doc("pantries/p1/products/b").get()).get("deletedAt")).toBeTruthy();
+    expect((await db.collection("pantries/p1/activities").where("type", "==", "ITEM_DELETED").get()).size).toBe(2);
+  });
+
   it("records a deleted product with its server name and structured product id", async () => {
     const request = operation("op-delete-product", 1);
     request.data.aggregateType = "PRODUCT";
