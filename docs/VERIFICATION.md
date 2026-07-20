@@ -8,22 +8,22 @@ Datum zadnje provjere: 20. srpnja 2026.
 |---|---|---|
 | Čisti Gradle prolaz | `gradlew --no-daemon clean test lintDebug assembleDebug` | `BUILD SUCCESSFUL` |
 | Debug i release varijante | `gradlew --no-daemon test lintDebug assembleDebug lintRelease assembleRelease` | `BUILD SUCCESSFUL`; release R8/minifikacija uspješna |
-| Domenski JVM testovi | uključeni u `test` | 6/6 prošlo |
-| Android instrumentacija | `gradlew --no-daemon connectedDebugAndroidTest` | 8/8 prošlo na API 35 emulatoru: 6 Room/repository i 2 Compose testa |
+| JVM testovi | uključeni u `test` | 34/34 prošlo kroz app/core module |
+| Android instrumentacija | `gradlew --no-daemon connectedDebugAndroidTest` | 49/49 prošlo na API 35 emulatoru: 19 Room/repository i 30 app/Compose testova |
 | Cloud Functions | `npm --prefix functions run build` | TypeScript kompilacija uspješna |
-| Firebase Emulator Suite | `npm --prefix functions run test:emulator` | 18/18 prošlo: Firestore/Storage pravila i integracijske operacije |
+| Firebase Emulator Suite | `npm --prefix functions run test:emulator` | 47/47 prošlo: Firestore/Storage pravila, paralelne pantry transakcije i integracijske operacije |
 | Runtime smoke | `adb install -r`, brisanje podataka, hladni start i `logcat` | instalacija i start uspješni; hrvatski login renderiran; nema fatalne iznimke |
 | Workflow sintaksa | parsiranje `ci.yml` i `release.yml` Node YAML parserom | oba workflowa valjana |
-| Produkcijski backend | puni deploy Functions/rules/indexes/storage + `smoke-production.mjs` | PASS; 15/15 funkcija ACTIVE, backend API 2, capability odgovor HTTP 200, 11/11 zaštićenih callable funkcija HTTP 401 bez vjerodajnice |
-| APK manifest | `aapt dump badging` | debug `hr.smocnica.debug`, release `hr.smocnica`, `minSdk 29`, stabilni `targetSdk 36`, `versionCode 1` |
+| Produkcijski backend | puni deploy Functions/rules/indexes/storage + produkcijski smoke | PASS; 15/15 funkcija ACTIVE, backend API 3 + `single-active-pantry:v1`, capability odgovor HTTP 200, 11/11 zaštićenih callable funkcija HTTP 401 bez vjerodajnice |
+| APK manifest | `aapt2 dump badging` | debug `hr.smocnica.debug`, release `hr.smocnica`, `minSdk 29`, stabilni `targetSdk 36`, `versionCode 22`, `versionName 1.0.0-rc22` |
 
 Lint za aplikaciju i `core:data`, u debug i release varijantama, završava s 0 pogrešaka i 0 fatalnih nalaza. Preostala upozorenja su informativna (novije verzije ovisnosti/Gradlea, preporuka KTX API-ja i dinamički dohvat generirane update konfiguracije).
 
 ## APK artefakti
 
-- debug: `app/build/outputs/apk/debug/app-debug.apk`, 116.839.672 bajta, SHA-256 `9FCA2E61DD20037E7755BF6A50B84D33E3B7ADD41D7675E4786FBF533392AA6C`;
+- debug: `app/build/outputs/apk/debug/app-debug.apk`, 116.801.555 bajta, SHA-256 `473FE35F1CDFBF44E61C47F4C8148D150D31E8BDA4389D69227734E767E3843B`;
 - debug potpis: APK Signature Scheme v2, jedan potpisnik (razvojni debug certifikat);
-- release: `app/build/outputs/apk/release/app-release.apk`, 29.832.532 bajta, SHA-256 `EBC083BC216D4CEFF929C97E99315F329CA5C272926BCC87738FC9EE0D84809F`;
+- release: `app/build/outputs/apk/release/app-release.apk`, 30.226.381 bajta, SHA-256 `3B890F9B9A18DC8218949B3B297901CB239610F1267E049CE80EBE59A2BD40D4`;
 - release potpis: APK Signature Scheme v3, jedan RSA-4096 potpisnik, certifikat SHA-256 `AAEDD1CFBA45A8E61F155EE6B43DF77648C82AB76408F3205D536A22EE678644`;
 - provjereni emulator: Android API 35.
 
