@@ -1,4 +1,4 @@
-export const BACKEND_API_VERSION = 4;
+export const BACKEND_API_VERSION = 5;
 
 export const BACKEND_CAPABILITIES = [
   "operation:delete_shopping",
@@ -8,6 +8,7 @@ export const BACKEND_CAPABILITIES = [
   "canonical-category:v1",
   "single-active-pantry:v1",
   "canonical-names:v1",
+  "manual-shopping-merge:v1",
 ] as const;
 
 export const CALLABLE_FUNCTIONS = [

@@ -34,6 +34,7 @@
 - Paralelno stvaranje/preimenovanje ne može rezervirati isti normalizirani naziv police ili kategorije; klijent ne može čitati ni pisati pomoćne rezervacije.
 - Klijentski `isDefault` ne mijenja zadanu kategoriju; backend i migracija održavaju točno jednu aktivnu zadanu kategoriju.
 - Artikl i ručna/automatska stavka kupnje odbijaju nepostojeći `categoryId`, a prikazani naziv uvijek dolazi iz poslužiteljskog dokumenta kategorije.
+- Dva registrirana uređaja istodobno šalju offline dodavanje iste normalizirane ručne stavke: postoji jedan deterministički dokument, količine se zbrajaju, checked se vraća na false, retry istog operationId-a ne povećava količinu i drugačiji identitet nad istim ID-em se odbija.
 - Član čita; klijent ne piše izravno ni uz lažni ownerUid/quantity.
 - Samo owner callable može upravljati članovima, prijenosom i brisanjem.
 - Kôd je jednokratan/istekao/revoked; operationId je idempotentan.
@@ -53,7 +54,7 @@
 
 ### Integracija
 
-- APK s minimalnim backend API-jem 4 blokira rad uz jasan retry kada `getBackendCapabilities` ne postoji, vrati stariju verziju ili nema obveznu capability oznaku; prolazi s aktualnim odgovorom i samo pri privremenom mrežnom prekidu smije koristiti prethodno potvrđenu kompatibilnu verziju.
+- APK s minimalnim backend API-jem 5 blokira rad uz jasan retry kada `getBackendCapabilities` ne postoji, vrati stariju verziju ili nema obveznu capability oznaku; prolazi s aktualnim odgovorom i samo pri privremenom mrežnom prekidu smije koristiti prethodno potvrđenu kompatibilnu verziju.
 - Produkcijski post-deploy smoke uspoređuje `functions:list` sa statičkim manifestom svih funkcija, provjerava stvarni capability odgovor i potvrđuje da svaka zaštićena callable funkcija odbija neautorizirani zahtjev.
 - Prijava → stvaranje smočnice → polica → artikl → add/remove → auto-shopping.
 - Uređaj A offline mijenja količinu, uređaj B online mijenja istu količinu, sinkronizacija delta operacija.

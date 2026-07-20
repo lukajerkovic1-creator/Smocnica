@@ -296,7 +296,11 @@ sealed interface OperationPayload {
 
     @Serializable
     @SerialName("upsert_shopping")
-    data class UpsertShopping(val item: ShoppingItem) : OperationPayload
+    data class UpsertShopping(
+        val item: ShoppingItem,
+        /** Positive, idempotent addition. Null means an absolute edit/check-state update. */
+        val quantityDelta: Int? = null,
+    ) : OperationPayload
 
     @Serializable
     @SerialName("delete_shopping")

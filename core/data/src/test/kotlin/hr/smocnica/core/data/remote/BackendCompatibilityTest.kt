@@ -17,13 +17,14 @@ class BackendCompatibilityTest {
     fun `accepts current backend contract`() {
         val result = evaluateBackendCapabilities(
             mapOf(
-                "backendApiVersion" to 4L,
+                "backendApiVersion" to 5L,
                 "capabilities" to listOf(
                     "operation:delete_shopping",
                     "device-registration:v2",
                     "notification-privacy:v1",
                     "single-active-pantry:v1",
                     "canonical-names:v1",
+                    "manual-shopping-merge:v1",
                     "future:capability",
                 ),
             ),
@@ -46,7 +47,7 @@ class BackendCompatibilityTest {
     fun `blocks backend missing required capability`() {
         val result = evaluateBackendCapabilities(
             mapOf(
-                "backendApiVersion" to 4L,
+                "backendApiVersion" to 5L,
                 "capabilities" to listOf("operation:delete_shopping", "device-registration:v2"),
             ),
         )
@@ -58,21 +59,21 @@ class BackendCompatibilityTest {
     @Test
     fun `checker persists a confirmed compatible version`() = runTest {
         coEvery { client.call("getBackendCapabilities") } returns mapOf(
-            "backendApiVersion" to 4L,
+            "backendApiVersion" to 5L,
             "capabilities" to BackendCompatibilityChecker.REQUIRED_CAPABILITIES.toList(),
         )
 
         val result = BackendCompatibilityChecker(client, store) { false }.check()
 
         assertEquals(BackendCompatibilityResult.Compatible(), result)
-        verify { store.confirmedApiVersion = 4 }
+        verify { store.confirmedApiVersion = 5 }
     }
 
     @Test
     fun `temporary outage uses only a previously confirmed current contract`() = runTest {
         val unavailable = IllegalStateException("offline")
         coEvery { client.call("getBackendCapabilities") } throws unavailable
-        every { store.confirmedApiVersion } returns 4
+        every { store.confirmedApiVersion } returns 5
 
         val result = BackendCompatibilityChecker(client, store) { it === unavailable }.check()
 

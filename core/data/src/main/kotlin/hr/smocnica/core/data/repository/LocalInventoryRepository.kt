@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
+import java.security.MessageDigest
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -472,17 +473,17 @@ class LocalInventoryRepository @Inject constructor(
                 syncState = SyncState.PENDING,
             )
             shopping.upsert(merged)
-            enqueueOrReplaceShoppingUpsert(merged, actorUid, deviceName, now)
+            enqueueOrReplaceShoppingUpsert(merged, actorUid, deviceName, now, quantityDelta = quantity)
             merged.model()
         } else {
             val item = ShoppingItem(
-                ids.next(), pantryId, null, canonicalName, canonicalCategory.name, quantity,
+                manualShoppingId(pantryId, canonicalCategory.id, canonicalName), pantryId, null, canonicalName, canonicalCategory.name, quantity,
                 checked = checked, manual = true, createdAt = now, updatedAt = now, syncState = SyncState.PENDING,
                 categoryId = canonicalCategory.id,
             )
             val entity = item.entity()
             shopping.upsert(entity)
-            enqueueOrReplaceShoppingUpsert(entity, actorUid, deviceName, now)
+            enqueueOrReplaceShoppingUpsert(entity, actorUid, deviceName, now, quantityDelta = quantity)
             item
         }
     }
@@ -691,14 +692,31 @@ class LocalInventoryRepository @Inject constructor(
         return "${name.searchKey()}\u0000$categoryId"
     }
 
+    private fun manualShoppingId(pantryId: String, categoryId: String, name: String): String {
+        val identity = "$pantryId\u0000$categoryId\u0000${name.searchKey()}"
+        val hash = MessageDigest.getInstance("SHA-256")
+            .digest(identity.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        return "manual_$hash"
+    }
+
     private suspend fun enqueueOrReplaceShoppingUpsert(
         item: ShoppingEntity,
         actorUid: String,
         deviceName: String,
         now: Long,
+        quantityDelta: Int? = null,
     ) {
-        val payload = OperationPayload.UpsertShopping(item.model())
         val pending = operations.pendingForAggregate(item.pantryId, AggregateType.SHOPPING.name, item.id)
+        val accumulatedDelta = if (quantityDelta != null && pending != null) {
+            val previous = runCatching {
+                json.decodeFromString(OperationPayload.serializer(), pending.payloadJson) as? OperationPayload.UpsertShopping
+            }.getOrNull()
+            previous?.quantityDelta?.let { Math.addExact(it, quantityDelta) }
+        } else {
+            quantityDelta
+        }
+        val payload = OperationPayload.UpsertShopping(item.model(), accumulatedDelta)
         if (pending != null) {
             operations.replacePendingPayload(
                 pending.operationId,

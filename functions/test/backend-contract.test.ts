@@ -21,6 +21,7 @@ describe("production backend contract", () => {
     expect(BACKEND_CAPABILITIES).toContain("notification-privacy:v1");
     expect(BACKEND_CAPABILITIES).toContain("single-active-pantry:v1");
     expect(BACKEND_CAPABILITIES).toContain("canonical-names:v1");
+    expect(BACKEND_CAPABILITIES).toContain("manual-shopping-merge:v1");
   });
 
   it("keeps the deploy manifest equal to every exported function", () => {

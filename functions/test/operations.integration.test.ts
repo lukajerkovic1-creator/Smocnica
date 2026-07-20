@@ -142,6 +142,44 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(5);
   });
 
+  it("atomically merges the same manual item added offline on two devices", async () => {
+    await db.doc("users/u2/devices/device-0002").set({
+      name: "Drugi telefon", active: true, platform: "ANDROID", updatedAt: new Date(),
+    });
+    const normalized = "  KRUH   integralni ".normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("hr");
+    const itemId = `manual_${sha256(`p1\u0000c1\u0000${normalized}`)}`;
+    const offlineAdd = (operationId: string, uid: string, deviceId: string, name: string, quantity: number) => callable({
+      operationId, pantryId: "p1", aggregateType: "SHOPPING", aggregateId: itemId, baseRevision: 0,
+      payload: {
+        type: "upsert_shopping", quantityDelta: quantity,
+        item: {
+          id: itemId, productId: null, name, category: "Klijentski naziv", categoryId: "c1",
+          requiredQuantity: quantity, checked: true, manual: true,
+        },
+      },
+      deviceId, deviceDisplayName: "Klijentski uređaj",
+    }, uid);
+
+    const firstRequest = offlineAdd("op-offline-manual-1", "u1", "device-0001", "  KRUH   integralni ", 2);
+    await Promise.all([
+      invoke(firstRequest as never),
+      invoke(offlineAdd("op-offline-manual-2", "u2", "device-0002", "Kruh integralni", 3) as never),
+    ]);
+    await invoke(firstRequest as never);
+
+    const activeManual = (await db.collection("pantries/p1/shoppingItems").get()).docs
+      .filter((item) => item.get("manual") === true && !item.get("deletedAt"));
+    expect(activeManual).toHaveLength(1);
+    expect(activeManual[0]!.id).toBe(itemId);
+    expect(activeManual[0]!.get("requiredQuantity")).toBe(5);
+    expect(activeManual[0]!.get("checked")).toBe(false);
+    expect(activeManual[0]!.get("category")).toBe("Namirnice");
+    expect(activeManual[0]!.get("revision")).toBe(2);
+
+    await expect(invoke(offlineAdd("op-offline-invalid-id", "u1", "device-0001", "Drugi proizvod", 1) as never))
+      .rejects.toMatchObject({ code: "failed-precondition" });
+  });
+
   it("rejects unknown or inactive devices before applying a new operation", async () => {
     const unknown = operation("op-device-unknown", 1);
     unknown.data.deviceId = "unknown-device";

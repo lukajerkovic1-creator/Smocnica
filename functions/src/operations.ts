@@ -426,7 +426,7 @@ async function moveStock({ tx, pantryRef, payload, timestamp }: HandlerContext):
   };
 }
 
-async function upsertShopping({ tx, pantryRef, payload, baseRevision, timestamp }: HandlerContext): Promise<number> {
+async function upsertShopping({ tx, pantryRef, pantryId, payload, baseRevision, timestamp }: HandlerContext): Promise<HandlerResult> {
   const item = object(payload.item, "item");
   const id = safeId(text(item, "id"));
   const ref = pantryRef.collection("shoppingItems").doc(id);
@@ -441,22 +441,57 @@ async function upsertShopping({ tx, pantryRef, payload, baseRevision, timestamp 
     tx.update(ref, { checked: boolean(item, "checked"), revision: automaticRevision, updatedAt: timestamp });
     return automaticRevision;
   }
-  if (existing.exists && Number(existing.get("revision") || 0) !== baseRevision) return conflict(Number(existing.get("revision") || 0));
-  const revision = existing.exists ? baseRevision + 1 : 1;
   if (item.productId !== null && item.productId !== undefined) {
     throw new HttpsError("invalid-argument", "Ručna stavka ne smije biti povezana s artiklom.");
   }
   const categoryId = safeId(text(item, "categoryId"), "categoryId");
   const activeCategory = await tx.get(pantryRef.collection("categories").doc(categoryId));
   if (!activeCategory.exists || activeCategory.get("deletedAt")) throw new HttpsError("failed-precondition", "Odabrana kategorija nije aktivna.");
+  const name = text(item, "name", 1, 100);
+  const deltaValue = payload.quantityDelta;
+  if (deltaValue !== null && deltaValue !== undefined) {
+    const delta = integer(payload, "quantityDelta", 1, 1_000_000);
+    const expectedId = manualShoppingId(pantryId, categoryId, name);
+    if (!existing.exists && id !== expectedId) {
+      throw new HttpsError("invalid-argument", "Nova ručna stavka nema kanonski identitet.");
+    }
+    if (existing.exists && existing.get("manual") !== true) {
+      throw new HttpsError("failed-precondition", "Stavka nije ručna stavka za kupnju.");
+    }
+    if (existing.exists && !existing.get("deletedAt")) {
+      if (String(existing.get("categoryId") || "") !== categoryId || normalizedName(String(existing.get("name") || "")) !== normalizedName(name)) {
+        throw new HttpsError("failed-precondition", "Identitet ručne stavke nije usklađen.");
+      }
+    }
+    const existingActive = existing.exists && !existing.get("deletedAt");
+    const requiredQuantity = (existingActive ? Number(existing.get("requiredQuantity") || 0) : 0) + delta;
+    if (!Number.isSafeInteger(requiredQuantity) || requiredQuantity > 1_000_000) {
+      throw new HttpsError("resource-exhausted", "Ukupna količina je previsoka.");
+    }
+    const revision = existing.exists ? Number(existing.get("revision") || 0) + 1 : 1;
+    const displayName = existingActive ? String(existing.get("name")) : name;
+    tx.set(ref, {
+      productId: null,
+      name: displayName, categoryId, category: activeCategory.get("name"),
+      requiredQuantity, checked: existingActive ? false : boolean(item, "checked"), manual: true, revision,
+      createdAt: existing.get("createdAt") || timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
+    }, { merge: true });
+    return { revision, activity: { displayLabel: displayName } };
+  }
+  if (existing.exists && Number(existing.get("revision") || 0) !== baseRevision) return conflict(Number(existing.get("revision") || 0));
+  const revision = existing.exists ? baseRevision + 1 : 1;
   tx.set(ref, {
     productId: null,
-    name: text(item, "name", 1, 100), categoryId, category: activeCategory.get("name"),
+    name, categoryId, category: activeCategory.get("name"),
     requiredQuantity: integer(item, "requiredQuantity", 1, 1_000_000),
     checked: boolean(item, "checked"), manual: true, revision,
     createdAt: existing.get("createdAt") || timestamp, updatedAt: timestamp, deletedAt: null,
   }, { merge: true });
-  return revision;
+  return { revision, activity: { displayLabel: name } };
+}
+
+function manualShoppingId(pantryId: string, categoryId: string, name: string): string {
+  return `manual_${sha256(`${pantryId}\u0000${categoryId}\u0000${normalizedName(name)}`)}`;
 }
 
 async function deleteShopping({ tx, pantryRef, payload, baseRevision, timestamp }: HandlerContext): Promise<HandlerResult> {
@@ -1120,5 +1155,6 @@ function serverActivityLabel(value: unknown, fallback: string): string {
 function quantityDelta(payload: Data, type: string): number | null {
   if (type === "adjust_stock") return Number(payload.delta || 0);
   if (type === "move_stock") return Number(payload.quantity || 0);
+  if (type === "upsert_shopping" && Number.isSafeInteger(payload.quantityDelta)) return Number(payload.quantityDelta);
   return null;
 }

@@ -182,10 +182,42 @@ class LocalInventoryRepositoryTest {
         assertEquals("cat-other", active.single().categoryId)
         assertEquals(3, active.single().requiredQuantity)
         assertEquals(false, active.single().checked)
+        assertTrue(active.single().id.matches(Regex("manual_[0-9a-f]{64}")))
         assertEquals(1, database.operationDao().next().size)
         val payload = json.decodeFromString(OperationPayload.serializer(), database.operationDao().next().single().payloadJson)
             as OperationPayload.UpsertShopping
         assertEquals(3, payload.item.requiredQuantity)
+        assertEquals(3, payload.quantityDelta)
+    }
+
+    @Test
+    fun twoOfflineDevicesGenerateTheSameManualShoppingId() = runTest {
+        val secondDatabase = Room.inMemoryDatabaseBuilder(context, SmocnicaDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            secondDatabase.pantryDao().upsert(PantryEntity("p1", "Test", "u2", 0, 1, 1, null, null, SyncState.SYNCED))
+            secondDatabase.categoryDao().upsert(CategoryEntity("cat-other", "p1", "Ostalo", 9, true, 1, null, null, SyncState.SYNCED))
+            val secondRepository = LocalInventoryRepository(
+                secondDatabase,
+                json,
+                Clock { 2_000L },
+                IdGenerator { "drugi-nasumicni-id" },
+                DeviceIdentity(context),
+            )
+
+            val first = repository.addManualShoppingItem(
+                "p1", "  KRUH   integralni ", "cat-other", 2, "u1", "Prvi uređaj",
+            )
+            val second = secondRepository.addManualShoppingItem(
+                "p1", "kruh integralni", "cat-other", 3, "u2", "Drugi uređaj",
+            )
+
+            assertEquals(first.id, second.id)
+            assertTrue(first.id.matches(Regex("manual_[0-9a-f]{64}")))
+        } finally {
+            secondDatabase.close()
+        }
     }
 
     @Test
