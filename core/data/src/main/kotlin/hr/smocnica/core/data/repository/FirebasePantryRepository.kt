@@ -19,7 +19,8 @@ import javax.inject.Singleton
 class FirebasePantryRepository @Inject constructor(
     private val database: SmocnicaDatabase,
     private val client: FirebaseCallableClient,
-) : PantryRepository {
+    private val accessStore: PantryAccessStore,
+) : PantryRepository, PantryAccessRefresher {
     override fun observePantries(): Flow<List<Pantry>> =
         database.pantryDao().observeActive().map { list -> list.map { it.model() } }
 
@@ -35,9 +36,10 @@ class FirebasePantryRepository @Inject constructor(
             val pantry = cachePantry(value.mapKeys { it.key.toString() })
             activeIds += pantry.id
         }
-        if (activeIds.isEmpty()) database.pantryDao().hideAll(System.currentTimeMillis())
-        else database.pantryDao().hideExcept(activeIds, System.currentTimeMillis())
+        accessStore.confirmAccessiblePantries(activeIds.toSet())
     }
+
+    override suspend fun refreshAccessiblePantries() = refreshPantries()
 
     override suspend fun createPantry(name: String, deviceId: String): Pantry {
         val cleanName = name.trim()

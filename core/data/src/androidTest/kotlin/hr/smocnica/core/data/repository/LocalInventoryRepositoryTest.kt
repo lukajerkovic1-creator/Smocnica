@@ -226,8 +226,9 @@ class LocalInventoryRepositoryTest {
                 return ApplyResult(ApplyStatus.APPLIED, operation.baseRevision + 1)
             }
         }
+        val access = testAccessCoordinator()
         val sync = OutboxSyncRepository(
-            database, gateway, RealtimePantrySynchronizer(context, database), json, PrivacySafeCrashReporter(context),
+            database, gateway, RealtimePantrySynchronizer(context, database, access), json, PrivacySafeCrashReporter(context), access,
         )
         val result = sync.synchronize()
         assertEquals(listOf(AggregateType.PRODUCT.name, AggregateType.STOCK.name), appliedTypes)
@@ -243,8 +244,9 @@ class LocalInventoryRepositoryTest {
             override suspend fun apply(operation: hr.smocnica.core.data.local.PendingOperationEntity) =
                 ApplyResult(ApplyStatus.CONFLICT, 7)
         }
+        val access = testAccessCoordinator()
         val sync = OutboxSyncRepository(
-            database, gateway, RealtimePantrySynchronizer(context, database), json, PrivacySafeCrashReporter(context),
+            database, gateway, RealtimePantrySynchronizer(context, database, access), json, PrivacySafeCrashReporter(context), access,
         )
         assertEquals(1, sync.synchronize().conflicts)
         val conflicted = database.operationDao().get("id-1")!!
@@ -256,6 +258,11 @@ class LocalInventoryRepositoryTest {
         val payload = json.decodeFromString(OperationPayload.serializer(), rebased.payloadJson) as OperationPayload.ReorderShelves
         assertEquals(listOf("s1", "s2"), payload.orderedShelfIds)
     }
+
+    private fun testAccessCoordinator() = PantryAccessCoordinator(
+        PantryAccessStore(database),
+        PantryAccessRefresher { },
+    )
 
     @Test
     fun deletedBarcodeCannotBeReplacedByANewProduct() = runTest {

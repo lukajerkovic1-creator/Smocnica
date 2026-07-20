@@ -13,6 +13,7 @@ import hr.smocnica.core.data.IdGenerator
 import hr.smocnica.core.data.local.SmocnicaDatabase
 import hr.smocnica.core.data.local.MIGRATION_1_2
 import hr.smocnica.core.data.local.MIGRATION_2_3
+import hr.smocnica.core.data.local.MIGRATION_3_4
 import hr.smocnica.core.data.remote.FirebaseOperationGateway
 import hr.smocnica.core.data.remote.OpenFoodFactsApi
 import hr.smocnica.core.data.remote.OpenFoodFactsRepository
@@ -25,6 +26,7 @@ import hr.smocnica.core.data.repository.GitHubUpdateRepository
 import hr.smocnica.core.data.repository.FirebaseTrashRepository
 import hr.smocnica.core.data.repository.LocalInventoryRepository
 import hr.smocnica.core.data.repository.OutboxSyncRepository
+import hr.smocnica.core.data.repository.PantryAccessRefresher
 import hr.smocnica.core.domain.InventoryRepository
 import hr.smocnica.core.domain.BackupRepository
 import hr.smocnica.core.domain.PantryRepository
@@ -50,7 +52,7 @@ object DataProviders {
     @Singleton
     fun database(@ApplicationContext context: Context): SmocnicaDatabase =
         Room.databaseBuilder(context, SmocnicaDatabase::class.java, "smocnica.db")
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
             .setJournalMode(androidx.room.RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
             .build()
 
@@ -99,6 +101,7 @@ abstract class DataBindings {
     @Binds abstract fun inventory(implementation: LocalInventoryRepository): InventoryRepository
     @Binds abstract fun session(implementation: FirebaseSessionRepository): SessionRepository
     @Binds abstract fun pantry(implementation: FirebasePantryRepository): PantryRepository
+    @Binds abstract fun pantryAccessRefresher(implementation: FirebasePantryRepository): PantryAccessRefresher
     @Binds abstract fun sync(implementation: OutboxSyncRepository): SyncRepository
     @Binds abstract fun operationGateway(implementation: FirebaseOperationGateway): OperationGateway
     @Binds abstract fun backup(implementation: BackupRepositoryImpl): BackupRepository
