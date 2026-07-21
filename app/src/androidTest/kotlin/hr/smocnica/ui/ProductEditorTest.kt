@@ -9,12 +9,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertAll
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import hr.smocnica.core.domain.CatalogProduct
@@ -114,6 +117,7 @@ class ProductEditorTest {
 
         compose.onNodeWithText("Minimalna količina").performTextClearance()
         compose.onNodeWithText("Minimalna količina").performTextInput("1000000")
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Početna količina"))
         compose.onNodeWithText("Početna količina").performTextClearance()
         compose.onNodeWithText("Početna količina").performTextInput("999999999999999999999")
         compose.onNodeWithText("Spremi").assertIsNotEnabled()
