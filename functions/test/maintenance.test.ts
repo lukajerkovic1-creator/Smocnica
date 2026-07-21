@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { groupNotificationTokens, lowStockNotificationContent } from "../src/maintenance";
+import { Timestamp } from "firebase-admin/firestore";
+import { groupNotificationTokens, lowStockNotificationContent, notificationRetentionFields } from "../src/maintenance";
 
 describe("low-stock notification privacy", () => {
   const notification = { name: "Mlijeko", remaining: 1, required: 2 };
@@ -32,5 +33,14 @@ describe("low-stock notification privacy", () => {
       privateTokens: ["private-default", "duplicate"],
       detailedTokens: ["detailed"],
     });
+  });
+
+  it("expires a processed notification after 30 days", () => {
+    const processedAt = Timestamp.fromMillis(1_700_000_000_000);
+    const fields = notificationRetentionFields(3, processedAt);
+
+    expect(fields.processedAt).toEqual(processedAt);
+    expect(fields.recipientCount).toBe(3);
+    expect(fields.expiresAt.toMillis() - processedAt.toMillis()).toBe(30 * 86_400_000);
   });
 });

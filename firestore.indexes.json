@@ -33,6 +33,18 @@
       "indexes": []
     },
     {
+      "collectionGroup": "operations",
+      "fieldPath": "expiresAt",
+      "ttl": true,
+      "indexes": []
+    },
+    {
+      "collectionGroup": "notifications",
+      "fieldPath": "expiresAt",
+      "ttl": true,
+      "indexes": []
+    },
+    {
       "collectionGroup": "trash",
       "fieldPath": "purgeAfter",
       "ttl": true,

@@ -22,7 +22,9 @@ service firebase.storage {
         && request.resource.size <= 5 * 1024 * 1024
         && request.resource.contentType == 'image/jpeg'
         && request.resource.metadata.productId == productId;
-      allow delete: if activeMember(pantryId);
+      // Brisanje privatnih fotografija obavljaju isključivo pouzdane backend
+      // operacije (Admin SDK zaobilazi klijentska pravila).
+      allow delete: if false;
     }
 
     match /{allPaths=**} {

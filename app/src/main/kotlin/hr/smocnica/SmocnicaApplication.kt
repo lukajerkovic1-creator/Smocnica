@@ -14,6 +14,7 @@ import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.storage.FirebaseStorage
 import dagger.hilt.android.HiltAndroidApp
 import hr.smocnica.core.data.sync.SyncScheduler
+import hr.smocnica.core.data.messaging.SmocnicaNotificationChannels
 import javax.inject.Inject
 
 @HiltAndroidApp
@@ -25,6 +26,7 @@ class SmocnicaApplication : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        SmocnicaNotificationChannels.create(this)
         if (FirebaseApp.getApps(this).isNotEmpty()) {
             FirebaseAppCheck.getInstance().installAppCheckProviderFactory(
                 appCheckProviderFactory(),

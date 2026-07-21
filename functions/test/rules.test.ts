@@ -8,7 +8,7 @@ import {
   initializeTestEnvironment,
 } from "@firebase/rules-unit-testing";
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import { ref, uploadBytes, getBytes } from "firebase/storage";
+import { ref, uploadBytes, getBytes, deleteObject } from "firebase/storage";
 
 const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST && process.env.FIREBASE_STORAGE_EMULATOR_HOST);
 describe.skipIf(!emulatorAvailable)("Firestore and Storage security rules", () => {
@@ -70,6 +70,7 @@ describe.skipIf(!emulatorAvailable)("Firestore and Storage security rules", () =
     const valid = ref(memberStorage, "pantries/p1/products/a/main.jpg");
     await assertSucceeds(uploadBytes(valid, new Uint8Array([0xff, 0xd8, 0xff]), { contentType: "image/jpeg", customMetadata: { productId: "a" } }));
     await assertSucceeds(getBytes(valid));
+    await assertFails(deleteObject(valid));
     await assertFails(uploadBytes(ref(memberStorage, "pantries/p1/products/a/other.jpg"), new Uint8Array([1]), { contentType: "image/jpeg", customMetadata: { productId: "a" } }));
     await assertFails(uploadBytes(ref(memberStorage, "pantries/p2/products/a/main.jpg"), new Uint8Array([0xff, 0xd8]), { contentType: "image/jpeg", customMetadata: { productId: "a" } }));
     await assertFails(uploadBytes(ref(memberStorage, "pantries/p1/products/a/main.jpg"), new Uint8Array([1]), { contentType: "text/plain", customMetadata: { productId: "a" } }));

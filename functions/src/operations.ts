@@ -73,6 +73,7 @@ export const applyOperation = onCall(callable, async (request) => {
     tx.create(operationRef, {
       actorUid: uid, aggregateType, aggregateId, payloadType: type,
       resultRevision: revision, appliedAt: timestamp,
+      expiresAt: daysFromNow(365),
       resultDigest: sha256(JSON.stringify({ operationId, revision })),
     });
     const activityEntries = typeof handled === "number" || !handled.activities ? [metadata] : handled.activities;

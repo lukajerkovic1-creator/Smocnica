@@ -215,7 +215,16 @@ fun BackupScreen(viewModel: MainViewModel, padding: PaddingValues, onBack: () ->
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
-            runCatching { withContext(Dispatchers.IO) { context.contentResolver.openInputStream(uri)?.use { viewModel.previewImport(it.readBytes()) } ?: kotlin.error("Datoteku nije moguće otvoriti.") } }
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val declaredSize = context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { descriptor ->
+                        descriptor.length.takeIf { it >= 0 }
+                    }
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        viewModel.previewImport(readBackupImportBytes(input, declaredSize))
+                    } ?: kotlin.error("Datoteku nije moguće otvoriti.")
+                }
+            }
                 .onSuccess { preview = it; error = null }
                 .onFailure { error = it.message ?: "Uvoz nije uspio." }
         }

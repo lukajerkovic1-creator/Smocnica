@@ -22,7 +22,10 @@ export const notifyLowStock = onDocumentCreated(
       }))),
     );
     const tokens = [...audiences.privateTokens, ...audiences.detailedTokens];
-    if (tokens.length === 0) return;
+    if (tokens.length === 0) {
+      await event.data?.ref.update(notificationRetentionFields(0));
+      return;
+    }
     for (const audience of [
       { tokens: audiences.privateTokens, detailed: false },
       { tokens: audiences.detailedTokens, detailed: true },
@@ -43,9 +46,21 @@ export const notifyLowStock = onDocumentCreated(
         if (invalidTokens.length > 0) await deactivateTokens(invalidTokens, deviceSnapshots);
       }
     }
-    await event.data?.ref.update({ sentAt: FieldValue.serverTimestamp(), recipientCount: tokens.length });
+    await event.data?.ref.update({ sentAt: FieldValue.serverTimestamp(), ...notificationRetentionFields(tokens.length) });
   },
 );
+
+export function notificationRetentionFields(recipientCount: number, processedAt = Timestamp.now()): {
+  processedAt: Timestamp;
+  expiresAt: Timestamp;
+  recipientCount: number;
+} {
+  return {
+    processedAt,
+    expiresAt: Timestamp.fromMillis(processedAt.toMillis() + 30 * 86_400_000),
+    recipientCount,
+  };
+}
 
 type NotificationDevice = { fcmToken?: unknown; detailedNotifications?: unknown };
 
@@ -134,14 +149,23 @@ export const purgeExpiredData = onSchedule(
 export const purgeOldActivities = onSchedule(
   { region: "europe-west1", schedule: "every day 04:15", timeZone: "Europe/Zagreb", timeoutSeconds: 300 },
   async () => {
-    const before = Timestamp.fromMillis(Date.now() - 365 * 86_400_000);
-    const expired = await db.collectionGroup("activities").where("createdAt", "<", before).limit(450).get();
-    const batch = db.batch();
-    expired.docs.forEach((document) => batch.delete(document.ref));
-    if (!expired.empty) await batch.commit();
-    logger.info("Old activity purge complete", { deletedCount: expired.size });
+    const current = Date.now();
+    const activityCount = await deleteCollectionGroupBefore("activities", "createdAt", current - 365 * 86_400_000);
+    // Migracijska zaštita za dokumente nastale prije uvođenja expiresAt TTL polja.
+    const operationCount = await deleteCollectionGroupBefore("operations", "appliedAt", current - 365 * 86_400_000);
+    const notificationCount = await deleteCollectionGroupBefore("notifications", "createdAt", current - 30 * 86_400_000);
+    logger.info("Old operational data purge complete", { activityCount, operationCount, notificationCount });
   },
 );
+
+async function deleteCollectionGroupBefore(collection: string, field: string, beforeMillis: number): Promise<number> {
+  const expired = await db.collectionGroup(collection).where(field, "<", Timestamp.fromMillis(beforeMillis)).limit(450).get();
+  if (expired.empty) return 0;
+  const batch = db.batch();
+  expired.docs.forEach((document) => batch.delete(document.ref));
+  await batch.commit();
+  return expired.size;
+}
 
 async function deactivateTokens(tokens: string[], snapshots: QuerySnapshot[]): Promise<void> {
   const tokenSet = new Set(tokens);

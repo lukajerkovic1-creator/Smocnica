@@ -657,6 +657,8 @@ fun ProductEditor(
     val selectedSource = selectedSourceName?.let(PhotoSource::valueOf)
     var photoError by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingCameraPath by rememberSaveable(current?.id) { mutableStateOf<String?>(null) }
+    val parsedMinimum = parseProductQuantity(minimum)
+    val parsedInitialQuantity = parseProductQuantity(quantity)
 
     fun replaceSelectedPhoto(path: String, source: PhotoSource) {
         deleteTemporaryProductPhoto(context.cacheDir, selectedPhotoPath)
@@ -861,6 +863,8 @@ fun ProductEditor(
                             minimum = filtered
                         },
                         label = { Text("Minimalna količina") },
+                        isError = parsedMinimum == null,
+                        supportingText = if (parsedMinimum == null) ({ Text("Unesite broj od 0 do 1 000 000.") }) else null,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -868,7 +872,7 @@ fun ProductEditor(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Automatski dodaj na kupnju", Modifier.weight(1f))
                         Switch(autoShopping, { enabled ->
-                            if (enabled && !autoShopping && (minimum.toIntOrNull() ?: 0) > 0 &&
+                            if (enabled && !autoShopping && (parsedMinimum ?: 0) > 0 &&
                                 notificationPermissionRequired && !notificationExplanationShown
                             ) {
                                 notificationExplanationShown = true
@@ -878,7 +882,7 @@ fun ProductEditor(
                         })
                     }
                 }
-                if (notificationPermissionRequired && (minimum.toIntOrNull() ?: 0) > 0) item {
+                if (notificationPermissionRequired && (parsedMinimum ?: 0) > 0) item {
                     TextButton({
                         notificationExplanationShown = true
                         showNotificationExplanation = true
@@ -886,7 +890,16 @@ fun ProductEditor(
                 }
                 if (isNew) {
                     item { PairPicker("Početna polica", shelves.map { it.id to it.name }, shelfId) { shelfId = it } }
-                    item { OutlinedTextField(quantity, { quantity = it.filter(Char::isDigit) }, label = { Text("Početna količina") }, modifier = Modifier.fillMaxWidth()) }
+                    item {
+                        OutlinedTextField(
+                            quantity,
+                            { quantity = it.filter(Char::isDigit) },
+                            label = { Text("Početna količina") },
+                            isError = parsedInitialQuantity == null,
+                            supportingText = if (parsedInitialQuantity == null) ({ Text("Unesite broj od 0 do 1 000 000.") }) else null,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
             }
         },
@@ -909,12 +922,12 @@ fun ProductEditor(
                             categoryId = categoryId,
                             photoUri = remotePhotoUri,
                             photoSource = PhotoSource.valueOf(remotePhotoSource),
-                            minimumQuantity = minimum.toIntOrNull() ?: 0,
+                            minimumQuantity = requireNotNull(parsedMinimum),
                             autoShopping = autoShopping,
                             updatedAt = now,
                         ),
                         shelfId,
-                        quantity.toIntOrNull() ?: 0,
+                        requireNotNull(parsedInitialQuantity),
                         selectedPhotoPath,
                         selectedSource,
                     ) { success ->
@@ -924,6 +937,7 @@ fun ProductEditor(
                 },
                 enabled = !submitting && !catalogLookup.isLoading && name.trim().length in 1..100 &&
                     categories.any { it.id == categoryId && it.name == category } &&
+                    parsedMinimum != null && (!isNew || parsedInitialQuantity != null) &&
                     (barcode.isBlank() || hr.smocnica.core.domain.BarcodePolicy.isSupported(barcode)) && (!isNew || shelves.isNotEmpty()),
             ) { Text(if (submitting) "Spremanje…" else "Spremi") }
         },

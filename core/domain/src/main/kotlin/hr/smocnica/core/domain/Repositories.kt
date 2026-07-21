@@ -123,7 +123,6 @@ interface ProductCatalogRepository {
 
 interface ProductPhotoRepository {
     suspend fun uploadJpeg(pantryId: String, productId: String, jpegPath: String): String
-    suspend fun deleteMainPhoto(pantryId: String, productId: String)
 }
 
 data class CatalogProduct(

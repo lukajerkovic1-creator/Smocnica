@@ -1,7 +1,5 @@
 package hr.smocnica.core.data.messaging
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import androidx.core.app.NotificationCompat
@@ -29,12 +27,7 @@ class SmocnicaMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Niska zaliha", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Obavijesti kada artikl prijeđe ispod minimalne zalihe"
-            },
-        )
+        val manager = getSystemService(android.app.NotificationManager::class.java)
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             putExtra("pantryId", message.data["pantryId"])
             putExtra("productId", message.data["productId"])
@@ -44,7 +37,7 @@ class SmocnicaMessagingService : FirebaseMessagingService() {
         val pendingIntent = launchIntent?.let {
             PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         }
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+        val notification = NotificationCompat.Builder(this, SmocnicaNotificationChannels.LOW_STOCK_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle(message.notification?.title ?: "Smočnica")
             .setContentText(message.notification?.body ?: "Artikl je pao ispod minimalne zalihe.")
@@ -53,6 +46,4 @@ class SmocnicaMessagingService : FirebaseMessagingService() {
             .build()
         manager.notify(message.messageId?.hashCode() ?: System.currentTimeMillis().toInt(), notification)
     }
-
-    private companion object { const val CHANNEL_ID = "low_stock" }
 }

@@ -54,6 +54,9 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect(first.status).toBe("APPLIED");
     expect(second.status).toBe("ALREADY_APPLIED");
     expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(4);
+    const appliedOperation = await db.doc("pantries/p1/operations/op-00000001").get();
+    expect(appliedOperation.get("expiresAt").toMillis() - appliedOperation.get("appliedAt").toMillis())
+      .toBeGreaterThan(364 * 86_400_000);
     expect((await db.collection("pantries/p1/notifications").get()).size).toBe(1);
     const activity = await db.doc("pantries/p1/activities/op-00000001").get();
     expect(activity.get("displayLabel")).toBe("Riža");

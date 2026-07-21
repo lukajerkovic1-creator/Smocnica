@@ -15,6 +15,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import hr.smocnica.core.domain.CatalogProduct
 import hr.smocnica.core.model.Product
@@ -90,6 +91,32 @@ class ProductEditorTest {
         assertNotNull(saved)
         assertEquals("Glatko brašno", saved?.name)
         assertEquals("1 kg", saved?.description)
+    }
+
+    @Test
+    fun quantityFieldsRejectValuesOutsideSupportedRangeWithoutFallingBackToZero() {
+        compose.setContent {
+            SmocnicaTheme {
+                ProductEditor(
+                    current = Product("", "p1", "", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
+                    shelves = shelves,
+                    categories = categories,
+                    onDismiss = {},
+                    onSave = { _, _, _, _, _, _ -> error("Neispravna količina ne smije biti spremljena.") },
+                )
+            }
+        }
+        compose.onNodeWithText("Naziv *").performTextInput("Test")
+        compose.onNodeWithText("Minimalna količina").performTextClearance()
+        compose.onNodeWithText("Minimalna količina").performTextInput("1000001")
+        compose.onNodeWithText("Spremi").assertIsNotEnabled()
+        compose.onNodeWithText("Unesite broj od 0 do 1 000 000.").assertExists()
+
+        compose.onNodeWithText("Minimalna količina").performTextClearance()
+        compose.onNodeWithText("Minimalna količina").performTextInput("1000000")
+        compose.onNodeWithText("Početna količina").performTextClearance()
+        compose.onNodeWithText("Početna količina").performTextInput("999999999999999999999")
+        compose.onNodeWithText("Spremi").assertIsNotEnabled()
     }
 
     @Test

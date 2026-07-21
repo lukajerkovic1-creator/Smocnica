@@ -33,13 +33,5 @@ class FirebaseProductPhotoRepository @Inject constructor(
         return reference.toString()
     }
 
-    override suspend fun deleteMainPhoto(pantryId: String, productId: String) {
-        if (FirebaseApp.getApps(context).isEmpty()) throw FirebaseNotConfiguredException()
-        FirebaseStorage.getInstance().reference
-            .child("pantries/$pantryId/products/$productId/main.jpg")
-            .delete()
-            .await()
-    }
-
     private companion object { const val MAX_PHOTO_BYTES = 5 * 1024 * 1024 }
 }
