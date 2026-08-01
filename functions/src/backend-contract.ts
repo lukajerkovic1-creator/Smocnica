@@ -1,4 +1,4 @@
-export const BACKEND_API_VERSION = 7;
+export const BACKEND_API_VERSION = 9;
 
 export const BACKEND_CAPABILITIES = [
   "operation:delete_shopping",
@@ -11,6 +11,12 @@ export const BACKEND_CAPABILITIES = [
   "manual-shopping-merge:v1",
   "atomic-bulk-products:v1",
   "account-deletion:v1",
+  "generic-products:v1",
+  "product-variants:v1",
+  "owner-synonym-rules:v1",
+  "variant-stock:v1",
+  "resumable-generic-migration:v1",
+  "resumable-snapshot-import:v1",
 ] as const;
 
 export const CALLABLE_FUNCTIONS = [
@@ -27,6 +33,7 @@ export const CALLABLE_FUNCTIONS = [
   "deleteAccount",
   "purgeTrash",
   "applyOperation",
+  "importSnapshotJob",
 ] as const;
 
 export const EVENT_FUNCTIONS = [

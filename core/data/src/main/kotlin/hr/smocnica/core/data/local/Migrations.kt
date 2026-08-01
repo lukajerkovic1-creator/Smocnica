@@ -2,6 +2,7 @@ package hr.smocnica.core.data.local
 
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import hr.smocnica.core.domain.PackageAmountPolicy
 import java.text.Normalizer
 import java.util.Locale
 
@@ -117,6 +118,148 @@ val MIGRATION_4_5 = object : Migration(4, 5) {
             WHERE deletedAt IS NULL
             """.trimIndent(),
         )
+    }
+}
+
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE pantries ADD COLUMN contentSchemaVersion INTEGER NOT NULL DEFAULT 2")
+        db.execSQL("ALTER TABLE pantries ADD COLUMN groupingReviewCompletedAt INTEGER")
+        db.execSQL("ALTER TABLE products ADD COLUMN minimumMode TEXT NOT NULL DEFAULT 'PACKAGES'")
+        db.execSQL("ALTER TABLE products ADD COLUMN minimumAmountBase INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE products ADD COLUMN preferredVariantId TEXT")
+        db.execSQL("ALTER TABLE products ADD COLUMN doNotGroup INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE products ADD COLUMN groupingRevision INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("UPDATE products SET minimumAmountBase = minimumQuantity")
+        db.execSQL("ALTER TABLE shopping_items ADD COLUMN preferredVariantId TEXT")
+
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS product_variants (
+                id TEXT NOT NULL,
+                pantryId TEXT NOT NULL,
+                productId TEXT NOT NULL,
+                displayName TEXT NOT NULL,
+                manufacturer TEXT NOT NULL,
+                barcode TEXT,
+                packageAmountBase INTEGER,
+                packageUnit TEXT NOT NULL,
+                packageLabel TEXT NOT NULL,
+                description TEXT NOT NULL,
+                photoUri TEXT,
+                photoSource TEXT NOT NULL,
+                minimumPackages INTEGER,
+                purchaseCount INTEGER NOT NULL,
+                revision INTEGER NOT NULL,
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                deletedAt INTEGER,
+                purgeAfter INTEGER,
+                syncState TEXT NOT NULL,
+                PRIMARY KEY(id)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_product_variants_pantryId ON product_variants(pantryId)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_product_variants_productId ON product_variants(productId)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_product_variants_pantryId_barcode ON product_variants(pantryId, barcode)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_product_variants_deletedAt ON product_variants(deletedAt)")
+
+        db.query(
+            """
+            SELECT id, pantryId, name, barcode, description, photoUri, photoSource, revision,
+                   createdAt, updatedAt, deletedAt, purgeAfter, syncState
+            FROM products
+            """.trimIndent(),
+        ).use { cursor ->
+            fun index(name: String) = cursor.getColumnIndexOrThrow(name)
+            while (cursor.moveToNext()) {
+                val description = cursor.getString(index("description"))
+                val parsed = PackageAmountPolicy.parse(description)
+                val values = arrayOf<Any?>(
+                    cursor.getString(index("id")),
+                    cursor.getString(index("pantryId")),
+                    cursor.getString(index("id")),
+                    cursor.getString(index("name")),
+                    "",
+                    cursor.getString(index("barcode")),
+                    parsed?.amountBase,
+                    parsed?.unit?.name ?: "UNKNOWN",
+                    parsed?.label ?: description,
+                    description,
+                    cursor.getString(index("photoUri")),
+                    cursor.getString(index("photoSource")),
+                    null,
+                    0L,
+                    cursor.getLong(index("revision")),
+                    cursor.getLong(index("createdAt")),
+                    cursor.getLong(index("updatedAt")),
+                    cursor.getLong(index("deletedAt")).takeUnless { cursor.isNull(index("deletedAt")) },
+                    cursor.getLong(index("purgeAfter")).takeUnless { cursor.isNull(index("purgeAfter")) },
+                    cursor.getString(index("syncState")),
+                )
+                db.execSQL(
+                    """
+                    INSERT OR IGNORE INTO product_variants (
+                        id, pantryId, productId, displayName, manufacturer, barcode, packageAmountBase,
+                        packageUnit, packageLabel, description, photoUri, photoSource, minimumPackages,
+                        purchaseCount, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """.trimIndent(),
+                    values,
+                )
+            }
+        }
+        db.execSQL("UPDATE products SET preferredVariantId = id")
+
+        db.execSQL(
+            """
+            CREATE TABLE stocks_new (
+                pantryId TEXT NOT NULL,
+                productId TEXT NOT NULL,
+                shelfId TEXT NOT NULL,
+                quantity INTEGER NOT NULL,
+                revision INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                syncState TEXT NOT NULL,
+                variantId TEXT NOT NULL,
+                PRIMARY KEY(pantryId, variantId, shelfId)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            """
+            INSERT INTO stocks_new (pantryId, productId, shelfId, quantity, revision, updatedAt, syncState, variantId)
+            SELECT pantryId, productId, shelfId, quantity, revision, updatedAt, syncState, productId FROM stocks
+            """.trimIndent(),
+        )
+        db.execSQL("DROP TABLE stocks")
+        db.execSQL("ALTER TABLE stocks_new RENAME TO stocks")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_stocks_productId ON stocks(productId)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_stocks_variantId ON stocks(variantId)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_stocks_shelfId ON stocks(shelfId)")
+
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS synonym_rules (
+                id TEXT NOT NULL,
+                pantryId TEXT NOT NULL,
+                sourceNormalized TEXT NOT NULL,
+                genericName TEXT NOT NULL,
+                genericNameNormalized TEXT NOT NULL,
+                productId TEXT,
+                ownerConfirmed INTEGER NOT NULL,
+                revision INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                deletedAt INTEGER,
+                syncState TEXT NOT NULL,
+                PRIMARY KEY(id)
+            )
+            """.trimIndent(),
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_synonym_rules_pantryId ON synonym_rules(pantryId)")
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_synonym_rules_pantryId_sourceNormalized ON synonym_rules(pantryId, sourceNormalized)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_synonym_rules_deletedAt ON synonym_rules(deletedAt)")
     }
 }
 

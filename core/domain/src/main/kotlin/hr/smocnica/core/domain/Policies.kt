@@ -75,8 +75,8 @@ object BarcodePolicy {
 
 object InventoryPolicy {
     fun snapshotVersion(stocks: List<Stock>): Long {
-        val canonical = stocks.sortedBy { it.productId }
-            .joinToString("|") { "${it.productId}:${it.quantity}" }
+        val canonical = stocks.sortedWith(compareBy<Stock> { it.variantId }.thenBy { it.shelfId })
+            .joinToString("|") { "${it.variantId}:${it.quantity}" }
         return MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(Charsets.UTF_8))
             .take(6)
             .fold(0L) { value, byte -> (value shl 8) or (byte.toLong() and 0xff) }
@@ -87,20 +87,32 @@ object InventoryPolicy {
         counts: List<InventoryCount>,
         shelfId: String,
     ): List<InventoryDifference> {
-        val expectedByProduct = expected.associate { item ->
-            item.product.id to (item.product.name to item.stocks
-                .filter { it.shelfId == shelfId }
-                .sumOf { it.quantity })
+        val expectedByVariant = expected.flatMap { item ->
+            val variants = item.variants.associateBy { it.id }
+            item.stocks.filter { it.shelfId == shelfId }.map { stock ->
+                stock.variantId to Triple(
+                    stock.productId,
+                    listOfNotNull(item.product.name, variants[stock.variantId]?.displayName)
+                        .distinct().joinToString(" — "),
+                    stock.quantity,
+                )
+            }
+        }.groupBy({ it.first }, { it.second }).mapValues { (_, values) ->
+            Triple(values.first().first, values.first().second, values.sumOf { it.third })
         }
-        val actualByProduct = counts.groupBy(InventoryCount::productId)
-            .mapValues { (_, productCounts) -> productCounts.sumOf(InventoryCount::actualQuantity) }
-        return (expectedByProduct.keys + actualByProduct.keys).mapNotNull { productId ->
-            val expectedQuantity = expectedByProduct[productId]?.second ?: 0
-            val actualQuantity = actualByProduct[productId] ?: 0
+        val actualByVariant = counts.groupBy(InventoryCount::variantId)
+            .mapValues { (_, variantCounts) ->
+                variantCounts.first().productId to variantCounts.sumOf(InventoryCount::actualQuantity)
+            }
+        return (expectedByVariant.keys + actualByVariant.keys).mapNotNull { variantId ->
+            val productId = expectedByVariant[variantId]?.first ?: actualByVariant[variantId]?.first ?: variantId
+            val expectedQuantity = expectedByVariant[variantId]?.third ?: 0
+            val actualQuantity = actualByVariant[variantId]?.second ?: 0
             if (expectedQuantity == actualQuantity) return@mapNotNull null
             InventoryDifference(
                 productId = productId,
-                productName = expectedByProduct[productId]?.first ?: "Nepoznati artikl",
+                variantId = variantId,
+                productName = expectedByVariant[variantId]?.second ?: "Nepoznata varijanta",
                 expectedQuantity = expectedQuantity,
                 actualQuantity = actualQuantity,
                 type = when {

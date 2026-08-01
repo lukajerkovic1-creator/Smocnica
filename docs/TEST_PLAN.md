@@ -10,12 +10,17 @@
 - Jedinstvenost barkoda i podržani EAN/UPC formati.
 - Sigurno brisanje police, inventurne razlike, merge/replace uvoza.
 - Debounce skenera, filtriranje i statusni prijelazi sinkronizacije.
+- Deterministički hrvatski sinonimi samo predlažu grupiranje; bez izričite potvrde nastaje samostalan generički artikl.
+- Točan zbroj miješanih varijanti u mg/ml/kom, zaokruživanje potrebnih cijelih pakiranja te prikaz donje granice kada veličina pakiranja nije poznata.
+- Generički minimum, minimum pojedine varijante i preferirana varijanta daju jednu automatsku shopping stavku bez dvostrukog manjka.
 
 ### Data/repository
 
 - Room transakcija uvijek zajedno mijenja read-model i outbox.
 - Skupna promjena kategorije, brisanje i premještanje unaprijed validiraju cijeli odabir. Namjerno nepostojeći srednji artikl mora poništiti promjene prvog i zadnjeg, aktivnosti i outbox; uspješan skupni potez stvara točno jednu outbox operaciju.
 - Migracija Room 4→5 čuva podatke, popunjava normalizirane nazive, dodaje `categoryId` stavkama kupnje i ostavlja točno jednu aktivnu zadanu kategoriju.
+- Migracija Room 5→6 svaki stari artikl pretvara u jednu početnu varijantu, čuva stabilni `productId`, URI fotografije i outbox te svaku zalihu veže uz deterministični `variantId` bez promjene količine pakiranja.
+- CRUD varijante, zaliha po varijanti i polici, preferirana varijanta, premještanje/grupiranje/razdvajanje te brisanje zadnje varijante izvršavaju se u jednoj Room transakciji s jednim idempotentnim outbox zapisom.
 - Repository odbija nazive polica/kategorija jednake nakon NFKC/case/space normalizacije; artikle, filtere i stavke kupnje povezuje isključivo preko ID-a.
 - `PERMISSION_DENIED` na pantry/members listeneru odmah zaustavlja listenere, trajno karantenira smočnicu, uklanja je iz aktivnog UI toka i isključuje njezine operacije iz outboxa.
 - Karantena preživljava pozadinu i ponovno stvaranje procesa; offline potvrda ostaje blokirana, a uspješan `listMyPantries` nakon povratka mreže vraća pristup ili potpuno briše lokalne podatke opozvane smočnice.
@@ -42,12 +47,19 @@
 - Kôd je jednokratan/istekao/revoked; operationId je idempotentan.
 - Konkurentno vađenje ne može dati negativnu zalihu.
 - Storage odbija ne-sliku, preveliku datoteku i pogrešan pantry.
+- Stari Firestore artikl migrira se idempotentno u generički artikl + varijantu; ponovljeni i prekinuti migracijski/import posao nastavlja od spremljenog kursora i ne zbraja istu zalihu dvaput.
+- Barkod je jedinstven na razini varijante; poznati barkod mijenja upravo očitanu varijantu, a paralelna grupiranja s istom očekivanom revizijom daju jedan uspjeh i jedan konflikt.
+- Owner-only zajednički sinonimi i `doNotGroup` odbijaju člana, dok običan član smije potvrditi jednokratno grupiranje varijante bez stvaranja trajnog pravila.
 
 ### Compose UI
 
 - Dashboard prikazuje sažetak, primarni skener, četiri pločice, aktivnosti i navigaciju.
 - Sinkronizacijski status i konflikt su čitljivi i imaju akciju.
 - Forma validira naziv/količine/barkod; vađenje je ograničeno dostupnim stanjem.
+- Unos varijante čuva generički naziv odvojeno od proizvođača/barkoda/pakiranja, prikazuje prijedlog grupiranja s postotkom i ne dopušta spajanje bez potvrdnog checkboxa.
+- Kartica generičkog artikla prikazuje reprezentativnu varijantu i točan objedinjeni zbroj; detalj prikazuje sve varijante, police i količine, a promjena veličine pakiranja pokazuje pregled novog generičkog zbroja prije spremanja.
+- Brze +/− radnje traže varijantu i policu, ponovno nude zadnju korištenu policu, onemogućuju nedostupnu zalihu i poznati barkod preskače izbor varijante.
+- Pretraga po proizvođaču, barkodu, pakiranju ili opisu prikazuje generički artikl s odgovarajućom varijantom kao reprezentativnom.
 - Kupljena stavka je precrtana, ali ostaje prisutna.
 - Inventura ne mijenja zalihu prije potvrde.
 - Kartice polica, zaliha i dashboard na širini 360 dp ostaju čitljivi pri font-scaleu 150 % i 200 %; sekundarne akcije prelaze u izbornik ili novi red.
@@ -57,8 +69,8 @@
 ### Integracija
 
 - Standardni CI i release gate automatski pokreću `:core:data:connectedDebugAndroidTest` i `:app:connectedDebugAndroidTest` na emulatorima API 29 i API 35. Time su Room migracije i Compose UI testovi obvezna prepreka mergeu i izdanju, a ne samo lokalna provjera.
-- Izravna migracija iz stvarne rc9 Room sheme v1 na aktualnu shemu v5 mora očuvati pantry/member zapise, police, kategorije, artikle, URI fotografije, zalihe, shopping stavke, inventuru, aktivnosti i nesinkronizirani outbox.
-- APK s minimalnim backend API-jem 7 blokira rad uz jasan retry kada `getBackendCapabilities` ne postoji, vrati stariju verziju ili nema `account-deletion:v1`, `atomic-bulk-products:v1` ili drugu obveznu capability oznaku; prolazi s aktualnim odgovorom i samo pri privremenom mrežnom prekidu smije koristiti prethodno potvrđenu kompatibilnu verziju.
+- Izravna migracija iz stvarne rc9 Room sheme v1 na aktualnu shemu v6 mora očuvati pantry/member zapise, police, kategorije, artikle, URI fotografije, zalihe, shopping stavke, inventuru, aktivnosti i nesinkronizirani outbox te stvoriti kanonske početne varijante.
+- APK s minimalnim backend API-jem 9 blokira rad uz jasan retry kada `getBackendCapabilities` ne postoji, vrati stariju verziju ili nema `generic-products:v1`, `product-variants:v1`, `variant-stock:v1`, `resumable-snapshot-import:v1` ili drugu obveznu capability oznaku; prolazi s aktualnim odgovorom i samo pri privremenom mrežnom prekidu smije koristiti prethodno potvrđenu kompatibilnu verziju.
 - Produkcijski post-deploy smoke uspoređuje `functions:list` sa statičkim manifestom svih funkcija, provjerava stvarni capability odgovor i potvrđuje da svaka zaštićena callable funkcija odbija neautorizirani zahtjev.
 - Prijava → stvaranje smočnice → polica → artikl → add/remove → auto-shopping.
 - Uređaj A offline mijenja količinu, uređaj B online mijenja istu količinu, sinkronizacija delta operacija.

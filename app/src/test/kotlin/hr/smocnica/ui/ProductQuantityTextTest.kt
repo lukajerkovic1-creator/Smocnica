@@ -9,7 +9,7 @@ import org.junit.Test
 
 class ProductQuantityTextTest {
     @Test
-    fun selectedShelfShowsShelfAndTotalQuantity() {
+    fun selectedShelfShowsShelfAndTotalPackageQuantity() {
         val item = ProductWithStock(
             Product("product1", "p1", "Sok", createdAt = 1, updatedAt = 1),
             listOf(
@@ -19,7 +19,7 @@ class ProductQuantityTextTest {
         )
 
         assertEquals(
-            "2 kom na polici · 5 ukupno",
+            "2 pakiranja na polici · 5 pakiranja ukupno",
             productQuantityText(item, listOf(Shelf("s1", "p1", "Polica 1", 0, createdAt = 1, updatedAt = 1)), "s1"),
         )
     }

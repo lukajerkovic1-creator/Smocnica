@@ -94,7 +94,7 @@ export const purgeExpiredData = onSchedule(
   { region: "europe-west1", schedule: "every day 03:15", timeZone: "Europe/Zagreb", timeoutSeconds: 540, memory: "512MiB" },
   async () => {
     const timestamp = Timestamp.now();
-    for (const collection of ["products", "shelves", "categories", "shoppingItems"] as const) {
+    for (const collection of ["products", "variants", "shelves", "categories", "shoppingItems"] as const) {
       const expired = await db.collectionGroup(collection).where("purgeAfter", "<=", timestamp).limit(350).get();
       const writer = db.bulkWriter();
       for (const document of expired.docs) {
@@ -102,15 +102,26 @@ export const purgeExpiredData = onSchedule(
         if (collection === "products") {
           if (pantryId) {
             await getStorage().bucket().file(`pantries/${pantryId}/products/${document.id}/main.jpg`).delete({ ignoreNotFound: true });
-            const [stocks, shopping] = await Promise.all([
+            const [stocks, shopping, variants] = await Promise.all([
               db.collection(`pantries/${pantryId}/stocks`).where("productId", "==", document.id).get(),
               db.collection(`pantries/${pantryId}/shoppingItems`).where("productId", "==", document.id).get(),
+              db.collection(`pantries/${pantryId}/variants`).where("productId", "==", document.id).get(),
             ]);
             stocks.docs.forEach((related) => writer.delete(related.ref));
             shopping.docs.forEach((related) => writer.delete(related.ref));
-            const code = document.get("barcode");
-            if (typeof code === "string") writer.delete(db.doc(`barcodes/${sha256(`${pantryId}:${code}`)}`));
+            for (const variant of variants.docs) {
+              await getStorage().bucket().file(`pantries/${pantryId}/variants/${variant.id}/main.jpg`).delete({ ignoreNotFound: true });
+              const code = variant.get("barcode");
+              if (typeof code === "string") writer.delete(db.doc(`barcodes/${sha256(`${pantryId}:${code}`)}`));
+              writer.delete(variant.ref);
+            }
           }
+        } else if (collection === "variants" && pantryId) {
+          await getStorage().bucket().file(`pantries/${pantryId}/variants/${document.id}/main.jpg`).delete({ ignoreNotFound: true });
+          const stocks = await db.collection(`pantries/${pantryId}/stocks`).where("variantId", "==", document.id).get();
+          stocks.docs.forEach((related) => writer.delete(related.ref));
+          const code = document.get("barcode");
+          if (typeof code === "string") writer.delete(db.doc(`barcodes/${sha256(`${pantryId}:${code}`)}`));
         } else if (collection === "shelves" && pantryId) {
           const stocks = await db.collection(`pantries/${pantryId}/stocks`).where("shelfId", "==", document.id).get();
           stocks.docs.forEach((related) => writer.delete(related.ref));

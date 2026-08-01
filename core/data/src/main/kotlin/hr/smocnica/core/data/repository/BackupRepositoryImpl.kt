@@ -14,11 +14,16 @@ import hr.smocnica.core.domain.BackupRepository
 import hr.smocnica.core.domain.BarcodePolicy
 import hr.smocnica.core.domain.ImportPreview
 import hr.smocnica.core.domain.ImportStrategy
+import hr.smocnica.core.domain.GenericStockPolicy
+import hr.smocnica.core.domain.PackageAmountPolicy
 import hr.smocnica.core.model.ActivityType
 import hr.smocnica.core.model.AggregateType
 import hr.smocnica.core.model.OperationPayload
 import hr.smocnica.core.model.OperationState
 import hr.smocnica.core.model.PantrySnapshot
+import hr.smocnica.core.model.ProductVariant
+import hr.smocnica.core.model.PackageUnit
+import hr.smocnica.core.model.PhotoSource
 import hr.smocnica.core.model.SyncState
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -56,21 +61,28 @@ class BackupRepositoryImpl @Inject constructor(
     override suspend fun exportCsv(pantryId: String): ByteArray {
         val snapshot = snapshot(pantryId)
         val stocksByProduct = snapshot.stocks.groupBy { it.productId }
+        val variantsByProduct = snapshot.variants.groupBy { it.productId }
+        val variantsById = snapshot.variants.associateBy { it.id }
         val shelvesById = snapshot.shelves.associateBy { it.id }
         val shoppingProducts = snapshot.shoppingItems.mapNotNull { it.productId }.toSet()
         val rows = buildList {
-            add(listOf("Naziv", "Barkod", "Pakiranje", "Kategorija", "Ukupna količina", "Minimalna količina", "Police", "Stanje kupnje"))
+            add(listOf("Generički naziv", "Varijante", "Barkodovi", "Pakiranja", "Kategorija", "Ukupno pakiranja", "Minimalna zaliha", "Police", "Stanje kupnje"))
             snapshot.products.sortedBy { it.name.lowercase() }.forEach { product ->
                 val productStocks = stocksByProduct[product.id].orEmpty().filter { it.quantity > 0 }
+                val productVariants = variantsByProduct[product.id].orEmpty().filter { it.deletedAt == null }
                 add(
                     listOf(
                         product.name,
-                        product.barcode.orEmpty(),
-                        product.description,
+                        productVariants.joinToString(" | ") { it.displayName },
+                        productVariants.mapNotNull { it.barcode }.joinToString(" | "),
+                        productVariants.map { it.packageLabel }.filter(String::isNotBlank).joinToString(" | "),
                         product.category,
                         productStocks.sumOf { it.quantity }.toString(),
-                        product.minimumQuantity.toString(),
-                        productStocks.joinToString(" | ") { "${shelvesById[it.shelfId]?.name ?: it.shelfId}: ${it.quantity}" },
+                        "${product.minimumMode}:${product.minimumAmountBase}",
+                        productStocks.joinToString(" | ") {
+                            val variant = variantsById[it.variantId]
+                            "${shelvesById[it.shelfId]?.name ?: it.shelfId}/${variant?.displayName ?: it.variantId}: ${it.quantity}"
+                        },
                         if (product.id in shoppingProducts) "Na popisu" else "Nije na popisu",
                     ),
                 )
@@ -90,22 +102,23 @@ class BackupRepositoryImpl @Inject constructor(
         require(sha256(payload.toByteArray(Charsets.UTF_8)).equals(envelope.checksumSha256, ignoreCase = true)) {
             "Kontrolni sažetak sigurnosne kopije nije ispravan. Datoteka je možda oštećena."
         }
+        val compatibleSnapshot = upgradeLegacySnapshot(envelope.snapshot)
         val conflicts = buildList {
-            addAll(validateSnapshot(envelope.snapshot))
-            val duplicateBarcodes = envelope.snapshot.products.mapNotNull { it.barcode }
+            addAll(validateSnapshot(compatibleSnapshot))
+            val duplicateBarcodes = compatibleSnapshot.variants.mapNotNull { it.barcode }
                 .groupingBy { it }.eachCount().filterValues { it > 1 }.keys
             if (duplicateBarcodes.isNotEmpty()) add("Više artikala koristi isti barkod (${duplicateBarcodes.size}).")
-            val shelfIds = envelope.snapshot.shelves.map { it.id }.toSet()
-            val orphanStocks = envelope.snapshot.stocks.count { it.shelfId !in shelfIds }
+            val shelfIds = compatibleSnapshot.shelves.map { it.id }.toSet()
+            val orphanStocks = compatibleSnapshot.stocks.count { it.shelfId !in shelfIds }
             if (orphanStocks > 0) add("$orphanStocks lokacija nema postojeću policu.")
         }
         return ImportPreview(
             schemaVersion = envelope.schemaVersion,
-            pantryName = envelope.snapshot.pantry.name,
-            shelfCount = envelope.snapshot.shelves.size,
-            productCount = envelope.snapshot.products.size,
-            shoppingCount = envelope.snapshot.shoppingItems.size,
-            snapshot = envelope.snapshot,
+            pantryName = compatibleSnapshot.pantry.name,
+            shelfCount = compatibleSnapshot.shelves.size,
+            productCount = compatibleSnapshot.products.size,
+            shoppingCount = compatibleSnapshot.shoppingItems.size,
+            snapshot = compatibleSnapshot,
             conflicts = conflicts,
         )
     }
@@ -141,13 +154,34 @@ class BackupRepositoryImpl @Inject constructor(
                 )
             }
             val productsById = canonicalProducts.associateBy { it.id }
+            val canonicalVariants = source.variants.map { variant ->
+                val product = productsById[variant.productId]
+                    ?: error("Varijanta ${variant.id} nema postojeći artikl.")
+                val keepPublicPhoto = variant.photoSource == PhotoSource.OPEN_FOOD_FACTS &&
+                    sanitizeOpenFoodFactsImageUrl(variant.photoUri) != null
+                variant.copy(
+                    pantryId = targetPantryId,
+                    productId = product.id,
+                    photoUri = variant.photoUri.takeIf { keepPublicPhoto },
+                    photoSource = if (keepPublicPhoto) variant.photoSource else PhotoSource.NONE,
+                )
+            }
+            val variantsById = canonicalVariants.associateBy { it.id }
             val incoming = source.copy(
                 pantry = source.pantry.copy(id = targetPantryId, ownerUid = localPantry.ownerUid),
                 members = source.members.map { it.copy(pantryId = targetPantryId) },
                 shelves = source.shelves.map { it.copy(pantryId = targetPantryId) },
                 categories = canonicalCategories.map { it.copy(pantryId = targetPantryId) },
                 products = canonicalProducts,
-                stocks = source.stocks.map { it.copy(pantryId = targetPantryId) },
+                variants = canonicalVariants,
+                synonymRules = source.synonymRules.map { rule ->
+                    rule.copy(pantryId = targetPantryId, productId = rule.productId?.takeIf(productsById::containsKey))
+                },
+                stocks = source.stocks.map { stock ->
+                    val variant = variantsById[stock.variantId]
+                        ?: error("Zaliha ${stock.variantId} nema postojeću varijantu.")
+                    stock.copy(pantryId = targetPantryId, productId = variant.productId)
+                },
                 shoppingItems = source.shoppingItems.map { item ->
                     val category = item.productId?.let(productsById::get)?.let { categoriesById[it.categoryId] }
                         ?: categoriesById[item.categoryId]
@@ -162,6 +196,8 @@ class BackupRepositoryImpl @Inject constructor(
             database.shelfDao().upsertAll(incoming.shelves.map { it.copy(pantryId = localPantry.id, syncState = SyncState.PENDING).entity() })
             database.categoryDao().upsertAll(incoming.categories.map { it.copy(pantryId = localPantry.id, syncState = SyncState.PENDING).entity() })
             database.productDao().upsertAll(incoming.products.map { it.copy(pantryId = localPantry.id, syncState = SyncState.PENDING).entity() })
+            database.productVariantDao().upsertAll(incoming.variants.map { it.copy(pantryId = localPantry.id, syncState = SyncState.PENDING).entity() })
+            database.synonymRuleDao().upsertAll(incoming.synonymRules.map { it.copy(pantryId = localPantry.id, syncState = SyncState.PENDING).entity() })
             database.stockDao().upsertAll(incoming.stocks.map { it.copy(pantryId = localPantry.id, syncState = SyncState.PENDING).entity() })
             database.shoppingDao().upsertAll(incoming.shoppingItems.map { it.copy(pantryId = localPantry.id, syncState = SyncState.PENDING).entity() })
             database.activityDao().insertAll(incoming.activities.map { it.copy(pantryId = localPantry.id).entity() })
@@ -207,6 +243,8 @@ class BackupRepositoryImpl @Inject constructor(
             shelves = database.shelfDao().listActive(pantryId).map { it.model() },
             categories = database.categoryDao().listActive(pantryId).map { it.model() },
             products = database.productDao().listActive(pantryId).map { it.model() },
+            variants = database.productVariantDao().listActive(pantryId).map { it.model() },
+            synonymRules = database.synonymRuleDao().listAll(pantryId).filter { it.deletedAt == null }.map { it.model() },
             stocks = database.stockDao().listForPantry(pantryId).map { it.model() },
             shoppingItems = database.shoppingDao().listActive(pantryId).map { it.model() },
             activities = database.activityDao().listSince(pantryId, clock.now() - TWELVE_MONTHS).map { it.model() },
@@ -227,14 +265,76 @@ class BackupRepositoryImpl @Inject constructor(
         database.productDao().listActive(pantryId).filter { it.id !in productIds }.forEach {
             database.productDao().upsert(it.copy(deletedAt = now, purgeAfter = now + THIRTY_DAYS, updatedAt = now, syncState = SyncState.PENDING))
         }
-        val stockKeys = incoming.stocks.map { it.productId to it.shelfId }.toSet()
+        val variantIds = incoming.variants.map { it.id }.toSet()
+        database.productVariantDao().listActive(pantryId).filter { it.id !in variantIds }.forEach {
+            database.productVariantDao().upsert(it.copy(deletedAt = now, purgeAfter = now + THIRTY_DAYS, updatedAt = now, syncState = SyncState.PENDING))
+        }
+        val stockKeys = incoming.stocks.map { it.variantId to it.shelfId }.toSet()
         database.stockDao().listForPantry(pantryId)
-            .filter { it.productId in productIds && (it.productId to it.shelfId) !in stockKeys }
-            .forEach { database.stockDao().deleteHard(pantryId, it.productId, it.shelfId) }
+            .filter { it.variantId in variantIds && (it.variantId to it.shelfId) !in stockKeys }
+            .forEach { database.stockDao().deleteVariantHard(pantryId, it.variantId, it.shelfId) }
         val shoppingIds = incoming.shoppingItems.map { it.id }.toSet()
         database.shoppingDao().listActive(pantryId).filter { it.id !in shoppingIds }.forEach {
             database.shoppingDao().upsert(it.copy(deletedAt = now, updatedAt = now, syncState = SyncState.PENDING))
         }
+    }
+
+    /**
+     * Schema 1/2 stored the barcode and package metadata directly on Product.  The
+     * stable product id is deliberately reused as the initial variant id so stocks,
+     * activities and pending operation references remain valid after an import.
+     */
+    private fun upgradeLegacySnapshot(snapshot: PantrySnapshot): PantrySnapshot {
+        if (snapshot.variants.isNotEmpty()) {
+            return snapshot.copy(
+                pantry = snapshot.pantry.copy(contentSchemaVersion = maxOf(snapshot.pantry.contentSchemaVersion, CONTENT_SCHEMA_VERSION)),
+            )
+        }
+        val variants = snapshot.products.map { product ->
+            val parsed = PackageAmountPolicy.parse(product.description)
+            ProductVariant(
+                id = product.id,
+                pantryId = product.pantryId,
+                productId = product.id,
+                displayName = product.name,
+                barcode = product.barcode,
+                packageAmountBase = parsed?.amountBase,
+                packageUnit = parsed?.unit ?: PackageUnit.UNKNOWN,
+                packageLabel = parsed?.label.orEmpty(),
+                description = product.description,
+                photoUri = product.photoUri,
+                photoSource = product.photoSource,
+                revision = product.revision,
+                createdAt = product.createdAt,
+                updatedAt = product.updatedAt,
+                deletedAt = product.deletedAt,
+                purgeAfter = product.purgeAfter,
+                syncState = product.syncState,
+            )
+        }
+        val variantsById = variants.associateBy { it.id }
+        return snapshot.copy(
+            pantry = snapshot.pantry.copy(contentSchemaVersion = CONTENT_SCHEMA_VERSION),
+            products = snapshot.products.map { product ->
+                product.copy(
+                    barcode = null,
+                    description = "",
+                    photoUri = null,
+                    photoSource = PhotoSource.NONE,
+                    minimumAmountBase = product.minimumQuantity.toLong(),
+                    preferredVariantId = product.id,
+                )
+            },
+            variants = variants,
+            stocks = snapshot.stocks.map { stock ->
+                val variant = variantsById[stock.variantId] ?: variantsById[stock.productId]
+                    ?: error("Zaliha ${stock.productId} nema postojeći artikl.")
+                stock.copy(productId = variant.productId, variantId = variant.id)
+            },
+            shoppingItems = snapshot.shoppingItems.map { item ->
+                item.copy(preferredVariantId = item.productId?.takeIf(variantsById::containsKey))
+            },
+        )
     }
 
     private fun csvCell(value: String): String = "\"${value.replace("\"", "\"\"")}\""
@@ -249,12 +349,14 @@ class BackupRepositoryImpl @Inject constructor(
         }
         if (snapshot.pantry.name.trim().length !in 1..60) add("Naziv smočnice nije ispravan.")
         val totalRecords = snapshot.shelves.size + snapshot.categories.size + snapshot.products.size +
-            snapshot.stocks.size + snapshot.shoppingItems.size
-        if (totalRecords > 350) add("Sigurnosna kopija prelazi ograničenje od 350 atomarnih zapisa.")
+            snapshot.variants.size + snapshot.synonymRules.size + snapshot.stocks.size + snapshot.shoppingItems.size
+        if (totalRecords > MAX_IMPORT_RECORDS) add("Sigurnosna kopija prelazi ograničenje od $MAX_IMPORT_RECORDS zapisa.")
         if (snapshot.activities.size > 5_000) add("Sigurnosna kopija sadrži previše aktivnosti.")
         duplicates(snapshot.shelves.map { it.id }, "Popis polica")
         duplicates(snapshot.categories.map { it.id }, "Popis kategorija")
         duplicates(snapshot.products.map { it.id }, "Popis artikala")
+        duplicates(snapshot.variants.map { it.id }, "Popis varijanti")
+        duplicates(snapshot.synonymRules.map { it.id }, "Rječnik sinonima")
         duplicates(snapshot.shoppingItems.map { it.id }, "Popis kupnje")
         if (snapshot.shelves.map { canonicalName(it.name) }.distinct().size != snapshot.shelves.size) {
             add("Popis polica sadrži duple nazive neovisno o velikim slovima ili razmacima.")
@@ -274,29 +376,58 @@ class BackupRepositoryImpl @Inject constructor(
         val productIds = snapshot.products.map { it.id }.toSet()
         val shelfIds = snapshot.shelves.map { it.id }.toSet()
         val categoriesById = snapshot.categories.associateBy { it.id }
-        val barcodes = snapshot.products.mapNotNull { it.barcode }
+        val variantIds = snapshot.variants.map { it.id }.toSet()
+        val variantsById = snapshot.variants.associateBy { it.id }
+        val barcodes = snapshot.variants.mapNotNull { it.barcode }
         if (barcodes.size != barcodes.distinct().size) add("Popis artikala sadrži duple barkodove.")
         snapshot.products.forEach {
             validId(it.id, "Artikl")
-            if (it.name.trim().length !in 1..100 || it.category.trim().length !in 1..100 || it.description.length > 500) {
-                add("Artikl ${it.id} ima neispravan naziv, kategoriju ili opis.")
+            if (it.name.trim().length !in 1..100 || it.category.trim().length !in 1..100) {
+                add("Artikl ${it.id} ima neispravan naziv ili kategoriju.")
             }
-            if (it.minimumQuantity !in 0..1_000_000) add("Artikl ${it.id} ima neispravan minimum.")
+            if (it.minimumAmountBase !in 0..MAX_BASE_AMOUNT) add("Artikl ${it.id} ima neispravan minimum.")
+            if (it.preferredVariantId != null && variantsById[it.preferredVariantId]?.productId != it.id) {
+                add("Artikl ${it.id} ima neispravnu preferiranu varijantu.")
+            }
             if (categoriesById[it.categoryId] == null && snapshot.categories.none { category -> category.name.equals(it.category, ignoreCase = true) }) {
                 add("Artikl ${it.id} upućuje na nepostojeću kategoriju.")
             }
-            if (it.photoSource == hr.smocnica.core.model.PhotoSource.OPEN_FOOD_FACTS &&
-                it.photoUri != null && sanitizeOpenFoodFactsImageUrl(it.photoUri) == null) {
-                add("Artikl ${it.id} ima nedopuštenu javnu fotografiju.")
-            }
-            it.barcode?.let { code -> if (!BarcodePolicy.isSupported(code)) add("Artikl ${it.id} ima neispravan barkod.") }
         }
-        val stockKeys = snapshot.stocks.map { it.productId to it.shelfId }
+        snapshot.variants.forEach { variant ->
+            validId(variant.id, "Varijanta")
+            if (variant.productId !in productIds) add("Varijanta ${variant.id} upućuje na nepostojeći artikl.")
+            if (variant.displayName.trim().length !in 1..100 || variant.manufacturer.length > 100 || variant.description.length > 500 || variant.packageLabel.length > 100) {
+                add("Varijanta ${variant.id} ima neispravne tekstualne podatke.")
+            }
+            if (variant.packageAmountBase != null && variant.packageAmountBase !in 1..MAX_BASE_AMOUNT) {
+                add("Varijanta ${variant.id} ima neispravnu veličinu pakiranja.")
+            }
+            if ((variant.packageAmountBase == null) != (variant.packageUnit == PackageUnit.UNKNOWN)) {
+                add("Varijanta ${variant.id} nema usklađenu veličinu i mjernu jedinicu.")
+            }
+            if (variant.minimumPackages != null && variant.minimumPackages !in 0..1_000_000) add("Varijanta ${variant.id} ima neispravan minimum.")
+            if (variant.photoSource == PhotoSource.OPEN_FOOD_FACTS && variant.photoUri != null && sanitizeOpenFoodFactsImageUrl(variant.photoUri) == null) {
+                add("Varijanta ${variant.id} ima nedopuštenu javnu fotografiju.")
+            }
+            variant.barcode?.let { code -> if (!BarcodePolicy.isSupported(code)) add("Varijanta ${variant.id} ima neispravan barkod.") }
+        }
+        snapshot.synonymRules.forEach { rule ->
+            validId(rule.id, "Pravilo sinonima")
+            if (rule.sourceNormalized != canonicalName(rule.sourceNormalized) || rule.genericNameNormalized != canonicalName(rule.genericName)) {
+                add("Pravilo sinonima ${rule.id} nije normalizirano.")
+            }
+            if (rule.productId != null && rule.productId !in productIds) add("Pravilo sinonima ${rule.id} upućuje na nepostojeći artikl.")
+        }
+        val stockKeys = snapshot.stocks.map { it.variantId to it.shelfId }
         if (stockKeys.size != stockKeys.distinct().size) add("Raspodjela zalihe sadrži duple lokacije.")
         snapshot.stocks.forEach {
             validId(it.productId, "Lokacija artikla")
+            validId(it.variantId, "Lokacija varijante")
             validId(it.shelfId, "Lokacija police")
             if (it.productId !in productIds) add("Lokacija upućuje na nepostojeći artikl ${it.productId}.")
+            if (it.variantId !in variantIds || variantsById[it.variantId]?.productId != it.productId) {
+                add("Lokacija upućuje na nepostojeću ili pogrešno grupiranu varijantu ${it.variantId}.")
+            }
             if (it.shelfId !in shelfIds) add("Lokacija upućuje na nepostojeću policu ${it.shelfId}.")
             if (it.quantity !in 0..1_000_000) add("Lokacija ${it.productId}/${it.shelfId} ima neispravnu količinu.")
         }
@@ -318,9 +449,13 @@ class BackupRepositoryImpl @Inject constructor(
                 }
             }
         }
-        val totals = snapshot.stocks.groupBy { it.productId }.mapValues { (_, rows) -> rows.sumOf { it.quantity } }
         snapshot.products.forEach { product ->
-            val expected = if (product.autoShopping) (product.minimumQuantity - (totals[product.id] ?: 0)).coerceAtLeast(0) else 0
+            val item = hr.smocnica.core.model.ProductWithStock(
+                product,
+                snapshot.stocks.filter { it.productId == product.id },
+                snapshot.variants.filter { it.productId == product.id },
+            )
+            val expected = GenericStockPolicy.requiredPackages(item)
             val automatic = snapshot.shoppingItems.singleOrNull { !it.manual && it.productId == product.id }
             if (expected == 0 && automatic != null) add("Artikl ${product.id} ima suvišnu automatsku stavku kupnje.")
             if (expected > 0 && (automatic == null || automatic.requiredQuantity != expected || automatic.name != product.name || automatic.categoryId != product.categoryId || automatic.category != product.category)) {
@@ -342,8 +477,11 @@ class BackupRepositoryImpl @Inject constructor(
         .lowercase(Locale.forLanguageTag("hr"))
 
     private companion object {
-        const val SCHEMA_VERSION = 2
+        const val SCHEMA_VERSION = 3
+        const val CONTENT_SCHEMA_VERSION = 2
         const val MAX_IMPORT_BYTES = 20 * 1024 * 1024
+        const val MAX_IMPORT_RECORDS = 10_000
+        const val MAX_BASE_AMOUNT = 1_000_000_000_000L
         const val THIRTY_DAYS = 30L * 24 * 60 * 60 * 1_000
         const val TWELVE_MONTHS = 365L * 24 * 60 * 60 * 1_000
     }

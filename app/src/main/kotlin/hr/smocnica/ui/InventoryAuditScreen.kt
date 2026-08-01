@@ -45,12 +45,17 @@ import hr.smocnica.MainViewModel
 import hr.smocnica.core.domain.BarcodePolicy
 import hr.smocnica.core.model.InventoryDifferenceType
 import hr.smocnica.core.model.InventorySession
+import hr.smocnica.core.model.ProductVariant
+import hr.smocnica.core.model.ProductWithStock
 import kotlinx.coroutines.launch
 
 @Composable
 fun InventoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
     val shelves by viewModel.shelves.collectAsStateWithLifecycle()
     val products by viewModel.allProducts.collectAsStateWithLifecycle()
+    val variantEntries = products.flatMap { item ->
+        item.variants.map { variant -> InventoryVariantEntry(item, variant) }
+    }
     val savedDraft by viewModel.inventoryDraft.collectAsStateWithLifecycle()
     val sync by viewModel.syncSummary.collectAsStateWithLifecycle()
     var shelfId by remember { mutableStateOf(shelves.firstOrNull()?.id.orEmpty()) }
@@ -77,7 +82,7 @@ fun InventoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
                             Button({
                                 shelfId = draft.shelfId
                                 counts.clear()
-                                draft.counts.forEach { counts[it.productId] = it.actualQuantity }
+                                draft.counts.forEach { counts[it.variantId] = it.actualQuantity }
                                 started = true
                             }) { Text("Nastavi") }
                             TextButton({ viewModel.discardInventoryDraft(draft.id) }) { Text("Odbaci nacrt") }
@@ -97,7 +102,7 @@ fun InventoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
             Button({
                 if (!started) {
                     counts.clear()
-                    products.forEach { counts[it.product.id] = 0 }
+                    variantEntries.forEach { counts[it.variant.id] = 0 }
                     started = true
                     viewModel.persistInventoryDraft(shelfId, counts.toMap())
                 }
@@ -110,21 +115,22 @@ fun InventoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
             }
         }
         if (started) item { Text("Skenirano: ${counts.values.sum()} kom. Za količinske ispravke koristite +/−.", color = MaterialTheme.colorScheme.primary) }
-        items(products, key = { it.product.id }) { product ->
-            val expected = product.stocks.firstOrNull { it.shelfId == shelfId }?.quantity ?: 0
-            val actual = counts[product.product.id] ?: if (started) 0 else expected
+        items(variantEntries, key = { it.variant.id }) { entry ->
+            val expected = entry.item.stocks.filter { it.variantId == entry.variant.id && it.shelfId == shelfId }.sumOf { it.quantity }
+            val actual = counts[entry.variant.id] ?: if (started) 0 else expected
             Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(product.product.name, fontWeight = FontWeight.SemiBold)
+                    Text(entry.item.product.name, fontWeight = FontWeight.SemiBold)
+                    Text(entry.variant.displayName, style = MaterialTheme.typography.bodySmall)
                     Text("Evidentirano: $expected kom", style = MaterialTheme.typography.bodySmall)
                 }
                 IconButton({
-                    counts[product.product.id] = (actual - 1).coerceAtLeast(0)
+                    counts[entry.variant.id] = (actual - 1).coerceAtLeast(0)
                     viewModel.persistInventoryDraft(shelfId, counts.toMap())
                 }) { Icon(Icons.Outlined.Remove, null) }
                 Text("$actual", Modifier.padding(horizontal = 10.dp), fontWeight = FontWeight.Bold)
                 IconButton({
-                    counts[product.product.id] = actual + 1
+                    counts[entry.variant.id] = actual + 1
                     viewModel.persistInventoryDraft(shelfId, counts.toMap())
                 }) { Icon(Icons.Outlined.Add, null) }
             }
@@ -135,10 +141,10 @@ fun InventoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
                     scope.launch {
                         preview = viewModel.previewInventory(
                             shelfId,
-                            products.associate { product ->
-                                product.product.id to (counts[product.product.id]
-                                    ?: if (started) 0 else product.stocks.firstOrNull { it.shelfId == shelfId }?.quantity
-                                    ?: 0)
+                            variantEntries.associate { entry ->
+                                entry.variant.id to (counts[entry.variant.id]
+                                    ?: if (started) 0 else entry.item.stocks.filter { it.variantId == entry.variant.id && it.shelfId == shelfId }.sumOf { it.quantity }
+                                )
                             },
                         )
                     }
@@ -186,17 +192,25 @@ fun InventoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
         onError = { scanError = it },
         dismiss = { scanning = false },
     ) { code ->
-        val item = products.firstOrNull { it.product.barcode == code }
-        if (item == null) {
+        val match = products.firstNotNullOfOrNull { item ->
+            item.variants.firstOrNull { it.barcode == code }?.let { item to it }
+        }
+        if (match == null) {
             scanError = "Barkod $code nije povezan ni s jednim artiklom u smočnici."
         } else {
-            counts[item.product.id] = (counts[item.product.id] ?: 0) + 1
+            val (item, variant) = match
+            counts[variant.id] = (counts[variant.id] ?: 0) + 1
             viewModel.persistInventoryDraft(shelfId, counts.toMap())
-            lastScan = "${item.product.name}: ${counts[item.product.id]} kom"
+            lastScan = "${item.product.name} — ${variant.displayName}: ${counts[variant.id]} kom"
             scanError = null
         }
     }
 }
+
+private data class InventoryVariantEntry(
+    val item: ProductWithStock,
+    val variant: ProductVariant,
+)
 
 @Composable
 private fun InventoryScannerDialog(lastScan: String?, error: String?, onError: (String) -> Unit, dismiss: () -> Unit, scanned: (String) -> Unit) {

@@ -117,6 +117,51 @@ class DatabaseMigrationTest {
     }
 
     @Test
+    fun migration5To6CreatesInitialVariantAndMovesStockWithoutDataLoss() {
+        helper.createDatabase(GENERIC_PRODUCTS_DB, 5).apply {
+            execSQL("INSERT INTO pantries (id, name, ownerUid, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState, accessRevokedAt) VALUES ('p1', 'Smočnica', 'u1', 1, 1, 1, NULL, NULL, 'SYNCED', NULL)")
+            execSQL("INSERT INTO categories (id, pantryId, name, sortOrder, isDefault, revision, deletedAt, purgeAfter, syncState, normalizedName) VALUES ('c1', 'p1', 'Ostalo', 0, 1, 1, NULL, NULL, 'SYNCED', 'ostalo')")
+            execSQL("INSERT INTO shelves (id, pantryId, name, sortOrder, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState, normalizedName) VALUES ('s1', 'p1', 'Polica', 0, 1, 1, 1, NULL, NULL, 'SYNCED', 'polica')")
+            execSQL("INSERT INTO products (id, pantryId, name, normalizedName, barcode, description, category, categoryId, photoUri, photoSource, minimumQuantity, autoShopping, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState) VALUES ('flour', 'p1', 'Brašno glatko', 'brašno glatko', '3850000000018', '1 kg', 'Ostalo', 'c1', 'content://photo', 'CAMERA', 3, 1, 4, 10, 20, NULL, NULL, 'PENDING')")
+            execSQL("INSERT INTO stocks (pantryId, productId, shelfId, quantity, revision, updatedAt, syncState) VALUES ('p1', 'flour', 's1', 2, 5, 20, 'PENDING')")
+            execSQL("INSERT INTO pending_operations (operationId, pantryId, aggregateType, aggregateId, baseRevision, payloadJson, actorUid, deviceId, deviceName, createdAt, attempts, state, errorCode) VALUES ('op1', 'p1', 'PRODUCT', 'flour', 4, '{}', 'u1', 'd1', 'Telefon', 21, 0, 'PENDING', NULL)")
+            close()
+        }
+
+        helper.runMigrationsAndValidate(GENERIC_PRODUCTS_DB, 6, true, MIGRATION_5_6).use { database ->
+            database.query("SELECT minimumMode, minimumAmountBase, preferredVariantId, doNotGroup FROM products WHERE id = 'flour'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("PACKAGES", cursor.getString(0))
+                assertEquals(3L, cursor.getLong(1))
+                assertEquals("flour", cursor.getString(2))
+                assertEquals(0, cursor.getInt(3))
+            }
+            database.query("SELECT productId, barcode, packageAmountBase, packageUnit, photoUri, syncState FROM product_variants WHERE id = 'flour'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("flour", cursor.getString(0))
+                assertEquals("3850000000018", cursor.getString(1))
+                assertEquals(1_000_000L, cursor.getLong(2))
+                assertEquals("KG", cursor.getString(3))
+                assertEquals("content://photo", cursor.getString(4))
+                assertEquals("PENDING", cursor.getString(5))
+            }
+            database.query("SELECT productId, variantId, shelfId, quantity, syncState FROM stocks WHERE pantryId = 'p1'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("flour", cursor.getString(0))
+                assertEquals("flour", cursor.getString(1))
+                assertEquals("s1", cursor.getString(2))
+                assertEquals(2, cursor.getInt(3))
+                assertEquals("PENDING", cursor.getString(4))
+            }
+            database.query("SELECT payloadJson, state FROM pending_operations WHERE operationId = 'op1'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("{}", cursor.getString(0))
+                assertEquals("PENDING", cursor.getString(1))
+            }
+        }
+    }
+
+    @Test
     fun rc9SchemaMigratesDirectlyToCurrentWithoutLosingOfflinePantryData() {
         helper.createDatabase(RC9_TO_CURRENT_DB, 1).apply {
             execSQL("INSERT INTO pantries (id, name, ownerUid, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState) VALUES ('p1', 'Kućna smočnica', 'owner1', 7, 100, 200, NULL, NULL, 'SYNCED')")
@@ -143,12 +188,13 @@ class DatabaseMigrationTest {
 
         helper.runMigrationsAndValidate(
             RC9_TO_CURRENT_DB,
-            5,
+            6,
             true,
             MIGRATION_1_2,
             MIGRATION_2_3,
             MIGRATION_3_4,
             MIGRATION_4_5,
+            MIGRATION_5_6,
         ).use { database ->
             database.query("SELECT name, ownerUid, accessRevokedAt FROM pantries WHERE id = 'p1'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
@@ -179,10 +225,19 @@ class DatabaseMigrationTest {
                 assertEquals("content://hr.smocnica.photos/product1.jpg", cursor.getString(2))
                 assertEquals("PENDING", cursor.getString(3))
             }
-            database.query("SELECT quantity, syncState FROM stocks WHERE pantryId = 'p1' AND productId = 'product1' AND shelfId = 's1'").use { cursor ->
+            database.query("SELECT quantity, syncState, variantId FROM stocks WHERE pantryId = 'p1' AND productId = 'product1' AND shelfId = 's1'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
                 assertEquals(3, cursor.getInt(0))
                 assertEquals("PENDING", cursor.getString(1))
+                assertEquals("product1", cursor.getString(2))
+            }
+            database.query("SELECT productId, barcode, packageAmountBase, packageUnit, photoUri FROM product_variants WHERE id = 'product1'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("product1", cursor.getString(0))
+                assertEquals("3850000000018", cursor.getString(1))
+                assertEquals(1_000L, cursor.getLong(2))
+                assertEquals("L", cursor.getString(3))
+                assertEquals("content://hr.smocnica.photos/product1.jpg", cursor.getString(4))
             }
             database.query("SELECT categoryId, requiredQuantity, syncState FROM shopping_items WHERE id = 'shop1'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
@@ -217,5 +272,6 @@ class DatabaseMigrationTest {
         const val ACCESS_DB = "access-migration-test"
         const val CANONICAL_NAMES_DB = "canonical-names-migration-test"
         const val RC9_TO_CURRENT_DB = "rc9-to-current-migration-test"
+        const val GENERIC_PRODUCTS_DB = "generic-products-migration-test"
     }
 }

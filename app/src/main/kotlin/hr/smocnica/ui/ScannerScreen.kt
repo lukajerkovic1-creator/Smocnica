@@ -146,9 +146,13 @@ fun ScannerScreen(
     val shopping by viewModel.shopping.collectAsStateWithLifecycle()
     var detected by remember { mutableStateOf<String?>(null) }
     var scannerError by remember { mutableStateOf<String?>(null) }
-    val local = detected?.let { code -> products.firstOrNull { it.product.barcode == code } }
+    val localMatch = detected?.let { code -> products.firstNotNullOfOrNull { item ->
+        item.variants.firstOrNull { it.barcode == code }?.let { item to it }
+    } }
+    val local = localMatch?.first
+    val localVariant = localMatch?.second
     fun acceptBarcode(code: String) {
-        val matched = products.firstOrNull { it.product.barcode == code }
+        val matched = products.firstOrNull { item -> item.variants.any { it.barcode == code } }
         if (scannerContext.productId.isNotBlank() && matched?.product?.id != scannerContext.productId) {
             scannerError = "Skenirani barkod ne pripada odabranom artiklu."
             return
@@ -156,7 +160,7 @@ fun ScannerScreen(
         scannerError = null
         detected = code
         if (matched == null) {
-            if (deletedProducts.any { it.product.barcode == code }) lookup.skipLookup(code) else lookup.lookup(code)
+            if (deletedProducts.any { item -> item.variants.any { it.barcode == code } }) lookup.skipLookup(code) else lookup.lookup(code)
         }
     }
 
@@ -169,15 +173,16 @@ fun ScannerScreen(
     )
     detected?.let { code ->
         when {
-            local != null -> ScannerStockDialog(
+            local != null && localVariant != null -> ScannerStockDialog(
                 item = local,
+                variant = localVariant,
                 shelves = shelves.map { it.id to it.name },
                 initialShelfId = scannerContext.shelfId,
                 initialMode = scannerContext.mode,
                 initialQuantity = shopping.firstOrNull { it.id == scannerContext.shoppingItemId }?.requiredQuantity ?: 1,
                 dismiss = { detected = null },
                 adjust = { shelfId, delta ->
-                    viewModel.adjustStock(local.product.id, shelfId, delta) {
+                    viewModel.adjustVariantStock(localVariant.id, shelfId, delta) {
                         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                         view.playSoundEffect(SoundEffectConstants.CLICK)
                         onCompleted(ScannerCompletion.StockAdjusted(local.product.id, shelfId, delta, "${local.product.name}: stanje je ažurirano."))
@@ -185,7 +190,7 @@ fun ScannerScreen(
                     detected = null
                 },
                 move = { fromShelfId, toShelfId, quantity ->
-                    viewModel.moveStock(local.product.id, fromShelfId, toShelfId, quantity) {
+                    viewModel.moveVariantStock(localVariant.id, fromShelfId, toShelfId, quantity) {
                         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                         view.playSoundEffect(SoundEffectConstants.CLICK)
                         onCompleted(ScannerCompletion.StockMoved(local.product.id, fromShelfId, toShelfId, quantity, "${local.product.name}: premješteno $quantity kom."))
@@ -211,24 +216,25 @@ fun ScannerScreen(
                     initialShelfId = scannerContext.shelfId,
                     activeProducts = products,
                     deletedProducts = deletedProducts,
+                    synonymRules = viewModel.synonymRules.collectAsStateWithLifecycle().value,
                     catalogLookup = lookupState,
                     requestCatalogLookup = lookup::lookup,
                     continueManually = lookup::continueManually,
-                    showInventoryMatchInitially = deletedProducts.any { it.product.barcode == code },
-                    onAddExisting = { item, shelf, quantity, done ->
-                        viewModel.adjustStock(item.product.id, shelf, quantity, onAdjusted = {
+                    showInventoryMatchInitially = deletedProducts.any { item -> item.variants.any { it.barcode == code } },
+                    onAddExisting = { item, variant, shelf, quantity, done ->
+                        viewModel.adjustVariantStock(variant.id, shelf, quantity, onAdjusted = {
                             done(true)
                             onCompleted(ScannerCompletion.StockAdjusted(item.product.id, shelf, quantity, "${item.product.name}: stanje je ažurirano."))
                         }, onFailure = { done(false) })
                     },
-                    onRestoreDeleted = { item, shelf, quantity, done ->
-                        viewModel.restoreProductAndAddStock(item.product.id, shelf, quantity, onRestored = {
+                    onRestoreDeleted = { item, variant, shelf, quantity, done ->
+                        viewModel.restoreProductAndAddStock(item.product.id, variant.id, shelf, quantity, onRestored = {
                             done(true)
-                            onCompleted(ScannerCompletion.ProductRestored(item.product, shelf, quantity, "${item.product.name}: vraćen iz koša i dodan u smočnicu."))
+                            onCompleted(ScannerCompletion.ProductRestored(item.product, variant.id, shelf, quantity, "${item.product.name}: vraćen iz koša i dodan u smočnicu."))
                         }, onFailure = { done(false) })
                     },
-                ) { product, shelf, quantity, photo, source, done ->
-                    viewModel.createProductAndStock(product, shelf, quantity, photo, source, onCreated = { created ->
+                ) { submission, shelf, quantity, photo, source, done ->
+                    viewModel.createProductAndStock(submission, shelf, quantity, photo, source, onCreated = { created ->
                             haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                             view.playSoundEffect(SoundEffectConstants.CLICK)
                             done(true)
@@ -243,6 +249,7 @@ fun ScannerScreen(
 @Composable
 private fun ScannerStockDialog(
     item: ProductWithStock,
+    variant: hr.smocnica.core.model.ProductVariant,
     shelves: List<Pair<String, String>>,
     initialShelfId: String,
     initialMode: ScannerMode,
@@ -251,17 +258,18 @@ private fun ScannerStockDialog(
     adjust: (String, Int) -> Unit,
     move: (String, String, Int) -> Unit,
 ) {
-    var shelfId by remember { mutableStateOf(initialShelfId.takeIf { id -> shelves.any { it.first == id } } ?: item.stocks.firstOrNull { it.quantity > 0 }?.shelfId ?: shelves.firstOrNull()?.first.orEmpty()) }
+    var shelfId by remember { mutableStateOf(initialShelfId.takeIf { id -> shelves.any { it.first == id } } ?: item.stocks.firstOrNull { it.variantId == variant.id && it.quantity > 0 }?.shelfId ?: shelves.firstOrNull()?.first.orEmpty()) }
     var targetShelfId by remember { mutableStateOf(shelves.firstOrNull { it.first != shelfId }?.first.orEmpty()) }
     var mode by remember { mutableStateOf(initialMode.takeUnless { it == ScannerMode.DEFAULT } ?: ScannerMode.ADD) }
     var quantity by remember { mutableIntStateOf(initialQuantity.coerceAtLeast(1)) }
     var confirmRiskyAction by remember { mutableStateOf(false) }
-    val available = item.stocks.firstOrNull { it.shelfId == shelfId }?.quantity ?: 0
-    AlertDialog(onDismissRequest = dismiss, title = { Text(item.product.name) }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    val available = item.stocks.firstOrNull { it.variantId == variant.id && it.shelfId == shelfId }?.quantity ?: 0
+    val variantTotal = item.stocks.filter { it.variantId == variant.id }.sumOf { it.quantity }
+    AlertDialog(onDismissRequest = dismiss, title = { Text("${item.product.name} · ${variant.displayName}") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button({ mode = ScannerMode.ADD; confirmRiskyAction = false }) { Text("Dodaj") }
             Button({ mode = ScannerMode.REMOVE; confirmRiskyAction = false }) { Text("Izvadi") }
-            Button({ mode = ScannerMode.MOVE; confirmRiskyAction = false }, enabled = item.totalQuantity > 0 && shelves.size > 1) { Text("Premjesti") }
+            Button({ mode = ScannerMode.MOVE; confirmRiskyAction = false }, enabled = variantTotal > 0 && shelves.size > 1) { Text("Premjesti") }
         }
         SimpleScannerShelfPicker(shelves, shelfId) { selected ->
             shelfId = selected
@@ -279,7 +287,7 @@ private fun ScannerStockDialog(
     } }, confirmButton = {
         Button(
             onClick = {
-                val risky = mode == ScannerMode.REMOVE && quantity == item.totalQuantity ||
+                val risky = mode == ScannerMode.REMOVE && quantity == variantTotal ||
                     mode == ScannerMode.MOVE && (quantity == available || quantity >= 5)
                 if (risky && !confirmRiskyAction) confirmRiskyAction = true
                 else if (mode == ScannerMode.MOVE) move(shelfId, targetShelfId, quantity)

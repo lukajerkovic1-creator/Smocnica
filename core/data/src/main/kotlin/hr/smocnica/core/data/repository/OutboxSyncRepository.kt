@@ -145,10 +145,12 @@ class OutboxSyncRepository @Inject constructor(
         AggregateType.SHELF -> database.shelfDao().get(operation.aggregateId)?.revision
         AggregateType.CATEGORY -> database.categoryDao().get(operation.aggregateId)?.revision
         AggregateType.PRODUCT -> database.productDao().get(operation.aggregateId)?.revision
+        AggregateType.VARIANT -> database.productVariantDao().get(operation.aggregateId)?.revision
+        AggregateType.DICTIONARY -> database.synonymRuleDao().get(operation.aggregateId)?.revision
         AggregateType.SHOPPING -> database.shoppingDao().get(operation.aggregateId)?.revision
         AggregateType.STOCK -> when (val payload = json.decodeFromString(OperationPayload.serializer(), operation.payloadJson)) {
-            is OperationPayload.AdjustStock -> database.stockDao().get(payload.productId, payload.shelfId)?.revision
-            is OperationPayload.MoveStock -> database.stockDao().get(payload.productId, payload.fromShelfId)?.revision
+            is OperationPayload.AdjustStock -> database.stockDao().getVariant(payload.variantId, payload.shelfId)?.revision
+            is OperationPayload.MoveStock -> database.stockDao().getVariant(payload.variantId, payload.fromShelfId)?.revision
             else -> null
         }
         AggregateType.PANTRY -> database.pantryDao().get(operation.pantryId)?.revision
@@ -159,6 +161,10 @@ class OutboxSyncRepository @Inject constructor(
         is OperationPayload.RenameShelf -> "Preimenovanje police"
         is OperationPayload.ReorderShelves -> "Promjena redoslijeda polica"
         is OperationPayload.UpsertProduct -> "Promjena artikla ${payload.product.name}"
+        is OperationPayload.UpsertVariant -> "Promjena varijante ${payload.variant.displayName}"
+        is OperationPayload.MoveVariant -> "Promjena grupiranja varijante"
+        is OperationPayload.UpsertSynonymRule -> "Promjena rječnika sinonima"
+        is OperationPayload.SetDoNotGroup -> "Promjena pravila grupiranja"
         is OperationPayload.UpsertCategory -> "Promjena kategorije ${payload.category.name}"
         is OperationPayload.BulkChangeProductCategory -> "Skupna promjena kategorije (${payload.productIds.size})"
         is OperationPayload.BulkDeleteProducts -> "Skupno brisanje artikala (${payload.productIds.size})"
@@ -177,16 +183,20 @@ class OutboxSyncRepository @Inject constructor(
                 database.shoppingDao().allowRemote("auto_${operation.aggregateId}")
                 refresh = true
             }
+            AggregateType.VARIANT -> database.productVariantDao().markSynced(operation.aggregateId, revision)
+            AggregateType.DICTIONARY -> database.synonymRuleDao().markSynced(operation.aggregateId, revision)
             AggregateType.SHOPPING -> database.shoppingDao().markSynced(operation.aggregateId, revision)
             AggregateType.STOCK -> when (val payload = json.decodeFromString(OperationPayload.serializer(), operation.payloadJson)) {
                 is OperationPayload.AdjustStock -> {
-                    database.stockDao().markSynced(payload.productId, payload.shelfId, revision)
+                    database.stockDao().markVariantSynced(payload.variantId, payload.shelfId, revision)
+                    database.productVariantDao().allowRemote(payload.variantId)
+                    database.productDao().allowRemote(payload.productId)
                     database.shoppingDao().allowRemote("auto_${payload.productId}")
                     refresh = true
                 }
                 is OperationPayload.MoveStock -> {
-                    database.stockDao().markSynced(payload.productId, payload.fromShelfId, revision)
-                    database.stockDao().markSynced(payload.productId, payload.toShelfId, revision)
+                    database.stockDao().markVariantSynced(payload.variantId, payload.fromShelfId, revision)
+                    database.stockDao().markVariantSynced(payload.variantId, payload.toShelfId, revision)
                 }
                 else -> Unit
             }
@@ -198,6 +208,8 @@ class OutboxSyncRepository @Inject constructor(
                         database.shelfDao().allowRemoteForPantry(operation.pantryId)
                         database.categoryDao().allowRemoteForPantry(operation.pantryId)
                         database.productDao().allowRemoteForPantry(operation.pantryId)
+                        database.productVariantDao().allowRemoteForPantry(operation.pantryId)
+                        database.synonymRuleDao().allowRemoteForPantry(operation.pantryId)
                         database.stockDao().allowRemoteForPantry(operation.pantryId)
                         database.shoppingDao().allowRemoteForPantry(operation.pantryId)
                     }
@@ -214,8 +226,8 @@ class OutboxSyncRepository @Inject constructor(
                         }
                     }
                     is OperationPayload.BulkMoveStock -> payload.moves.forEach { move ->
-                        database.stockDao().allowRemote(move.productId, move.fromShelfId)
-                        database.stockDao().allowRemote(move.productId, move.toShelfId)
+                        database.stockDao().allowVariantRemote(move.variantId, move.fromShelfId)
+                        database.stockDao().allowVariantRemote(move.variantId, move.toShelfId)
                     }
                     else -> Unit
                 }
@@ -225,7 +237,7 @@ class OutboxSyncRepository @Inject constructor(
                 val payload = json.decodeFromString(OperationPayload.serializer(), operation.payloadJson)
                 if (payload is OperationPayload.ApplyInventory) {
                     payload.session.differences.forEach {
-                        database.stockDao().allowRemote(it.productId, payload.session.shelfId)
+                        database.stockDao().allowVariantRemote(it.variantId, payload.session.shelfId)
                         database.shoppingDao().allowRemote("auto_${it.productId}")
                     }
                 }
@@ -242,12 +254,18 @@ class OutboxSyncRepository @Inject constructor(
             AggregateType.SHELF -> database.shelfDao().allowRemote(operation.aggregateId)
             AggregateType.CATEGORY -> database.categoryDao().allowRemote(operation.aggregateId)
             AggregateType.PRODUCT -> database.productDao().allowRemote(operation.aggregateId)
+            AggregateType.VARIANT -> database.productVariantDao().allowRemote(operation.aggregateId)
+            AggregateType.DICTIONARY -> database.synonymRuleDao().allowRemote(operation.aggregateId)
             AggregateType.SHOPPING -> database.shoppingDao().allowRemote(operation.aggregateId)
             AggregateType.STOCK -> when (payload) {
-                is OperationPayload.AdjustStock -> database.stockDao().allowRemote(payload.productId, payload.shelfId)
+                is OperationPayload.AdjustStock -> {
+                    database.stockDao().allowVariantRemote(payload.variantId, payload.shelfId)
+                    database.productVariantDao().allowRemote(payload.variantId)
+                    database.productDao().allowRemote(payload.productId)
+                }
                 is OperationPayload.MoveStock -> {
-                    database.stockDao().allowRemote(payload.productId, payload.fromShelfId)
-                    database.stockDao().allowRemote(payload.productId, payload.toShelfId)
+                    database.stockDao().allowVariantRemote(payload.variantId, payload.fromShelfId)
+                    database.stockDao().allowVariantRemote(payload.variantId, payload.toShelfId)
                 }
                 else -> Unit
             }
@@ -259,6 +277,8 @@ class OutboxSyncRepository @Inject constructor(
                     database.shelfDao().allowRemoteForPantry(operation.pantryId)
                     database.categoryDao().allowRemoteForPantry(operation.pantryId)
                     database.productDao().allowRemoteForPantry(operation.pantryId)
+                    database.productVariantDao().allowRemoteForPantry(operation.pantryId)
+                    database.synonymRuleDao().allowRemoteForPantry(operation.pantryId)
                     database.stockDao().allowRemoteForPantry(operation.pantryId)
                     database.shoppingDao().allowRemoteForPantry(operation.pantryId)
                     }
@@ -275,14 +295,14 @@ class OutboxSyncRepository @Inject constructor(
                         }
                     }
                     is OperationPayload.BulkMoveStock -> payload.moves.forEach { move ->
-                        database.stockDao().allowRemote(move.productId, move.fromShelfId)
-                        database.stockDao().allowRemote(move.productId, move.toShelfId)
+                        database.stockDao().allowVariantRemote(move.variantId, move.fromShelfId)
+                        database.stockDao().allowVariantRemote(move.variantId, move.toShelfId)
                     }
                     else -> Unit
                 }
             }
             AggregateType.INVENTORY -> if (payload is OperationPayload.ApplyInventory) {
-                payload.session.differences.forEach { database.stockDao().allowRemote(it.productId, payload.session.shelfId) }
+                payload.session.differences.forEach { database.stockDao().allowVariantRemote(it.variantId, payload.session.shelfId) }
             }
             else -> Unit
         }

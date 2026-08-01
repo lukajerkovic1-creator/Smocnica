@@ -38,6 +38,7 @@ sealed interface ScannerCompletion {
 
     data class ProductRestored(
         val product: Product,
+        val variantId: String,
         val shelfId: String,
         val quantity: Int,
         override val message: String,

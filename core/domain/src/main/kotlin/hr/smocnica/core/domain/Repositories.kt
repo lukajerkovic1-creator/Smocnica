@@ -9,9 +9,11 @@ import hr.smocnica.core.model.PantrySnapshot
 import hr.smocnica.core.model.Product
 import hr.smocnica.core.model.ProductFilter
 import hr.smocnica.core.model.ProductWithStock
+import hr.smocnica.core.model.ProductVariant
 import hr.smocnica.core.model.Shelf
 import hr.smocnica.core.model.ShoppingItem
 import hr.smocnica.core.model.SyncSummary
+import hr.smocnica.core.model.SynonymRule
 import hr.smocnica.core.model.TrashItem
 import hr.smocnica.core.model.UserSession
 import kotlinx.coroutines.flow.Flow
@@ -46,6 +48,7 @@ data class Invitation(val code: String, val expiresAt: Long)
 interface InventoryRepository {
     fun observeShelves(pantryId: String): Flow<List<Shelf>>
     fun observeProducts(pantryId: String, filter: ProductFilter = ProductFilter()): Flow<List<ProductWithStock>>
+    fun observeSynonymRules(pantryId: String): Flow<List<SynonymRule>>
     fun observeDeletedProducts(pantryId: String): Flow<List<ProductWithStock>>
     fun observeCategories(pantryId: String): Flow<List<Category>>
     fun observeShopping(pantryId: String): Flow<List<ShoppingItem>>
@@ -60,9 +63,25 @@ interface InventoryRepository {
     suspend fun reorderCategories(pantryId: String, orderedIds: List<String>, baseRevision: Long, actorUid: String, deviceName: String)
     suspend fun deleteCategory(category: Category, replacementCategoryId: String, actorUid: String, deviceName: String)
     suspend fun upsertProduct(product: Product, actorUid: String, deviceName: String): Product
+    suspend fun upsertVariant(variant: ProductVariant, actorUid: String, deviceName: String): ProductVariant
+    suspend fun deleteVariant(variantId: String, actorUid: String, deviceName: String)
+    suspend fun moveVariant(variantId: String, targetProductId: String, actorUid: String, deviceName: String)
+    suspend fun splitVariant(variantId: String, newGenericName: String, actorUid: String, deviceName: String): Product
+    suspend fun setDoNotGroup(productId: String, doNotGroup: Boolean, actorUid: String, deviceName: String)
+    suspend fun upsertSynonymRule(rule: SynonymRule, actorUid: String, deviceName: String): SynonymRule
+    suspend fun adjustVariantStock(variantId: String, shelfId: String, delta: Int, actorUid: String, deviceName: String)
+    suspend fun moveVariantStock(variantId: String, fromShelfId: String, toShelfId: String, quantity: Int, actorUid: String, deviceName: String)
     suspend fun deleteProduct(product: Product, actorUid: String, deviceName: String)
     suspend fun adjustStock(productId: String, shelfId: String, delta: Int, actorUid: String, deviceName: String)
-    suspend fun restoreProductAndAdjustStock(pantryId: String, productId: String, shelfId: String, quantity: Int, actorUid: String, deviceName: String)
+    suspend fun restoreProductAndAdjustStock(
+        pantryId: String,
+        productId: String,
+        shelfId: String,
+        quantity: Int,
+        actorUid: String,
+        deviceName: String,
+        variantId: String? = null,
+    )
     suspend fun moveStock(productId: String, fromShelfId: String, toShelfId: String, quantity: Int, actorUid: String, deviceName: String)
     suspend fun changeProductsCategory(pantryId: String, productIds: List<String>, categoryId: String, actorUid: String, deviceName: String)
     suspend fun deleteProducts(pantryId: String, productIds: List<String>, actorUid: String, deviceName: String)
@@ -131,6 +150,7 @@ data class CatalogProduct(
     val description: String,
     val category: String,
     val imageUrl: String?,
+    val manufacturer: String = "",
 )
 
 interface UpdateRepository {

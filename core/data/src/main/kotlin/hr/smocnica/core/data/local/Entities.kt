@@ -17,6 +17,8 @@ data class PantryEntity(
     val purgeAfter: Long?,
     val syncState: SyncState,
     val accessRevokedAt: Long? = null,
+    val contentSchemaVersion: Int = 2,
+    val groupingReviewCompletedAt: Long? = null,
 )
 
 @Entity(tableName = "members", primaryKeys = ["pantryId", "uid"], indices = [Index("pantryId")])
@@ -91,12 +93,50 @@ data class ProductEntity(
     val deletedAt: Long?,
     val purgeAfter: Long?,
     val syncState: SyncState,
+    val minimumMode: String = "PACKAGES",
+    val minimumAmountBase: Long = minimumQuantity.toLong(),
+    val preferredVariantId: String? = null,
+    val doNotGroup: Boolean = false,
+    val groupingRevision: Long = 0,
+)
+
+@Entity(
+    tableName = "product_variants",
+    primaryKeys = ["id"],
+    indices = [
+        Index("pantryId"),
+        Index("productId"),
+        Index(value = ["pantryId", "barcode"], unique = true),
+        Index("deletedAt"),
+    ],
+)
+data class ProductVariantEntity(
+    val id: String,
+    val pantryId: String,
+    val productId: String,
+    val displayName: String,
+    val manufacturer: String,
+    val barcode: String?,
+    val packageAmountBase: Long?,
+    val packageUnit: String,
+    val packageLabel: String,
+    val description: String,
+    val photoUri: String?,
+    val photoSource: String,
+    val minimumPackages: Int?,
+    val purchaseCount: Long,
+    val revision: Long,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val deletedAt: Long?,
+    val purgeAfter: Long?,
+    val syncState: SyncState,
 )
 
 @Entity(
     tableName = "stocks",
-    primaryKeys = ["pantryId", "productId", "shelfId"],
-    indices = [Index("productId"), Index("shelfId")],
+    primaryKeys = ["pantryId", "variantId", "shelfId"],
+    indices = [Index("productId"), Index("variantId"), Index("shelfId")],
 )
 data class StockEntity(
     val pantryId: String,
@@ -106,6 +146,7 @@ data class StockEntity(
     val revision: Long,
     val updatedAt: Long,
     val syncState: SyncState,
+    val variantId: String = productId,
 )
 
 @Entity(
@@ -128,6 +169,26 @@ data class ShoppingEntity(
     val deletedAt: Long?,
     val syncState: SyncState,
     val categoryId: String? = null,
+    val preferredVariantId: String? = null,
+)
+
+@Entity(
+    tableName = "synonym_rules",
+    primaryKeys = ["id"],
+    indices = [Index("pantryId"), Index(value = ["pantryId", "sourceNormalized"], unique = true), Index("deletedAt")],
+)
+data class SynonymRuleEntity(
+    val id: String,
+    val pantryId: String,
+    val sourceNormalized: String,
+    val genericName: String,
+    val genericNameNormalized: String,
+    val productId: String?,
+    val ownerConfirmed: Boolean,
+    val revision: Long,
+    val updatedAt: Long,
+    val deletedAt: Long?,
+    val syncState: SyncState,
 )
 
 @Entity(tableName = "activities", primaryKeys = ["id"], indices = [Index(value = ["pantryId", "createdAt"])])

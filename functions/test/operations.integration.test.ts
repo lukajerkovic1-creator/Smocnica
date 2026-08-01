@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import firebaseFunctionsTest from "firebase-functions-test";
 import { applyOperation } from "../src/operations";
+import { importSnapshotJob } from "../src/import-job";
 import { createInvitation, createPantry, deleteAccountData, joinPantry, listMyPantries, manageMember, registerDevice, transferOwnership, unregisterDevice } from "../src/pantry";
 import { db } from "../src/firebase";
 import { sha256 } from "../src/validation";
@@ -8,6 +9,7 @@ import { sha256 } from "../src/validation";
 const emulatorAvailable = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
 const testEnvironment = firebaseFunctionsTest();
 const invoke = testEnvironment.wrap(applyOperation);
+const invokeImportJob = testEnvironment.wrap(importSnapshotJob);
 const invokeManageMember = testEnvironment.wrap(manageMember);
 const invokeListMyPantries = testEnvironment.wrap(listMyPantries);
 const invokeUnregisterDevice = testEnvironment.wrap(unregisterDevice);
@@ -367,6 +369,40 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     expect(activity.get("productId")).toBe("a");
   });
 
+  it("deletes only one variant until deleting the last variant also trashes the generic product", async () => {
+    const setup = db.batch();
+    setup.update(db.doc("pantries/p1"), { contentSchemaVersion: 2, quantityProjectionRemovedAt: new Date() });
+    setup.update(db.doc("pantries/p1/products/a"), { preferredVariantId: "v1" });
+    setup.set(db.doc("pantries/p1/variants/v1"), {
+      productId: "a", displayName: "Prvo pakiranje", purchaseCount: 3,
+      revision: 1, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    });
+    setup.set(db.doc("pantries/p1/variants/v2"), {
+      productId: "a", displayName: "Drugo pakiranje", purchaseCount: 1,
+      revision: 1, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    });
+    await setup.commit();
+    const deleteVariant = (operationId: string, variantId: string) => callable({
+      operationId, pantryId: "p1", aggregateType: "VARIANT", aggregateId: variantId, baseRevision: 1,
+      payload: { type: "soft_delete", targetType: "VARIANT", id: variantId },
+      deviceId: "device-0001", deviceDisplayName: "Klijentski uređaj",
+    }, "u1");
+
+    await invoke(deleteVariant("op-delete-v1", "v1") as never);
+
+    expect((await db.doc("pantries/p1/variants/v1").get()).get("deletedAt")).toBeTruthy();
+    expect((await db.doc("pantries/p1/variants/v2").get()).get("deletedAt")).toBeNull();
+    expect((await db.doc("pantries/p1/products/a").get()).get("deletedAt")).toBeNull();
+    expect((await db.doc("pantries/p1/products/a").get()).get("preferredVariantId")).toBe("v2");
+
+    await invoke(deleteVariant("op-delete-v2", "v2") as never);
+
+    expect((await db.doc("pantries/p1/variants/v2").get()).get("deletedAt")).toBeTruthy();
+    expect((await db.doc("pantries/p1/products/a").get()).get("deletedAt")).toBeTruthy();
+    expect((await db.doc("pantries/p1/operations/op-delete-v2").get()).exists).toBe(true);
+    expect((await db.doc("pantries/p1/activities/op-delete-v2").get()).get("productId")).toBe("a");
+  });
+
   it.each([
     ["missing product", async () => db.doc("pantries/p1/products/a").delete()],
     ["deleted product", async () => db.doc("pantries/p1/products/a").update({ deletedAt: new Date() })],
@@ -494,9 +530,44 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
         },
       },
     } as never);
-    expect((await db.doc("pantries/p1/products/b").get()).get("totalQuantity")).toBe(4);
+    expect((await db.doc("pantries/p1/products/b").get()).get("totalQuantity")).toBeUndefined();
     expect((await db.doc(`barcodes/${sha256(`p1:${code}`)}`).get()).get("productId")).toBe("b");
   });
+
+  it("imports the maximum generic catalog in resumable chunks and is idempotent", async () => {
+    const products = Array.from({ length: 500 }, (_, index) => ({
+      id: `max-product-${index}`, pantryId: "p1", name: `Artikl ${index}`, categoryId: "c1", category: "Namirnice",
+      minimumQuantity: 0, minimumMode: "PACKAGES", minimumAmountBase: 0, autoShopping: true,
+      preferredVariantId: `max-variant-${index}`, createdAt: 1, updatedAt: 1,
+    }));
+    const variants = products.map((product, index) => ({
+      id: `max-variant-${index}`, pantryId: "p1", productId: product.id, displayName: `Pakiranje ${index}`,
+      manufacturer: "", barcode: null, packageAmountBase: 500_000, packageUnit: "G", packageLabel: "500 g",
+      description: "", photoUri: null, photoSource: "NONE", minimumPackages: null, purchaseCount: 0, createdAt: 1, updatedAt: 1,
+    }));
+    const request = {
+      data: {
+        operationId: "op-import-maximum", pantryId: "p1", aggregateType: "PANTRY", aggregateId: "p1",
+        deviceId: "device-0001", payload: {
+          type: "import_snapshot", replaceExisting: true, snapshot: {
+            shelves: [{ id: "s1", name: "Polica 1", sortOrder: 0 }],
+            categories: [{ id: "c1", name: "Namirnice", sortOrder: 0, isDefault: true }],
+            products, variants, stocks: [], shoppingItems: [], synonymRules: [],
+          },
+        },
+      },
+      auth: { uid: "u1" },
+      app: { appId: "test-app" },
+      rawRequest: {},
+    };
+    const first = await invokeImportJob(request as never);
+    const second = await invokeImportJob(request as never);
+    expect(first.status).toBe("APPLIED");
+    expect(second.status).toBe("ALREADY_APPLIED");
+    expect((await db.collection("pantries/p1/products").where("deletedAt", "==", null).get()).size).toBe(500);
+    expect((await db.collection("pantries/p1/variants").where("deletedAt", "==", null).get()).size).toBe(500);
+    expect((await db.doc("pantries/p1/importJobs/op-import-maximum").get()).get("phase")).toBe("COMPLETED");
+  }, 120_000);
 
   it("rejects an inconsistent automatic shopping item without partial import", async () => {
     await expect(invoke({
@@ -737,6 +808,57 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
       deviceId: "device-0001", deviceDisplayName: "Klijentski uređaj",
     }, "u1") as never)).rejects.toMatchObject({ code: "resource-exhausted" });
     expect((await db.doc("pantries/p1/shelves/s51").get()).exists).toBe(false);
+  });
+
+  it("atomically splits a variant, preserves its stock and reports a concurrent grouping conflict", async () => {
+    const batch = db.batch();
+    batch.update(db.doc("pantries/p1"), { contentSchemaVersion: 2, quantityProjectionRemovedAt: new Date() });
+    batch.update(db.doc("pantries/p1/products/a"), {
+      normalizedName: "riža", groupingRevision: 0, preferredVariantId: "v1",
+      minimumMode: "PACKAGES", minimumAmountBase: 5,
+    });
+    batch.set(db.doc("pantries/p1/variants/v1"), {
+      productId: "a", displayName: "Prva varijanta", manufacturer: "A", barcode: null,
+      packageAmountBase: 1_000_000, packageUnit: "KG", packageLabel: "1 kg", minimumPackages: null,
+      purchaseCount: 1, revision: 1, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    });
+    batch.set(db.doc("pantries/p1/variants/v2"), {
+      productId: "a", displayName: "Druga varijanta", manufacturer: "B", barcode: "3850000000011",
+      packageAmountBase: 500_000, packageUnit: "G", packageLabel: "500 g", minimumPackages: null,
+      purchaseCount: 0, revision: 1, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    });
+    batch.set(db.doc("pantries/p1/variants/v3"), {
+      productId: "a", displayName: "Treća varijanta", manufacturer: "C", barcode: null,
+      packageAmountBase: null, packageUnit: "UNKNOWN", packageLabel: "", minimumPackages: null,
+      purchaseCount: 0, revision: 1, createdAt: new Date(), updatedAt: new Date(), deletedAt: null,
+    });
+    batch.update(db.doc("pantries/p1/stocks/a_s1"), { variantId: "v1" });
+    batch.set(db.doc("pantries/p1/stocks/v2_s2"), {
+      productId: "a", variantId: "v2", shelfId: "s2", quantity: 3, revision: 1, updatedAt: new Date(),
+    });
+    await batch.commit();
+
+    const split = (operationId: string, variantId: string, expectedGroupingRevision: number, newProductId: string) => callable({
+      operationId, pantryId: "p1", aggregateType: "VARIANT", aggregateId: variantId, baseRevision: 1,
+      payload: {
+        type: "split_variant", variantId, fromProductId: "a", expectedGroupingRevision,
+        newProduct: { id: newProductId, name: "Integralno brašno" },
+      },
+      deviceId: "device-0001", deviceDisplayName: "Krivotvoreni uređaj",
+    }, "u1");
+
+    const first = await invoke(split("op-split-01", "v2", 0, "new-product") as never);
+    expect(first.status).toBe("APPLIED");
+    expect((await db.doc("pantries/p1/variants/v2").get()).get("productId")).toBe("new-product");
+    const movedStock = await db.doc("pantries/p1/stocks/v2_s2").get();
+    expect(movedStock.get("productId")).toBe("new-product");
+    expect(movedStock.get("quantity")).toBe(3);
+    expect((await db.doc("pantries/p1/products/a").get()).get("groupingRevision")).toBe(1);
+    expect((await db.doc("pantries/p1/activities/op-split-01").get()).get("type")).toBe("VARIANT_UNGROUPED");
+
+    await expect(invoke(split("op-split-stale", "v3", 0, "stale-product") as never))
+      .rejects.toMatchObject({ code: "aborted", message: "REVISION_CONFLICT:1" });
+    expect((await db.doc("pantries/p1/products/stale-product").get()).exists).toBe(false);
   });
 });
 

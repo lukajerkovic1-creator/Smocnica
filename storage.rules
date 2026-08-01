@@ -3,8 +3,18 @@ service firebase.storage {
   match /b/{bucket}/o {
     function activeMember(pantryId) {
       return request.auth != null
+        && firestore.exists(/databases/(default)/documents/pantries/$(pantryId))
+        && (!firestore.get(/databases/(default)/documents/pantries/$(pantryId)).data.keys().hasAny(['deletedAt'])
+          || firestore.get(/databases/(default)/documents/pantries/$(pantryId)).data.deletedAt == null)
         && firestore.exists(/databases/(default)/documents/pantries/$(pantryId)/members/$(request.auth.uid))
         && firestore.get(/databases/(default)/documents/pantries/$(pantryId)/members/$(request.auth.uid)).data.active == true;
+    }
+
+    function activeVariant(pantryId, variantId) {
+      return firestore.exists(/databases/(default)/documents/pantries/$(pantryId)/variants/$(variantId))
+        && (!firestore.get(/databases/(default)/documents/pantries/$(pantryId)/variants/$(variantId)).data.keys().hasAny(['deletedAt'])
+          || firestore.get(/databases/(default)/documents/pantries/$(pantryId)/variants/$(variantId)).data.deletedAt == null)
+        && activeProduct(pantryId, firestore.get(/databases/(default)/documents/pantries/$(pantryId)/variants/$(variantId)).data.productId);
     }
 
     function activeProduct(pantryId, productId) {
@@ -24,6 +34,18 @@ service firebase.storage {
         && request.resource.metadata.productId == productId;
       // Brisanje privatnih fotografija obavljaju isključivo pouzdane backend
       // operacije (Admin SDK zaobilazi klijentska pravila).
+      allow delete: if false;
+    }
+
+    match /pantries/{pantryId}/variants/{variantId}/{fileName} {
+      allow read: if activeMember(pantryId) && activeVariant(pantryId, variantId);
+      allow create, update: if activeMember(pantryId)
+        && activeVariant(pantryId, variantId)
+        && fileName == 'main.jpg'
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType == 'image/jpeg'
+        && request.resource.metadata.variantId == variantId;
       allow delete: if false;
     }
 

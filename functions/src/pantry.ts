@@ -47,6 +47,8 @@ export const createPantry = onCall(callable, async (request) => {
 
     transaction.create(pantryRef, {
       name, ownerUid: uid, memberUids: [uid], revision: 0,
+      contentSchemaVersion: 2, groupingReviewCompletedAt: null,
+      genericMigration: { targetVersion: 2, phase: "COMPLETED", completedAt: timestamp, updatedAt: timestamp },
       createdAt: timestamp, updatedAt: timestamp, deletedAt: null, purgeAfter: null,
     });
     transaction.create(pantryRef.collection("members").doc(uid), {
@@ -520,7 +522,7 @@ export const purgeTrash = onCall(callable, async (request) => {
   const id = safeId(text(data, "id"), "id");
   const type = text(data, "type", 1, 30);
   await requireMember(pantryId, uid);
-  const collection = type === "PRODUCT" ? "products" : type === "SHELF" ? "shelves" : type === "CATEGORY" ? "categories" : null;
+  const collection = type === "PRODUCT" ? "products" : type === "VARIANT" ? "variants" : type === "SHELF" ? "shelves" : type === "CATEGORY" ? "categories" : null;
   if (!collection) throw new HttpsError("invalid-argument", "Nepodržana vrsta zapisa u košu.");
   const ref = db.doc(`pantries/${pantryId}/${collection}/${id}`);
   await db.runTransaction(async (transaction) => {
@@ -528,25 +530,37 @@ export const purgeTrash = onCall(callable, async (request) => {
     if (document.exists) {
       if (!document.get("deletedAt")) throw new HttpsError("failed-precondition", "Zapis nije u košu.");
       transaction.delete(ref);
-      if (type === "PRODUCT" && document.get("barcode")) {
+      if (type === "VARIANT" && document.get("barcode")) {
         transaction.delete(db.doc(`barcodes/${sha256(`${pantryId}:${document.get("barcode")}`)}`));
       }
     }
   });
   if (type === "PRODUCT") {
     await getStorage().bucket().file(`pantries/${pantryId}/products/${id}/main.jpg`).delete({ ignoreNotFound: true });
+  } else if (type === "VARIANT") {
+    await getStorage().bucket().file(`pantries/${pantryId}/variants/${id}/main.jpg`).delete({ ignoreNotFound: true });
   }
   const related = type === "PRODUCT"
     ? await Promise.all([
       db.collection(`pantries/${pantryId}/stocks`).where("productId", "==", id).get(),
       db.collection(`pantries/${pantryId}/shoppingItems`).where("productId", "==", id).get(),
+      db.collection(`pantries/${pantryId}/variants`).where("productId", "==", id).get(),
     ])
+    : type === "VARIANT"
+      ? [await db.collection(`pantries/${pantryId}/stocks`).where("variantId", "==", id).get()]
     : type === "SHELF"
       ? [await db.collection(`pantries/${pantryId}/stocks`).where("shelfId", "==", id).get()]
       : [];
   if (related.length > 0) {
     const writer = db.bulkWriter();
-    related.flatMap((query) => query.docs).forEach((document) => writer.delete(document.ref));
+    for (const document of related.flatMap((query) => query.docs)) {
+      if (type === "PRODUCT" && document.ref.parent.id === "variants") {
+        await getStorage().bucket().file(`pantries/${pantryId}/variants/${document.id}/main.jpg`).delete({ ignoreNotFound: true });
+        const code = document.get("barcode");
+        if (typeof code === "string") writer.delete(db.doc(`barcodes/${sha256(`${pantryId}:${code}`)}`));
+      }
+      writer.delete(document.ref);
+    }
     await writer.close();
   }
   return { status: "OK" };

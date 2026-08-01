@@ -13,10 +13,12 @@ import hr.smocnica.core.data.local.CategoryEntity
 import hr.smocnica.core.data.local.MemberEntity
 import hr.smocnica.core.data.local.PantryEntity
 import hr.smocnica.core.data.local.ProductEntity
+import hr.smocnica.core.data.local.ProductVariantEntity
 import hr.smocnica.core.data.local.ShelfEntity
 import hr.smocnica.core.data.local.ShoppingEntity
 import hr.smocnica.core.data.local.SmocnicaDatabase
 import hr.smocnica.core.data.local.StockEntity
+import hr.smocnica.core.data.local.SynonymRuleEntity
 import hr.smocnica.core.data.local.searchKey
 import hr.smocnica.core.model.SyncState
 import kotlinx.coroutines.CoroutineScope
@@ -98,19 +100,45 @@ class RealtimePantrySynchronizer @Inject constructor(
                 }
             }
         }
+        registrations += pantry.collection("variants").addSnapshotListener { snapshot, error ->
+            if (handleListenerError(pantryId, error)) return@addSnapshotListener
+            if (error == null && snapshot != null) scope.launch {
+                snapshot.documents.forEach { document ->
+                    val remote = document.variant(pantryId)
+                    val local = database.productVariantDao().get(remote.id)
+                    if (local == null || local.syncState == SyncState.SYNCED) database.productVariantDao().upsert(remote)
+                }
+                if (!snapshot.metadata.isFromCache && (database.pantryDao().get(pantryId)?.contentSchemaVersion ?: 1) >= 2) {
+                    val remoteIds = snapshot.documents.map { it.id }.toSet()
+                    database.productVariantDao().listAll(pantryId).filter { it.syncState == SyncState.SYNCED && it.id !in remoteIds }
+                        .forEach { database.productVariantDao().deleteHard(it.id) }
+                }
+            }
+        }
+        registrations += pantry.collection("synonymRules").addSnapshotListener { snapshot, error ->
+            if (handleListenerError(pantryId, error)) return@addSnapshotListener
+            if (error == null && snapshot != null) scope.launch {
+                snapshot.documents.forEach { document ->
+                    val remote = document.synonymRule(pantryId)
+                    val local = database.synonymRuleDao().get(remote.id)
+                    if (local == null || local.syncState == SyncState.SYNCED) database.synonymRuleDao().upsert(remote)
+                }
+            }
+        }
         registrations += pantry.collection("stocks").addSnapshotListener { snapshot, error ->
             if (handleListenerError(pantryId, error)) return@addSnapshotListener
             if (error == null && snapshot != null) scope.launch {
                 snapshot.documents.forEach { document ->
                     val remote = document.stock(pantryId)
-                    val local = database.stockDao().get(remote.productId, remote.shelfId)
+                    val local = database.stockDao().getVariant(remote.variantId, remote.shelfId)
                     if (local == null || local.syncState == SyncState.SYNCED) database.stockDao().upsert(remote)
                 }
                 if (!snapshot.metadata.isFromCache) {
                     val remoteIds = snapshot.documents.map { it.id }.toSet()
                     database.stockDao().listForPantry(pantryId).filter {
-                        it.syncState == SyncState.SYNCED && "${it.productId}_${it.shelfId}" !in remoteIds
-                    }.forEach { database.stockDao().deleteHard(pantryId, it.productId, it.shelfId) }
+                        it.syncState == SyncState.SYNCED && "${it.variantId}_${it.shelfId}" !in remoteIds &&
+                            "${it.productId}_${it.shelfId}" !in remoteIds
+                    }.forEach { database.stockDao().deleteVariantHard(pantryId, it.variantId, it.shelfId) }
                 }
             }
         }
@@ -174,6 +202,8 @@ class RealtimePantrySynchronizer @Inject constructor(
             deletedAt = document.epochOrNull("deletedAt"),
             purgeAfter = document.epochOrNull("purgeAfter"),
             syncState = SyncState.SYNCED,
+            contentSchemaVersion = document.long("contentSchemaVersion").toInt().coerceAtLeast(1),
+            groupingReviewCompletedAt = document.epochOrNull("groupingReviewCompletedAt"),
         )
         val local = database.pantryDao().get(remote.id)
         if (local == null || local.syncState == SyncState.SYNCED) database.pantryDao().upsert(remote)
@@ -215,11 +245,54 @@ class RealtimePantrySynchronizer @Inject constructor(
         deletedAt = epochOrNull("deletedAt"),
         purgeAfter = epochOrNull("purgeAfter"),
         syncState = SyncState.SYNCED,
+        minimumMode = string("minimumMode", "PACKAGES"),
+        minimumAmountBase = (get("minimumAmountBase") as? Number)?.toLong() ?: long("minimumQuantity"),
+        preferredVariantId = getString("preferredVariantId"),
+        doNotGroup = getBoolean("doNotGroup") ?: false,
+        groupingRevision = long("groupingRevision"),
+    )
+
+    private fun DocumentSnapshot.variant(pantryId: String) = ProductVariantEntity(
+        id = id,
+        pantryId = pantryId,
+        productId = string("productId"),
+        displayName = string("displayName"),
+        manufacturer = string("manufacturer", ""),
+        barcode = getString("barcode"),
+        packageAmountBase = (get("packageAmountBase") as? Number)?.toLong(),
+        packageUnit = string("packageUnit", "UNKNOWN"),
+        packageLabel = string("packageLabel", ""),
+        description = string("description", ""),
+        photoUri = getString("photoUrl") ?: getString("photoPath"),
+        photoSource = string("photoSource", "NONE"),
+        minimumPackages = (get("minimumPackages") as? Number)?.toInt(),
+        purchaseCount = long("purchaseCount"),
+        revision = long("revision"),
+        createdAt = epoch("createdAt"),
+        updatedAt = epoch("updatedAt"),
+        deletedAt = epochOrNull("deletedAt"),
+        purgeAfter = epochOrNull("purgeAfter"),
+        syncState = SyncState.SYNCED,
+    )
+
+    private fun DocumentSnapshot.synonymRule(pantryId: String) = SynonymRuleEntity(
+        id = id,
+        pantryId = pantryId,
+        sourceNormalized = string("sourceNormalized"),
+        genericName = string("genericName"),
+        genericNameNormalized = string("genericNameNormalized"),
+        productId = getString("productId"),
+        ownerConfirmed = getBoolean("ownerConfirmed") ?: false,
+        revision = long("revision"),
+        updatedAt = epoch("updatedAt"),
+        deletedAt = epochOrNull("deletedAt"),
+        syncState = SyncState.SYNCED,
     )
 
     private fun DocumentSnapshot.stock(pantryId: String) = StockEntity(
         pantryId, string("productId"), string("shelfId"), long("quantity").toInt(),
         long("revision"), epoch("updatedAt"), SyncState.SYNCED,
+        getString("variantId") ?: string("productId"),
     )
 
     private fun DocumentSnapshot.shopping(pantryId: String) = ShoppingEntity(
@@ -227,6 +300,7 @@ class RealtimePantrySynchronizer @Inject constructor(
         long("requiredQuantity").toInt(), getBoolean("checked") ?: false, getBoolean("manual") ?: false,
         long("revision"), epoch("createdAt"), epoch("updatedAt"), epochOrNull("deletedAt"), SyncState.SYNCED,
         getString("categoryId"),
+        getString("preferredVariantId"),
     )
 
     private fun DocumentSnapshot.activity(pantryId: String) = ActivityEntity(

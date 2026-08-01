@@ -26,6 +26,9 @@ import hr.smocnica.core.model.Pantry
 import hr.smocnica.core.model.Product
 import hr.smocnica.core.model.ProductFilter
 import hr.smocnica.core.model.ProductWithStock
+import hr.smocnica.core.model.ProductVariant
+import hr.smocnica.core.model.SynonymRule
+import hr.smocnica.core.domain.GenericNamePolicy
 import hr.smocnica.core.model.Shelf
 import hr.smocnica.core.model.ShoppingItem
 import hr.smocnica.core.model.Member
@@ -45,6 +48,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import javax.inject.Inject
+import hr.smocnica.ui.ProductEditorSubmission
 
 sealed interface BackendReadiness {
     data object Checking : BackendReadiness
@@ -107,6 +111,10 @@ class MainViewModel @Inject constructor(
     val categories = selectedPantry.flatMapLatest { pantry ->
         pantry?.let { inventory.observeCategories(it.id) } ?: flowOf(emptyList())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList<Category>())
+
+    val synonymRules = selectedPantry.flatMapLatest { pantry ->
+        pantry?.let { inventory.observeSynonymRules(it.id) } ?: flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val shopping = selectedPantry.flatMapLatest { pantry ->
         pantry?.let { inventory.observeShopping(it.id) } ?: flowOf(emptyList())
@@ -294,22 +302,28 @@ class MainViewModel @Inject constructor(
     }
     fun deleteShelf(shelf: Shelf) = withActor { _, uid -> inventory.deleteShelf(shelf, uid, deviceIdentity.displayName) }
     fun saveProduct(
-        product: Product,
+        submission: ProductEditorSubmission,
         photoPath: String? = null,
         source: hr.smocnica.core.model.PhotoSource? = null,
         onSaved: ((Product) -> Unit)? = null,
         onFailure: (() -> Unit)? = null,
     ) = actorAction({ pantry, uid ->
-        val saved = inventory.upsertProduct(product.copy(pantryId = pantry.id), uid, deviceIdentity.displayName)
+        val saved = inventory.upsertProduct(submission.product.copy(pantryId = pantry.id), uid, deviceIdentity.displayName)
+        val variant = inventory.upsertVariant(
+            submission.variant.copy(pantryId = pantry.id, productId = saved.id),
+            uid,
+            deviceIdentity.displayName,
+        )
         if (photoPath != null && source != null) {
             val initialSync = sync.synchronize()
             require(initialSync.failed == 0 && initialSync.conflicts == 0) { "Artikl mora biti sinkroniziran prije prijenosa fotografije." }
-            val url = photos.uploadJpeg(pantry.id, saved.id, photoPath)
-            inventory.upsertProduct(saved.copy(photoUri = url, photoSource = source), uid, deviceIdentity.displayName)
+            val url = photos.uploadJpeg(pantry.id, variant.id, photoPath)
+            inventory.upsertVariant(variant.copy(photoUri = url, photoSource = source), uid, deviceIdentity.displayName)
+            saved
         } else saved
     }, { saved -> onSaved?.invoke(saved) }, { onFailure?.invoke() })
     fun createProductAndStock(
-        product: Product,
+        submission: ProductEditorSubmission,
         shelfId: String,
         quantity: Int,
         photoPath: String? = null,
@@ -317,13 +331,24 @@ class MainViewModel @Inject constructor(
         onCreated: ((Product) -> Unit)? = null,
         onFailure: (() -> Unit)? = null,
     ) = actorAction({ pantry, uid ->
-        val created = inventory.upsertProduct(product.copy(pantryId = pantry.id), uid, deviceIdentity.displayName)
-        if (quantity > 0) inventory.adjustStock(created.id, shelfId, quantity, uid, deviceIdentity.displayName)
+        val targetId = submission.targetProductId
+        val created = if (targetId == null) {
+            inventory.upsertProduct(submission.product.copy(pantryId = pantry.id), uid, deviceIdentity.displayName)
+        } else {
+            allProducts.value.firstOrNull { it.product.id == targetId }?.product
+                ?: error("Odabrani generički artikl više nije dostupan.")
+        }
+        val variant = inventory.upsertVariant(
+            submission.variant.copy(pantryId = pantry.id, productId = created.id),
+            uid,
+            deviceIdentity.displayName,
+        )
+        if (quantity > 0) inventory.adjustVariantStock(variant.id, shelfId, quantity, uid, deviceIdentity.displayName)
         if (photoPath != null && source != null) {
             val initialSync = sync.synchronize()
             require(initialSync.failed == 0 && initialSync.conflicts == 0) { "Artikl mora biti sinkroniziran prije prijenosa fotografije." }
-            val url = photos.uploadJpeg(pantry.id, created.id, photoPath)
-            inventory.upsertProduct(created.copy(photoUri = url, photoSource = source), uid, deviceIdentity.displayName)
+            val url = photos.uploadJpeg(pantry.id, variant.id, photoPath)
+            inventory.upsertVariant(variant.copy(photoUri = url, photoSource = source), uid, deviceIdentity.displayName)
         }
         created
     }, { created -> onCreated?.invoke(created) }, { onFailure?.invoke() })
@@ -337,18 +362,64 @@ class MainViewModel @Inject constructor(
     ) = actorAction({ _, uid ->
         inventory.adjustStock(productId, shelfId, delta, uid, deviceIdentity.displayName)
     }, { onAdjusted?.invoke() }, { onFailure?.invoke() })
+    fun adjustVariantStock(
+        variantId: String,
+        shelfId: String,
+        delta: Int,
+        onAdjusted: (() -> Unit)? = null,
+        onFailure: (() -> Unit)? = null,
+    ) = actorAction({ _, uid ->
+        inventory.adjustVariantStock(variantId, shelfId, delta, uid, deviceIdentity.displayName)
+    }, { onAdjusted?.invoke() }, { onFailure?.invoke() })
+
+    fun moveVariantStock(variantId: String, fromShelfId: String, toShelfId: String, quantity: Int, onMoved: (() -> Unit)? = null) =
+        actorAction({ _, uid -> inventory.moveVariantStock(variantId, fromShelfId, toShelfId, quantity, uid, deviceIdentity.displayName) }, { onMoved?.invoke() })
+
+    fun moveVariant(variantId: String, targetProductId: String, onMoved: (() -> Unit)? = null) =
+        actorAction({ _, uid -> inventory.moveVariant(variantId, targetProductId, uid, deviceIdentity.displayName) }, { onMoved?.invoke() })
+
+    fun splitVariant(variantId: String, newGenericName: String, onSplit: ((Product) -> Unit)? = null) =
+        actorAction(
+            { _, uid -> inventory.splitVariant(variantId, newGenericName, uid, deviceIdentity.displayName) },
+            { product -> onSplit?.invoke(product) },
+        )
+
+    fun deleteVariant(variantId: String, onDeleted: (() -> Unit)? = null) =
+        actorAction({ _, uid -> inventory.deleteVariant(variantId, uid, deviceIdentity.displayName) }, { onDeleted?.invoke() })
+
+    fun setDoNotGroup(productId: String, enabled: Boolean, onSaved: (() -> Unit)? = null) =
+        actorAction({ _, uid -> inventory.setDoNotGroup(productId, enabled, uid, deviceIdentity.displayName) }, { onSaved?.invoke() })
+
+    fun rememberGroupingRule(sourceName: String, genericProduct: Product, onSaved: (() -> Unit)? = null) =
+        actorAction({ pantry, uid ->
+            inventory.upsertSynonymRule(
+                SynonymRule(
+                    id = "",
+                    pantryId = pantry.id,
+                    sourceNormalized = GenericNamePolicy.normalize(sourceName),
+                    genericName = genericProduct.name,
+                    genericNameNormalized = GenericNamePolicy.normalize(genericProduct.name),
+                    productId = genericProduct.id,
+                    ownerConfirmed = true,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+                uid,
+                deviceIdentity.displayName,
+            )
+        }, { onSaved?.invoke() })
     fun restoreProductAndAddStock(
         productId: String,
+        variantId: String,
         shelfId: String,
         quantity: Int,
         onRestored: (() -> Unit)? = null,
         onFailure: (() -> Unit)? = null,
     ) = actorAction({ pantry, uid ->
-        inventory.restoreProductAndAdjustStock(pantry.id, productId, shelfId, quantity, uid, deviceIdentity.displayName)
+        inventory.restoreProductAndAdjustStock(pantry.id, productId, shelfId, quantity, uid, deviceIdentity.displayName, variantId)
     }, { onRestored?.invoke() }, { onFailure?.invoke() })
 
-    fun undoRestoreProductAndAddStock(product: Product, shelfId: String, quantity: Int) = withActor { _, uid ->
-        inventory.adjustStock(product.id, shelfId, -quantity, uid, deviceIdentity.displayName)
+    fun undoRestoreProductAndAddStock(product: Product, variantId: String, shelfId: String, quantity: Int) = withActor { _, uid ->
+        inventory.adjustVariantStock(variantId, shelfId, -quantity, uid, deviceIdentity.displayName)
         inventory.deleteProduct(product.copy(deletedAt = null, purgeAfter = null), uid, deviceIdentity.displayName)
     }
     fun moveStock(productId: String, fromShelfId: String, toShelfId: String, quantity: Int, onMoved: (() -> Unit)? = null) = actorAction({ _, uid ->

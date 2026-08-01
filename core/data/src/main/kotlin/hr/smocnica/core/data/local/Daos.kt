@@ -209,15 +209,72 @@ interface ProductDao {
 }
 
 @Dao
+interface ProductVariantDao {
+    @Query("SELECT * FROM product_variants WHERE pantryId = :pantryId ORDER BY manufacturer, displayName")
+    fun observeAll(pantryId: String): Flow<List<ProductVariantEntity>>
+
+    @Query("SELECT * FROM product_variants WHERE pantryId = :pantryId AND deletedAt IS NULL ORDER BY manufacturer, displayName")
+    fun observeActive(pantryId: String): Flow<List<ProductVariantEntity>>
+
+    @Query("SELECT * FROM product_variants WHERE pantryId = :pantryId AND deletedAt IS NOT NULL ORDER BY deletedAt DESC")
+    fun observeDeleted(pantryId: String): Flow<List<ProductVariantEntity>>
+
+    @Query("SELECT * FROM product_variants WHERE pantryId = :pantryId AND deletedAt IS NULL ORDER BY manufacturer, displayName")
+    suspend fun listActive(pantryId: String): List<ProductVariantEntity>
+
+    @Query("SELECT * FROM product_variants WHERE pantryId = :pantryId")
+    suspend fun listAll(pantryId: String): List<ProductVariantEntity>
+
+    @Query("SELECT * FROM product_variants WHERE productId = :productId AND deletedAt IS NULL ORDER BY manufacturer, displayName")
+    suspend fun forProduct(productId: String): List<ProductVariantEntity>
+
+    @Query("SELECT * FROM product_variants WHERE id = :id")
+    suspend fun get(id: String): ProductVariantEntity?
+
+    @Query("SELECT * FROM product_variants WHERE pantryId = :pantryId AND barcode = :barcode AND deletedAt IS NULL LIMIT 1")
+    suspend fun findBarcode(pantryId: String, barcode: String): ProductVariantEntity?
+
+    @Query("SELECT * FROM product_variants WHERE pantryId = :pantryId AND barcode = :barcode LIMIT 1")
+    suspend fun findAnyBarcode(pantryId: String, barcode: String): ProductVariantEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: ProductVariantEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(items: List<ProductVariantEntity>)
+
+    @Query("DELETE FROM product_variants WHERE id = :id")
+    suspend fun deleteHard(id: String)
+
+    @Query("DELETE FROM product_variants WHERE pantryId = :pantryId")
+    suspend fun deleteForPantry(pantryId: String)
+
+    @Query("UPDATE product_variants SET revision = :revision, syncState = 'SYNCED' WHERE id = :id")
+    suspend fun markSynced(id: String, revision: Long)
+
+    @Query("UPDATE product_variants SET syncState = 'SYNCED' WHERE pantryId = :pantryId")
+    suspend fun allowRemoteForPantry(pantryId: String)
+
+    @Query("UPDATE product_variants SET syncState = 'SYNCED' WHERE id = :id")
+    suspend fun allowRemote(id: String)
+}
+
+@Dao
 interface StockDao {
     @Query("SELECT * FROM stocks WHERE pantryId = :pantryId")
     fun observeForPantry(pantryId: String): Flow<List<StockEntity>>
 
-    @Query("SELECT * FROM stocks WHERE productId = :productId AND shelfId = :shelfId")
+    @Query("SELECT * FROM stocks WHERE productId = :productId AND shelfId = :shelfId ORDER BY variantId LIMIT 1")
     suspend fun get(productId: String, shelfId: String): StockEntity?
+
+    @Query("SELECT * FROM stocks WHERE variantId = :variantId AND shelfId = :shelfId LIMIT 1")
+    suspend fun getVariant(variantId: String, shelfId: String): StockEntity?
 
     @Query("SELECT COALESCE(SUM(quantity), 0) FROM stocks WHERE productId = :productId")
     suspend fun total(productId: String): Int
+
+    @Query("SELECT COALESCE(SUM(quantity), 0) FROM stocks WHERE variantId = :variantId")
+    suspend fun totalVariant(variantId: String): Int
 
     @Query("SELECT quantity FROM stocks WHERE shelfId = :shelfId")
     suspend fun quantitiesOnShelf(shelfId: String): List<Int>
@@ -237,16 +294,61 @@ interface StockDao {
     @Query("DELETE FROM stocks WHERE pantryId = :pantryId AND productId = :productId AND shelfId = :shelfId")
     suspend fun deleteHard(pantryId: String, productId: String, shelfId: String)
 
+    @Query("DELETE FROM stocks WHERE pantryId = :pantryId AND variantId = :variantId AND shelfId = :shelfId")
+    suspend fun deleteVariantHard(pantryId: String, variantId: String, shelfId: String)
+
+    @Query("DELETE FROM stocks WHERE pantryId = :pantryId AND variantId = :variantId")
+    suspend fun deleteVariantHard(pantryId: String, variantId: String)
+
     @Query("DELETE FROM stocks WHERE pantryId = :pantryId")
     suspend fun deleteForPantry(pantryId: String)
 
     @Query("UPDATE stocks SET revision = :revision, syncState = 'SYNCED' WHERE productId = :productId AND shelfId = :shelfId")
     suspend fun markSynced(productId: String, shelfId: String, revision: Long)
 
+    @Query("UPDATE stocks SET revision = :revision, syncState = 'SYNCED' WHERE variantId = :variantId AND shelfId = :shelfId")
+    suspend fun markVariantSynced(variantId: String, shelfId: String, revision: Long)
+
     @Query("UPDATE stocks SET syncState = 'SYNCED' WHERE productId = :productId AND shelfId = :shelfId")
     suspend fun allowRemote(productId: String, shelfId: String)
 
+    @Query("UPDATE stocks SET syncState = 'SYNCED' WHERE variantId = :variantId AND shelfId = :shelfId")
+    suspend fun allowVariantRemote(variantId: String, shelfId: String)
+
     @Query("UPDATE stocks SET syncState = 'SYNCED' WHERE pantryId = :pantryId")
+    suspend fun allowRemoteForPantry(pantryId: String)
+
+    @Query("UPDATE stocks SET productId = :productId, syncState = 'PENDING' WHERE variantId = :variantId")
+    suspend fun reassignVariantProduct(variantId: String, productId: String)
+}
+
+@Dao
+interface SynonymRuleDao {
+    @Query("SELECT * FROM synonym_rules WHERE pantryId = :pantryId AND deletedAt IS NULL ORDER BY sourceNormalized")
+    fun observeActive(pantryId: String): Flow<List<SynonymRuleEntity>>
+
+    @Query("SELECT * FROM synonym_rules WHERE pantryId = :pantryId")
+    suspend fun listAll(pantryId: String): List<SynonymRuleEntity>
+
+    @Query("SELECT * FROM synonym_rules WHERE id = :id")
+    suspend fun get(id: String): SynonymRuleEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(entity: SynonymRuleEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(items: List<SynonymRuleEntity>)
+
+    @Query("DELETE FROM synonym_rules WHERE pantryId = :pantryId")
+    suspend fun deleteForPantry(pantryId: String)
+
+    @Query("UPDATE synonym_rules SET revision = :revision, syncState = 'SYNCED' WHERE id = :id")
+    suspend fun markSynced(id: String, revision: Long)
+
+    @Query("UPDATE synonym_rules SET syncState = 'SYNCED' WHERE id = :id")
+    suspend fun allowRemote(id: String)
+
+    @Query("UPDATE synonym_rules SET syncState = 'SYNCED' WHERE pantryId = :pantryId")
     suspend fun allowRemoteForPantry(pantryId: String)
 }
 

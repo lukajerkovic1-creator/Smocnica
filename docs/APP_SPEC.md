@@ -121,38 +121,29 @@ Početni ekran mora sadržavati:
 
 ## 6. Artikli i količine
 
-### 6.1 Podaci artikla
+### 6.1 Generički artikl i varijante
 
-Svaki artikl ima:
+Generički artikl ima stabilni interni ID, kanonski naziv, kategoriju, generički minimum, preferiranu varijantu, uključeno/isključeno automatsko dodavanje na kupnju, oznaku „Ne grupiraj”, datume/reviziju i status aktivan/obrisan.
 
-- interni ID
-- naziv
-- barkod, opcionalno
-- opis/pakiranje, npr. „1 kg”
-- kategoriju
-- fotografiju
-- izvor fotografije
-- ukupnu količinu u komadima
-- raspodjelu količine po policama
-- minimalnu količinu u komadima
-- uključeno/isključeno automatsko dodavanje na kupnju
-- datum stvaranja i izmjene
-- status aktivan/obrisan
+Svaka kupovna varijanta pripada točno jednom generičkom artiklu i ima vlastiti ID, proizvođača/naziv varijante, opcionalni jedinstveni barkod, količinu u pakiranju i mjernu jedinicu, opis/oznaku pakiranja, fotografiju i izvor fotografije, opcionalni minimum u pakiranjima, datume/reviziju i status. Barkod i fotografija pripadaju varijanti, ne generičkom artiklu.
+
+Grupiranje se predlaže determinističkim lokalnim hrvatskim sinonimima ili owner-potvrđenim zajedničkim pravilima. Prijedlog uvijek prikazuje generički naziv i sigurnost, ali se nikada ne primjenjuje bez izričite potvrde korisnika. Samo vlasnik mijenja zajednički rječnik i oznaku „Ne grupiraj”.
 
 ### 6.2 Pravila količine
 
-- Zaliha se vodi isključivo po broju pakiranja/komada.
-- „Glatko brašno 1 kg” i „Glatko brašno 500 g” različiti su artikli.
+- Zaliha se vodi isključivo po cijelom broju pakiranja za kombinaciju `variantId + shelfId`; agregirana količina nikada nije zaseban izvor istine.
+- „Glatko brašno 1 kg” i „Glatko brašno 500 g” različite su varijante istog generičkog artikla kada korisnik potvrdi grupiranje.
 - Isti artikl smije biti na više polica.
 - Prikaz:
-  - količina po polici
-  - ukupna količina
-  - opis pakiranja
-  - po želji izvedeni prikaz, npr. `2 kom × 1 kg = 2 kg`
+  - broj pakiranja svake varijante po polici
+  - ukupan broj pakiranja generičkog artikla
+  - točan izvedeni zbroj mase, volumena ili brojivih jedinica kada su veličine poznate
+  - donju granicu poznatog zbroja i zasebno nepoznata pakiranja kada dio varijanti nema poznatu veličinu
 - Dodavanje i vađenje zadano nude 1 kom, uz promjenu količine.
 - Vađenje iznad dostupnog stanja mora biti spriječeno.
 - Ručni artikl bez barkoda mora se kasnije moći povezati sa skeniranim barkodom.
-- Omogućiti ručno uređivanje i potpuno brisanje uz potvrdu i mogućnost poništavanja.
+- Brisanje zadnje aktivne varijante stavlja i generički artikl u koš; vraćanje obnavlja veze i zalihe.
+- Omogućiti premještanje varijante u drugi generički artikl i razdvajanje u novi generički artikl uz revizijsku zaštitu od konflikta.
 
 ## 7. Skeniranje barkoda
 
@@ -173,7 +164,7 @@ Funkcije:
 
 Nakon očitanja:
 
-1. pronaći lokalni artikl po barkodu
+1. pronaći točnu lokalnu varijantu po barkodu
 2. ako ne postoji, pokušati Open Food Facts
 3. prikazati podatke proizvoda
 4. ponuditi:
@@ -193,14 +184,14 @@ Nakon očitanja:
 - Vlastitu fotografiju:
   - smanjiti i komprimirati prije prijenosa
   - spremiti u Firebase Storage
-  - čuvati jednu glavnu fotografiju po artiklu
-  - obrisati iz Storagea pri trajnom brisanju artikla, uz zaštitu od slučajnog gubitka tijekom 30-dnevnog koša
+  - čuvati jednu glavnu fotografiju po varijanti
+  - obrisati iz Storagea pri trajnom brisanju varijante, uz zaštitu od slučajnog gubitka tijekom 30-dnevnog koša
 
 ## 9. Minimalna zaliha i popis za kupnju
 
 ### 9.1 Automatsko pravilo
 
-Za artikl s uključenim automatskim dodavanjem:
+Za generički artikl s uključenim automatskim dodavanjem generički i varijantni minimumi daju jednu objedinjenu stavku kupnje. Potrebni broj preferirane varijante zaokružuje se prema gore na cijelo pakiranje:
 
 `potrebnoZaKupnju = max(minimalnaKoličina - ukupnaKoličina, 0)`
 
@@ -355,7 +346,9 @@ pantries/{pantryId}/devices/{deviceId}
 pantries/{pantryId}/shelves/{shelfId}
 pantries/{pantryId}/categories/{categoryId}
 pantries/{pantryId}/products/{productId}
-pantries/{pantryId}/products/{productId}/locations/{shelfId}
+pantries/{pantryId}/variants/{variantId}
+pantries/{pantryId}/synonymRules/{ruleId}
+pantries/{pantryId}/stocks/{variantId_shelfId}
 pantries/{pantryId}/shoppingItems/{shoppingItemId}
 pantries/{pantryId}/activities/{activityId}
 pantries/{pantryId}/trash/{trashId}

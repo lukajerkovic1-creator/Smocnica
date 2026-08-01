@@ -50,10 +50,15 @@ pantries/{pantryId}
   shelfNames/{sha256(normalizedName)}: normalizedName, shelfId, updatedAt
   categories/{categoryId}: name, normalizedName, sortOrder, isDefault, revision, deletedAt?, purgeAfter?
   categoryNames/{sha256(normalizedName)}: normalizedName, categoryId, updatedAt
-  products/{productId}: name, normalizedName, barcode?, description, categoryId, category,
-    photoUrl?, photoSource, minimumQuantity, autoShopping, totalQuantity, revision,
-    createdAt, updatedAt, deletedAt?, purgeAfter?
-  stocks/{productId_shelfId}: productId, shelfId, quantity, revision, updatedAt
+  products/{productId}: name, normalizedName, categoryId, category, minimumMode,
+    minimumAmountBase, preferredVariantId?, autoShopping, doNotGroup, groupingRevision,
+    revision, createdAt, updatedAt, deletedAt?, purgeAfter?
+  variants/{variantId}: productId, displayName, manufacturer, barcode?, packageAmountBase?,
+    packageUnit, packageLabel, description, photoUrl?, photoSource, minimumPackages?,
+    purchaseCount, revision, createdAt, updatedAt, deletedAt?, purgeAfter?
+  synonymRules/{ruleId}: sourceNormalized, genericName, genericNameNormalized, productId?,
+    ownerConfirmed, revision, updatedAt, deletedAt?
+  stocks/{variantId_shelfId}: productId, variantId, shelfId, quantity, revision, updatedAt
   shoppingItems/{itemId}: productId?, name, categoryId, category, requiredQuantity, checked,
     manual, revision, createdAt, updatedAt, deletedAt?
   inventorySessions/{inventoryId}: shelfId, status(APPLIED), expectedRevision,
@@ -68,7 +73,11 @@ pantries/{pantryId}
 
 Poslužiteljski limiti su 10 aktivnih članova, 50 aktivnih polica, 50 aktivnih kategorija, 500 aktivnih artikala i jedna aktivna pozivnica po smočnici. Limiti se provjeravaju u istoj transakciji za stvaranje, vraćanje i uvoz kako paralelni zahtjevi ne bi prekoračili granicu.
 
-Globalni `barcodes/{sha256(pantryId:barcode)}` dokument rezervira barkod u transakciji i pokazuje na `productId`. `inviteCodes/{sha256(code)}` pokazuje na smočnicu bez otkrivanja koda u čistom obliku. Svi klijentski zapisi idu kroz callable funkcije; pravila dopuštaju izravan read aktivnim članovima, a write samo administrativnom SDK-u. Time se složene transakcijske invarijante ne mogu zaobići modificiranim klijentom.
+Globalni `barcodes/{sha256(pantryId:barcode)}` dokument rezervira barkod u transakciji i pokazuje na `productId` i točan `variantId`. `inviteCodes/{sha256(code)}` pokazuje na smočnicu bez otkrivanja koda u čistom obliku. Svi klijentski zapisi idu kroz callable funkcije; pravila dopuštaju izravan read aktivnim članovima, a write samo administrativnom SDK-u. Time se složene transakcijske invarijante ne mogu zaobići modificiranim klijentom.
+
+Generički artikl je stabilan agregat za naziv, kategoriju i pravilo minimuma; proizvođač, barkod, pakiranje, fotografija i opis pripadaju varijanti. Jedini izvor količine je cijeli broj pakiranja u `stocks/{variantId_shelfId}`. Masa, volumen i brojivi sadržaj računaju se iz cjelobrojnih baznih jedinica bez `Double` aritmetike. Nepoznata veličina ostaje vidljiva kao zaseban broj pakiranja i prikaz poznatog zbroja označava se kao donja granica. Room shema 6 migrira svaki stari artikl u jednu početnu varijantu, veže postojeću zalihu uz njezin `variantId` i čuva sve stare ID-eve, URI-je fotografija i outbox zapise.
+
+Firestore migracija koristi `contentSchemaVersion=2`, deterministične ID-eve početnih varijanti i idempotentne apsolutne zapise. Mutacije su blokirane dok migracija nije dovršena. Premještanje varijante između generičkih artikala i razdvajanje u novi artikl provjeravaju `groupingRevision` u jednoj transakciji; paralelna promjena završava kao eksplicitan konflikt. Zajednički sinonimi i `doNotGroup` owner-only su operacije, a klijentski prijedlog nikada sam ne spaja artikle.
 
 Za svaku novu operativnu mutaciju poslužitelj u istoj transakciji provjerava da je `deviceId` aktivan pod `users/{actorUid}/devices`. `deviceDisplayName`, naziv artikla i nazive polica izvodi isključivo iz poslužiteljskih dokumenata. Aktivnost čuva strukturirane identifikatore; Android generira opis iz trenutačnih lokalnih zapisa, uz poslužiteljski snapshot teksta samo kao kompatibilni prikaz starih aktivnosti. Room shema 2 dodaje te identifikatore aditivnom migracijom 1→2 bez brisanja podataka.
 
@@ -84,7 +93,7 @@ Nacrti inventure ostaju u Roomu dok ih korisnik ne primijeni ili odbaci. Potvrđ
 
 ## Cloud Functions
 
-- `getBackendCapabilities` je javni, neosjetljivi handshake koji vraća samo `backendApiVersion`, statičke capability oznake i očekivani manifest funkcija. Android prije registracije uređaja i obnove cloud podataka zahtijeva API 7 te `operation:delete_shopping`, `device-registration:v2`, `notification-privacy:v1`, `single-active-pantry:v1`, `canonical-names:v1`, `manual-shopping-merge:v1`, `atomic-bulk-products:v1` i `account-deletion:v1`. Potvrđena verzija lokalno se pamti samo za privremeni offline fallback; izričito zastario ili nepotpun odgovor uvijek blokira udaljene pozive.
+- `getBackendCapabilities` je javni, neosjetljivi handshake koji vraća samo `backendApiVersion`, statičke capability oznake i očekivani manifest funkcija. Android prije registracije uređaja i obnove cloud podataka zahtijeva API 9 te, uz ranije sigurnosne mogućnosti, `generic-products:v1`, `product-variants:v1`, `variant-stock:v1` i `resumable-snapshot-import:v1`. Potvrđena verzija lokalno se pamti samo za privremeni offline fallback; izričito zastario ili nepotpun odgovor uvijek blokira udaljene pozive.
 - `createPantry`, `listMyPantries`, `createInvitation`, `joinPantry`, `manageMember`, `transferOwnership`, `deletePantry`, `registerDevice`, `unregisterDevice` i `purgeTrash`.
 - `applyOperation`: validira i atomarno primjenjuje police, artikle, zalihe, kupnju i obnovu.
 - `apply_inventory` grana u `applyOperation`: atomarno validira SHA-256 izvedeni snapshot količina police i primjenjuje potvrđene razlike.
@@ -96,7 +105,7 @@ Nacrti inventure ostaju u Roomu dok ih korisnik ne primijeni ili odbaci. Potvrđ
 
 - Auth token je obvezan za sve poslovne funkcije; produkcijske poslovne callable funkcije provode App Check (Play Integrity), dok ga Emulator Suite namjerno isključuje. Jedina iznimka je `getBackendCapabilities`, koji je dostupan bez prijave i App Checka jer vraća samo statičku verziju/manifest bez korisničkih ili poslovnih podataka.
 - Pozivni kod koristi 16 kriptografski nasumičnih znakova iz skupa bez dvosmislenih znakova (80 bita entropije), pohranjen je samo kao SHA-256, jednokratan i vremenski ograničen.
-- Storage put je `pantries/{pantryId}/products/{productId}/main.jpg`; pravila provjeravaju aktivno članstvo, postojanje aktivnog artikla, točan put/metapodatak, JPEG MIME i najviše 5 MiB. Klijent u Room sprema privatni `gs://` URI i sliku dohvaća autoriziranim Storage SDK-om, bez trajnog bearer download tokena.
+- Storage put je `pantries/{pantryId}/variants/{variantId}/main.jpg`; pravila provjeravaju aktivno članstvo, postojanje aktivne varijante i njezina aktivnog generičkog artikla, točan put/metapodatak, JPEG MIME i najviše 5 MiB. Klijent u Room sprema privatni `gs://` URI i sliku dohvaća autoriziranim Storage SDK-om, bez trajnog bearer download tokena.
 - Crashlytics bilježi samo šifru pogreške, sloj, verziju aplikacije i nasumični installation ID. U produkciji se `setUserId` ne poziva i nema poslovnih polja u porukama iznimke.
 - Izvozi se stvaraju lokalno preko Storage Access Frameworka i nisu slani poslužitelju.
 

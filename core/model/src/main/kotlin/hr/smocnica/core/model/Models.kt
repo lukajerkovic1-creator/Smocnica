@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 
 typealias PantryId = String
 typealias ProductId = String
+typealias VariantId = String
 typealias ShelfId = String
 typealias CategoryId = String
 typealias UserId = String
@@ -26,6 +27,8 @@ data class Pantry(
     val deletedAt: Long? = null,
     val purgeAfter: Long? = null,
     val syncState: SyncState = SyncState.SYNCED,
+    val contentSchemaVersion: Int = 2,
+    val groupingReviewCompletedAt: Long? = null,
 )
 
 @Serializable
@@ -72,10 +75,84 @@ data class Product(
     val purgeAfter: Long? = null,
     val syncState: SyncState = SyncState.SYNCED,
     val categoryId: String = "",
+    val minimumMode: MinimumMode = MinimumMode.PACKAGES,
+    val minimumAmountBase: Long = minimumQuantity.toLong(),
+    val preferredVariantId: VariantId? = null,
+    val doNotGroup: Boolean = false,
+    val groupingRevision: Long = 0,
 )
 
 @Serializable
 enum class PhotoSource { NONE, OPEN_FOOD_FACTS, CAMERA, GALLERY }
+
+@Serializable
+enum class MeasurementKind { MASS, VOLUME, COUNT, UNKNOWN }
+
+@Serializable
+enum class PackageUnit(val kind: MeasurementKind, val multiplierToBase: Long) {
+    MG(MeasurementKind.MASS, 1),
+    G(MeasurementKind.MASS, 1_000),
+    KG(MeasurementKind.MASS, 1_000_000),
+    ML(MeasurementKind.VOLUME, 1),
+    L(MeasurementKind.VOLUME, 1_000),
+    PIECE(MeasurementKind.COUNT, 1),
+    ROLL(MeasurementKind.COUNT, 1),
+    BAG(MeasurementKind.COUNT, 1),
+    CAPSULE(MeasurementKind.COUNT, 1),
+    UNKNOWN(MeasurementKind.UNKNOWN, 0),
+}
+
+@Serializable
+enum class MinimumMode { PACKAGES, MASS_MG, VOLUME_ML, COUNT }
+
+@Serializable
+data class ProductVariant(
+    val id: VariantId,
+    val pantryId: PantryId,
+    val productId: ProductId,
+    val displayName: String,
+    val manufacturer: String = "",
+    val barcode: String? = null,
+    /** Amount of one package expressed in integer base units: mg, ml or count. */
+    val packageAmountBase: Long? = null,
+    val packageUnit: PackageUnit = PackageUnit.UNKNOWN,
+    val packageLabel: String = "",
+    val description: String = "",
+    val photoUri: String? = null,
+    val photoSource: PhotoSource = PhotoSource.NONE,
+    val minimumPackages: Int? = null,
+    val purchaseCount: Long = 0,
+    val revision: Long = 0,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val deletedAt: Long? = null,
+    val purgeAfter: Long? = null,
+    val syncState: SyncState = SyncState.SYNCED,
+)
+
+@Serializable
+data class SynonymRule(
+    val id: String,
+    val pantryId: PantryId,
+    val sourceNormalized: String,
+    val genericName: String,
+    val genericNameNormalized: String,
+    val productId: ProductId? = null,
+    val ownerConfirmed: Boolean = false,
+    val revision: Long = 0,
+    val updatedAt: Long,
+    val deletedAt: Long? = null,
+    val syncState: SyncState = SyncState.SYNCED,
+)
+
+@Serializable
+data class GroupingSuggestion(
+    val sourceName: String,
+    val suggestedGenericName: String,
+    val existingProductId: ProductId? = null,
+    val confidencePercent: Int,
+    val matchedRuleId: String? = null,
+)
 
 @Serializable
 data class Category(
@@ -99,16 +176,50 @@ data class Stock(
     val revision: Long = 0,
     val updatedAt: Long,
     val syncState: SyncState = SyncState.SYNCED,
+    val variantId: VariantId = productId,
 )
 
 @Serializable
 data class ProductWithStock(
     val product: Product,
     val stocks: List<Stock>,
+    val variants: List<ProductVariant> = emptyList(),
+    /** Variant that matched the active search query; never persisted. */
+    val matchedVariantId: VariantId? = null,
 ) {
     val totalQuantity: Int get() = stocks.sumOf(Stock::quantity)
-    val shortfall: Int get() = (product.minimumQuantity - totalQuantity).coerceAtLeast(0)
-    val isBelowMinimum: Boolean get() = totalQuantity < product.minimumQuantity
+    val shortfall: Int get() = if (product.minimumMode == MinimumMode.PACKAGES) {
+        (product.minimumAmountBase.coerceAtMost(Int.MAX_VALUE.toLong()).toInt() - totalQuantity).coerceAtLeast(0)
+    } else 0
+    val isBelowMinimum: Boolean get() = minimumCurrentBase < product.minimumAmountBase
+    val hasUnknownPackageSize: Boolean get() = variants.any { variant ->
+        stocks.any { it.variantId == variant.id && it.quantity > 0 } && variant.packageAmountBase == null
+    }
+    val measurementKind: MeasurementKind get() = when (product.minimumMode) {
+        MinimumMode.MASS_MG -> MeasurementKind.MASS
+        MinimumMode.VOLUME_ML -> MeasurementKind.VOLUME
+        MinimumMode.COUNT -> MeasurementKind.COUNT
+        MinimumMode.PACKAGES -> variants.map { it.packageUnit.kind }.filter { it != MeasurementKind.UNKNOWN }.distinct().singleOrNull()
+            ?: MeasurementKind.UNKNOWN
+    }
+    val knownAmountBase: Long get() = stocks.fold(0L) { total, stock ->
+        val amount = variants.firstOrNull { it.id == stock.variantId }?.packageAmountBase ?: 0L
+        val row = if (amount <= 0L || stock.quantity <= 0) 0L else {
+            runCatching { Math.multiplyExact(amount, stock.quantity.toLong()) }.getOrDefault(Long.MAX_VALUE)
+        }
+        runCatching { Math.addExact(total, row) }.getOrDefault(Long.MAX_VALUE)
+    }
+    val minimumCurrentBase: Long get() = when (product.minimumMode) {
+        MinimumMode.PACKAGES -> totalQuantity.toLong()
+        MinimumMode.MASS_MG -> if (measurementKind == MeasurementKind.MASS) knownAmountBase else 0
+        MinimumMode.VOLUME_ML -> if (measurementKind == MeasurementKind.VOLUME) knownAmountBase else 0
+        MinimumMode.COUNT -> if (measurementKind == MeasurementKind.COUNT) knownAmountBase else 0
+    }
+    val representativeVariant: ProductVariant? get() {
+        matchedVariantId?.let { id -> variants.firstOrNull { it.id == id }?.let { return it } }
+        val totals = stocks.groupBy(Stock::variantId).mapValues { (_, rows) -> rows.sumOf(Stock::quantity) }
+        return variants.maxWithOrNull(compareBy<ProductVariant> { totals[it.id] ?: 0 }.thenBy { it.purchaseCount }.thenBy { it.id })
+    }
 }
 
 @Serializable
@@ -127,6 +238,7 @@ data class ShoppingItem(
     val deletedAt: Long? = null,
     val syncState: SyncState = SyncState.SYNCED,
     val categoryId: String = "",
+    val preferredVariantId: VariantId? = null,
 )
 
 @Serializable
@@ -145,6 +257,10 @@ enum class ActivityType {
     CATEGORY_DELETED,
     PRODUCT_CREATED,
     PRODUCT_UPDATED,
+    VARIANT_CREATED,
+    VARIANT_UPDATED,
+    VARIANT_GROUPED,
+    VARIANT_UNGROUPED,
     STOCK_ADDED,
     STOCK_REMOVED,
     STOCK_MOVED,
@@ -186,6 +302,7 @@ enum class InventoryDifferenceType { MISSING, UNEXPECTED, QUANTITY }
 data class InventoryCount(
     val productId: ProductId,
     val actualQuantity: Int,
+    val variantId: VariantId = productId,
 )
 
 @Serializable
@@ -195,6 +312,7 @@ data class InventoryDifference(
     val expectedQuantity: Int,
     val actualQuantity: Int,
     val type: InventoryDifferenceType,
+    val variantId: VariantId = productId,
 )
 
 @Serializable
@@ -213,7 +331,7 @@ data class InventorySession(
 )
 
 @Serializable
-enum class AggregateType { PANTRY, SHELF, CATEGORY, PRODUCT, STOCK, SHOPPING, INVENTORY, MEMBER }
+enum class AggregateType { PANTRY, SHELF, CATEGORY, PRODUCT, VARIANT, STOCK, SHOPPING, INVENTORY, MEMBER, DICTIONARY }
 
 @Serializable
 enum class OperationState { PENDING, IN_FLIGHT, CONFLICT, PERMANENT_FAILURE }
@@ -224,6 +342,7 @@ data class BulkStockMove(
     val fromShelfId: ShelfId,
     val toShelfId: ShelfId,
     val quantity: Int,
+    val variantId: VariantId = productId,
 )
 
 @Serializable
@@ -278,7 +397,44 @@ sealed interface OperationPayload {
 
     @Serializable
     @SerialName("upsert_product")
-    data class UpsertProduct(val product: Product) : OperationPayload
+    data class UpsertProduct(
+        val product: Product,
+        val initialVariant: ProductVariant? = null,
+    ) : OperationPayload
+
+    @Serializable
+    @SerialName("upsert_variant")
+    data class UpsertVariant(val variant: ProductVariant) : OperationPayload
+
+    @Serializable
+    @SerialName("move_variant")
+    data class MoveVariant(
+        val variantId: VariantId,
+        val fromProductId: ProductId,
+        val toProductId: ProductId,
+        val expectedGroupingRevision: Long,
+    ) : OperationPayload
+
+    @Serializable
+    @SerialName("split_variant")
+    data class SplitVariant(
+        val variantId: VariantId,
+        val fromProductId: ProductId,
+        val newProduct: Product,
+        val expectedGroupingRevision: Long,
+    ) : OperationPayload
+
+    @Serializable
+    @SerialName("upsert_synonym_rule")
+    data class UpsertSynonymRule(val rule: SynonymRule) : OperationPayload
+
+    @Serializable
+    @SerialName("set_do_not_group")
+    data class SetDoNotGroup(
+        val productId: ProductId,
+        val doNotGroup: Boolean,
+        val expectedGroupingRevision: Long,
+    ) : OperationPayload
 
     @Serializable
     @SerialName("adjust_stock")
@@ -286,6 +442,7 @@ sealed interface OperationPayload {
         val productId: ProductId,
         val shelfId: ShelfId,
         val delta: Int,
+        val variantId: VariantId = productId,
         val productName: String = "",
         val shelfName: String = "",
     ) : OperationPayload
@@ -297,6 +454,7 @@ sealed interface OperationPayload {
         val fromShelfId: ShelfId,
         val toShelfId: ShelfId,
         val quantity: Int,
+        val variantId: VariantId = productId,
         val productName: String = "",
         val fromShelfName: String = "",
         val toShelfName: String = "",
@@ -359,6 +517,8 @@ data class PantrySnapshot(
     val stocks: List<Stock>,
     val shoppingItems: List<ShoppingItem>,
     val activities: List<Activity>,
+    val variants: List<ProductVariant> = emptyList(),
+    val synonymRules: List<SynonymRule> = emptyList(),
 )
 
 @Serializable

@@ -99,10 +99,17 @@ import hr.smocnica.core.model.Category
 import hr.smocnica.core.model.Product
 import hr.smocnica.core.model.ProductFilter
 import hr.smocnica.core.model.ProductWithStock
+import hr.smocnica.core.model.ProductVariant
+import hr.smocnica.core.model.PackageUnit
+import hr.smocnica.core.model.MinimumMode
+import hr.smocnica.core.model.SynonymRule
 import hr.smocnica.core.model.Shelf
 import hr.smocnica.core.model.ShoppingItem
 import hr.smocnica.core.model.PhotoSource
 import hr.smocnica.ui.theme.Purple
+import hr.smocnica.core.domain.GenericNamePolicy
+import hr.smocnica.core.domain.PackageAmountPolicy
+import hr.smocnica.core.domain.GenericStockPolicy
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -134,7 +141,7 @@ fun StocksScreen(
         )
     }
     var showFilters by remember { mutableStateOf(false) }
-    var showEditor by remember { mutableStateOf<Product?>(null) }
+    var showEditor by remember { mutableStateOf<ProductWithStock?>(null) }
     var creating by rememberSaveable(initialAction) { mutableStateOf(initialAction == "new") }
     var movingProduct by remember { mutableStateOf<ProductWithStock?>(null) }
     var moveDestinationId by remember { mutableStateOf("") }
@@ -146,6 +153,8 @@ fun StocksScreen(
     var bulkCategory by remember { mutableStateOf(false) }
     var bulkDelete by remember { mutableStateOf(false) }
     var lastRemoval by remember { mutableStateOf<Pair<ProductWithStock, String>?>(null) }
+    var quickAction by remember { mutableStateOf<Pair<ProductWithStock, Int>?>(null) }
+    var lastQuickShelfId by rememberSaveable(initialShelfId) { mutableStateOf(initialShelfId) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
@@ -154,25 +163,7 @@ fun StocksScreen(
     LaunchedEffect(initialShelfId, initialFilter) { viewModel.updateFilter(activeFilter) }
     DisposableEffect(Unit) { onDispose { viewModel.updateFilter(ProductFilter()) } }
 
-    fun quickAdjust(item: ProductWithStock, delta: Int) {
-        val shelfId = initialShelfId.takeIf(String::isNotBlank)
-            ?: item.stocks.firstOrNull { it.quantity > 0 }?.shelfId
-            ?: shelves.firstOrNull()?.id
-            ?: return
-        val available = item.stocks.firstOrNull { it.shelfId == shelfId }?.quantity ?: 0
-        if (delta < 0 && available == 1) {
-            lastRemoval = item to shelfId
-            return
-        }
-        if (delta < 0 && available == 0) return
-        viewModel.adjustStock(item.product.id, shelfId, delta) {
-            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            scope.launch {
-                val result = snackbar.showSnackbar(if (delta > 0) "Dodano 1 kom." else "Izvađen 1 kom.", "Poništi")
-                if (result == SnackbarResult.ActionPerformed) viewModel.adjustStock(item.product.id, shelfId, -delta)
-            }
-        }
-    }
+    fun quickAdjust(item: ProductWithStock, delta: Int) { quickAction = item to delta }
 
     Scaffold(
         modifier = Modifier.padding(padding),
@@ -233,7 +224,7 @@ fun StocksScreen(
                     { quickAdjust(item, 1) },
                     { quickAdjust(item, -1) },
                     { moveDestinationId = ""; movingProduct = item },
-                    { showEditor = item.product },
+                    { showEditor = item },
                     { deletingProduct = item.product },
                 )
             }
@@ -248,42 +239,44 @@ fun StocksScreen(
         initialShelfId = initialShelfId,
         activeProducts = allProducts,
         deletedProducts = deletedProducts,
+        synonymRules = viewModel.synonymRules.collectAsStateWithLifecycle().value,
         catalogLookup = catalogLookup,
         requestCatalogLookup = lookup::lookup,
         continueManually = lookup::continueManually,
-        onAddExisting = { item, shelf, quantity, done ->
-            viewModel.adjustStock(
-                item.product.id,
+        onAddExisting = { item, variant, shelf, quantity, done ->
+            viewModel.adjustVariantStock(
+                variant.id,
                 shelf,
                 quantity,
                 onAdjusted = {
                     done(true)
                     scope.launch {
                         val result = snackbar.showSnackbar("${item.product.name}: dodano $quantity kom.", "Poništi")
-                        if (result == SnackbarResult.ActionPerformed) viewModel.adjustStock(item.product.id, shelf, -quantity)
+                        if (result == SnackbarResult.ActionPerformed) viewModel.adjustVariantStock(variant.id, shelf, -quantity)
                     }
                 },
                 onFailure = { done(false) },
             )
         },
-        onRestoreDeleted = { item, shelf, quantity, done ->
+        onRestoreDeleted = { item, variant, shelf, quantity, done ->
             viewModel.restoreProductAndAddStock(
                 item.product.id,
+                variant.id,
                 shelf,
                 quantity,
                 onRestored = {
                     done(true)
                     scope.launch {
                         val result = snackbar.showSnackbar("${item.product.name}: vraćen iz koša i dodan na policu.", "Poništi")
-                        if (result == SnackbarResult.ActionPerformed) viewModel.undoRestoreProductAndAddStock(item.product, shelf, quantity)
+                        if (result == SnackbarResult.ActionPerformed) viewModel.undoRestoreProductAndAddStock(item.product, variant.id, shelf, quantity)
                     }
                 },
                 onFailure = { done(false) },
             )
         },
-    ) { product, shelf, quantity, photo, source, done ->
+    ) { submission, shelf, quantity, photo, source, done ->
         viewModel.createProductAndStock(
-            product,
+            submission,
             shelf,
             quantity,
             photo,
@@ -299,8 +292,34 @@ fun StocksScreen(
         )
     }
     showEditor?.let { current ->
-        ProductEditor(current, shelves, categories, onDismiss = { showEditor = null }) { product, _, _, photo, source, done ->
-            viewModel.saveProduct(product, photo, source, onSaved = { done(true) }, onFailure = { done(false) })
+        ProductEditor(
+            current.product,
+            currentVariant = current.representativeVariant,
+            currentItem = current,
+            shelves = shelves,
+            categories = categories,
+            onDismiss = { showEditor = null },
+        ) { submission, _, _, photo, source, done ->
+            viewModel.saveProduct(submission, photo, source, onSaved = { done(true) }, onFailure = { done(false) })
+        }
+    }
+    quickAction?.let { (item, delta) ->
+        VariantQuickActionDialog(
+            item,
+            shelves,
+            lastQuickShelfId.takeIf(String::isNotBlank) ?: initialShelfId,
+            delta,
+            dismiss = { quickAction = null },
+        ) { variantId, shelfId ->
+            quickAction = null
+            lastQuickShelfId = shelfId
+            viewModel.adjustVariantStock(variantId, shelfId, delta) {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                scope.launch {
+                    val result = snackbar.showSnackbar(if (delta > 0) "Dodano 1 pakiranje." else "Izvađeno 1 pakiranje.", "Poništi")
+                    if (result == SnackbarResult.ActionPerformed) viewModel.adjustVariantStock(variantId, shelfId, -delta)
+                }
+            }
         }
     }
     movingProduct?.let { item ->
@@ -359,6 +378,19 @@ fun StocksScreen(
     } }
     if (showFilters) ProductFilterDialog(activeFilter, shelves, categories, { showFilters = false }) { value -> activeFilter = value; viewModel.updateFilter(value); showFilters = false }
     deletingProduct?.let { product -> ConfirmDialog("Obrisati artikl ${product.name}?", "Artikl, njegove lokacije i fotografija ostaju dostupni za vraćanje iz koša 30 dana.", { deletingProduct = null }) { viewModel.deleteProduct(product); deletingProduct = null } }
+}
+
+internal fun packageUnitLabel(unit: PackageUnit): String = when (unit) {
+    PackageUnit.MG -> "mg"
+    PackageUnit.G -> "g"
+    PackageUnit.KG -> "kg"
+    PackageUnit.ML -> "ml"
+    PackageUnit.L -> "l"
+    PackageUnit.PIECE -> "komad"
+    PackageUnit.ROLL -> "rola"
+    PackageUnit.BAG -> "vrećica"
+    PackageUnit.CAPSULE -> "kapsula"
+    PackageUnit.UNKNOWN -> "Nepoznato"
 }
 
 internal fun Set<String>.toggle(id: String): Set<String> = if (id in this) this - id else this + id
@@ -476,7 +508,7 @@ internal fun ProductCard(
     edit: () -> Unit,
     delete: () -> Unit,
 ) {
-    val available = selectedShelfId?.let { id -> item.stocks.firstOrNull { it.shelfId == id }?.quantity } ?: item.totalQuantity
+    val available = selectedShelfId?.let { id -> item.stocks.filter { it.shelfId == id }.sumOf { it.quantity } } ?: item.totalQuantity
     var menu by remember { mutableStateOf(false) }
     val swipeScope = rememberCoroutineScope()
     val swipeState = rememberSwipeToDismissBoxState(confirmValueChange = { target ->
@@ -556,7 +588,10 @@ internal fun ProductCard(
 @Composable
 private fun ProductCardLeading(item: ProductWithStock, selectionMode: Boolean, selected: Boolean, select: () -> Unit) {
     if (selectionMode) Checkbox(selected, { select() })
-    else if (item.product.photoUri != null) ProductPhoto(item.product.photoUri, item.product.updatedAt, null, Modifier.size(54.dp))
+    else if (item.representativeVariant?.photoUri != null) {
+        val variant = requireNotNull(item.representativeVariant)
+        ProductPhoto(variant.photoUri, variant.updatedAt, null, Modifier.size(54.dp))
+    }
     else Icon(Icons.Outlined.ShoppingCart, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
 }
 
@@ -564,9 +599,21 @@ private fun ProductCardLeading(item: ProductWithStock, selectionMode: Boolean, s
 private fun ProductCardSummary(item: ProductWithStock, shelves: List<Shelf>, selectedShelfId: String?, modifier: Modifier) {
     Column(modifier) {
         Text(item.product.name, fontWeight = FontWeight.Bold)
-        Text(item.product.description.ifBlank { item.product.category }, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val variantSummary = item.representativeVariant?.let { variant ->
+            listOf(
+                variant.displayName.takeUnless {
+                    GenericNamePolicy.normalize(it) == GenericNamePolicy.normalize(item.product.name)
+                },
+                variant.packageLabel.takeIf(String::isNotBlank),
+                variant.description.takeIf(String::isNotBlank),
+            ).filterNotNull().distinct().joinToString(" · ")
+        }.orEmpty().ifBlank { item.product.description }
+        if (variantSummary.isNotBlank()) {
+            Text(variantSummary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Text(item.product.category, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(productQuantityText(item, shelves, selectedShelfId), style = MaterialTheme.typography.bodySmall)
-        if (item.isBelowMinimum) Text("Nedostaje ${item.shortfall} kom", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+        if (item.isBelowMinimum) Text("Ispod minimalne zalihe", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -589,47 +636,125 @@ private fun ProductCardMenu(
 
 internal fun productQuantityText(item: ProductWithStock, shelves: List<Shelf>, selectedShelfId: String?): String {
     if (!selectedShelfId.isNullOrBlank()) {
-        val onShelf = item.stocks.firstOrNull { it.shelfId == selectedShelfId }?.quantity ?: 0
-        return "$onShelf kom na polici · ${item.totalQuantity} ukupno"
+        val onShelf = GenericStockPolicy.summarize(item.copy(stocks = item.stocks.filter { it.shelfId == selectedShelfId })).display()
+        return "$onShelf na polici · ${GenericStockPolicy.summarize(item).display()} ukupno"
     }
-    val locations = item.stocks.filter { it.quantity > 0 }.joinToString { stock ->
-        "${shelves.firstOrNull { it.id == stock.shelfId }?.name ?: "Polica"} ${stock.quantity}"
-    }
-    return if (locations.isBlank()) "${item.totalQuantity} kom" else "${item.totalQuantity} kom · $locations"
+    return GenericStockPolicy.summarize(item).display()
 }
+
+@Composable
+private fun VariantQuickActionDialog(
+    item: ProductWithStock,
+    shelves: List<Shelf>,
+    initialShelfId: String,
+    delta: Int,
+    dismiss: () -> Unit,
+    apply: (String, String) -> Unit,
+) {
+    val eligibleVariants = item.variants.filter { variant ->
+        variant.deletedAt == null && (delta > 0 || item.stocks.any { it.variantId == variant.id && it.quantity > 0 })
+    }
+    var variantId by rememberSaveable(item.product.id, delta) {
+        mutableStateOf(
+            item.product.preferredVariantId?.takeIf { id -> eligibleVariants.any { it.id == id } }
+                ?: eligibleVariants.firstOrNull()?.id.orEmpty(),
+        )
+    }
+    val shelfOptions = shelves.filter { shelf ->
+        delta > 0 || item.stocks.any { it.variantId == variantId && it.shelfId == shelf.id && it.quantity > 0 }
+    }
+    var shelfId by rememberSaveable(item.product.id, variantId, delta) {
+        mutableStateOf(
+            initialShelfId.takeIf { id -> shelfOptions.any { it.id == id } }
+                ?: item.stocks.firstOrNull { it.variantId == variantId && it.quantity > 0 }?.shelfId
+                ?: shelfOptions.firstOrNull()?.id.orEmpty(),
+        )
+    }
+    LaunchedEffect(variantId) {
+        if (shelfOptions.none { it.id == shelfId }) shelfId = shelfOptions.firstOrNull()?.id.orEmpty()
+    }
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text(if (delta > 0) "Dodaj jedno pakiranje" else "Izvadi jedno pakiranje") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(item.product.name, fontWeight = FontWeight.Bold)
+                PairPicker("Varijanta", eligibleVariants.map { it.id to variantDisplayText(it) }, variantId) { variantId = it }
+                PairPicker("Polica", shelfOptions.map { it.id to it.name }, shelfId) { shelfId = it }
+            }
+        },
+        confirmButton = { Button({ apply(variantId, shelfId) }, enabled = variantId.isNotBlank() && shelfId.isNotBlank()) { Text("Potvrdi") } },
+        dismissButton = { TextButton(dismiss) { Text("Odustani") } },
+    )
+}
+
+internal fun variantDisplayText(variant: ProductVariant): String = listOfNotNull(
+    variant.manufacturer.takeIf(String::isNotBlank),
+    variant.packageLabel.takeIf(String::isNotBlank),
+    variant.displayName.takeIf { it.isNotBlank() && it != variant.manufacturer },
+).joinToString(" · ").ifBlank { "Varijanta" }
 
 @Composable
 fun ProductEditor(
     current: Product?,
+    currentVariant: ProductVariant? = null,
+    currentItem: ProductWithStock? = null,
     shelves: List<Shelf>,
     categories: List<Category>,
     onDismiss: () -> Unit,
     initialShelfId: String = "",
     activeProducts: List<ProductWithStock> = emptyList(),
     deletedProducts: List<ProductWithStock> = emptyList(),
+    synonymRules: List<SynonymRule> = emptyList(),
     catalogLookup: CatalogLookupState = CatalogLookupState(),
     requestCatalogLookup: (String) -> Unit = {},
     continueManually: () -> Unit = {},
     showInventoryMatchInitially: Boolean = false,
     barcodeScanner: (@Composable ((String) -> Unit, () -> Unit) -> Unit)? = null,
-    onAddExisting: (ProductWithStock, String, Int, (Boolean) -> Unit) -> Unit = { _, _, _, done -> done(false) },
-    onRestoreDeleted: (ProductWithStock, String, Int, (Boolean) -> Unit) -> Unit = { _, _, _, done -> done(false) },
+    onAddExisting: (ProductWithStock, ProductVariant, String, Int, (Boolean) -> Unit) -> Unit = { _, _, _, _, done -> done(false) },
+    onRestoreDeleted: (ProductWithStock, ProductVariant, String, Int, (Boolean) -> Unit) -> Unit = { _, _, _, _, done -> done(false) },
     notificationPermissionRequiredOverride: Boolean? = null,
     requestNotificationPermissionOverride: (() -> Unit)? = null,
-    onSave: (Product, String, Int, String?, PhotoSource?, (Boolean) -> Unit) -> Unit,
+    onSave: (ProductEditorSubmission, String, Int, String?, PhotoSource?, (Boolean) -> Unit) -> Unit,
 ) {
     val isNew = current == null || current.id.isBlank()
     var name by rememberSaveable(current?.id) { mutableStateOf(current?.name.orEmpty()) }
-    var barcode by rememberSaveable(current?.id) { mutableStateOf(current?.barcode.orEmpty()) }
-    var description by rememberSaveable(current?.id) { mutableStateOf(current?.description.orEmpty()) }
+    var variantName by rememberSaveable(currentVariant?.id, current?.id) { mutableStateOf(currentVariant?.displayName ?: current?.name.orEmpty()) }
+    var manufacturer by rememberSaveable(currentVariant?.id) { mutableStateOf(currentVariant?.manufacturer.orEmpty()) }
+    var barcode by rememberSaveable(currentVariant?.id, current?.id) { mutableStateOf(currentVariant?.barcode ?: current?.barcode.orEmpty()) }
+    var description by rememberSaveable(currentVariant?.id, current?.id) { mutableStateOf(currentVariant?.description ?: current?.description.orEmpty()) }
+    var packageAmount by rememberSaveable(currentVariant?.id) {
+        mutableStateOf(currentVariant?.packageAmountBase?.let { amount ->
+            java.math.BigDecimal.valueOf(amount).divide(java.math.BigDecimal.valueOf(currentVariant.packageUnit.multiplierToBase)).stripTrailingZeros().toPlainString()
+        }.orEmpty())
+    }
+    var packageUnit by rememberSaveable(currentVariant?.id) { mutableStateOf(currentVariant?.packageUnit?.name ?: PackageUnit.UNKNOWN.name) }
+    var variantMinimum by rememberSaveable(currentVariant?.id) { mutableStateOf(currentVariant?.minimumPackages?.toString().orEmpty()) }
     var category by rememberSaveable(current?.id) { mutableStateOf(current?.category.orEmpty()) }
     var categoryId by rememberSaveable(current?.id) { mutableStateOf(current?.categoryId.orEmpty()) }
-    var minimum by rememberSaveable(current?.id) { mutableStateOf((current?.minimumQuantity ?: 0).toString()) }
+    var categoryManuallySelected by rememberSaveable(current?.id) { mutableStateOf(current != null) }
+    var minimum by rememberSaveable(current?.id) { mutableStateOf(
+        when (current?.minimumMode) {
+            MinimumMode.MASS_MG -> java.math.BigDecimal.valueOf(current.minimumAmountBase).divide(java.math.BigDecimal.valueOf(1_000)).stripTrailingZeros().toPlainString()
+            MinimumMode.VOLUME_ML, MinimumMode.COUNT -> current.minimumAmountBase.toString()
+            else -> (current?.minimumQuantity ?: 0).toString()
+        },
+    ) }
+    var minimumMode by rememberSaveable(current?.id) { mutableStateOf(current?.minimumMode?.name ?: MinimumMode.PACKAGES.name) }
+    var minimumUnit by rememberSaveable(current?.id) { mutableStateOf(
+        when (current?.minimumMode) {
+            MinimumMode.MASS_MG -> PackageUnit.G.name
+            MinimumMode.VOLUME_ML -> PackageUnit.ML.name
+            else -> PackageUnit.PIECE.name
+        },
+    ) }
     var autoShopping by rememberSaveable(current?.id) { mutableStateOf(current?.autoShopping ?: true) }
     var shelfId by rememberSaveable(initialShelfId) { mutableStateOf(initialShelfId) }
     var quantity by rememberSaveable(current?.id) { mutableStateOf("1") }
-    var remotePhotoUri by rememberSaveable(current?.id) { mutableStateOf(current?.photoUri) }
-    var remotePhotoSource by rememberSaveable(current?.id) { mutableStateOf(current?.photoSource?.name ?: PhotoSource.NONE.name) }
+    var remotePhotoUri by rememberSaveable(currentVariant?.id, current?.id) { mutableStateOf(currentVariant?.photoUri ?: current?.photoUri) }
+    var remotePhotoSource by rememberSaveable(currentVariant?.id, current?.id) { mutableStateOf((currentVariant?.photoSource ?: current?.photoSource)?.name ?: PhotoSource.NONE.name) }
+    var targetProductId by rememberSaveable(current?.id) { mutableStateOf("") }
+    var groupingConfirmed by rememberSaveable(current?.id) { mutableStateOf(false) }
     var showBarcodeScanner by rememberSaveable { mutableStateOf(false) }
     var showInventoryMatch by rememberSaveable { mutableStateOf(showInventoryMatchInitially) }
     var lookupAttempted by rememberSaveable { mutableStateOf(false) }
@@ -658,8 +783,35 @@ fun ProductEditor(
     var photoError by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingCameraPath by rememberSaveable(current?.id) { mutableStateOf<String?>(null) }
     val parsedMinimum = parseProductQuantity(minimum)
+    val parsedMinimumBase: Long? = when (MinimumMode.valueOf(minimumMode)) {
+        MinimumMode.PACKAGES, MinimumMode.COUNT -> parseProductQuantity(minimum)?.toLong()
+        MinimumMode.MASS_MG, MinimumMode.VOLUME_ML -> runCatching { PackageAmountPolicy.baseAmount(minimum, PackageUnit.valueOf(minimumUnit)) }.getOrNull()
+    }
     val parsedInitialQuantity = parseProductQuantity(quantity)
-
+    val parsedVariantMinimum = if (variantMinimum.isBlank()) null else parseProductQuantity(variantMinimum)
+    val parsedPackageAmount = if (packageAmount.isBlank() || packageUnit == PackageUnit.UNKNOWN.name) null else runCatching {
+        PackageAmountPolicy.baseAmount(packageAmount, PackageUnit.valueOf(packageUnit))
+    }.getOrNull()
+    val packageSizeChangePreview = remember(currentItem, currentVariant, parsedPackageAmount, packageUnit) {
+        if (currentItem == null || currentVariant == null || parsedPackageAmount == null ||
+            (currentVariant.packageAmountBase == parsedPackageAmount && currentVariant.packageUnit.name == packageUnit)
+        ) null
+        else {
+            val updatedVariant = currentVariant.copy(
+                packageAmountBase = parsedPackageAmount,
+                packageUnit = PackageUnit.valueOf(packageUnit),
+            )
+            val updatedItem = currentItem.copy(
+                variants = currentItem.variants.map { if (it.id == currentVariant.id) updatedVariant else it },
+            )
+            "Promjena veličine: ${GenericStockPolicy.summarize(currentItem).display()} → ${GenericStockPolicy.summarize(updatedItem).display()}."
+        }
+    }
+    val groupingSuggestion = remember(variantName, activeProducts, synonymRules) {
+        variantName.takeIf(String::isNotBlank)?.let { raw ->
+            GenericNamePolicy.suggest(raw, activeProducts.map { it.product.id to it.product.name }, synonymRules)
+        }
+    }
     fun replaceSelectedPhoto(path: String, source: PhotoSource) {
         deleteTemporaryProductPhoto(context.cacheDir, selectedPhotoPath)
         selectedPhotoPath = path
@@ -728,6 +880,9 @@ fun ProductEditor(
     LaunchedEffect(categories, current?.id) {
         val canonical = categories.firstOrNull { it.id == categoryId }
             ?: categories.firstOrNull { it.name.equals(category, ignoreCase = true) }
+            ?: categories.firstOrNull { it.isDefault }
+            ?: categories.firstOrNull { it.name.equals("Ostalo", ignoreCase = true) }
+            ?: categories.firstOrNull()
         if (canonical != null) {
             categoryId = canonical.id
             category = canonical.name
@@ -740,9 +895,12 @@ fun ProductEditor(
                 ?: categories.firstOrNull { it.isDefault }
                 ?: categories.firstOrNull { it.name == "Ostalo" }
             val merged = ProductEntryDraft(
-                name = name, barcode = barcode, description = description, category = category,
-                categoryId = categoryId, photoUri = remotePhotoUri,
+                name = name, barcode = barcode, description = description,
+                category = if (categoryManuallySelected) category else "",
+                categoryId = if (categoryManuallySelected) categoryId else "",
+                photoUri = remotePhotoUri,
                 photoSource = PhotoSource.valueOf(remotePhotoSource),
+                manufacturer = manufacturer,
             ).mergeEmptyFields(catalog, mappedCategory)
             name = merged.name
             description = merged.description
@@ -750,10 +908,17 @@ fun ProductEditor(
             categoryId = merged.categoryId
             remotePhotoUri = merged.photoUri
             remotePhotoSource = merged.photoSource.name
+            manufacturer = merged.manufacturer
+            variantName = variantName.ifBlank { catalog.name }
+            if (packageAmount.isBlank()) PackageAmountPolicy.parse(catalog.description)?.let { parsed ->
+                packageAmount = java.math.BigDecimal.valueOf(parsed.amountBase)
+                    .divide(java.math.BigDecimal.valueOf(parsed.unit.multiplierToBase)).stripTrailingZeros().toPlainString()
+                packageUnit = parsed.unit.name
+            }
         }
     }
     val inventoryMatch = remember(barcode, activeProducts, deletedProducts, current?.id) {
-        findBarcodeInventoryMatch(barcode, activeProducts, deletedProducts, current?.id)
+        findBarcodeInventoryMatch(barcode, activeProducts, deletedProducts, currentVariant?.id)
     }
     val missingRequired = ProductEntryDraft(name = name, category = category, categoryId = categoryId).missingRequiredFields
 
@@ -761,7 +926,7 @@ fun ProductEditor(
         barcode = code
         lookupAttempted = true
         showBarcodeScanner = false
-        val match = findBarcodeInventoryMatch(code, activeProducts, deletedProducts, current?.id)
+        val match = findBarcodeInventoryMatch(code, activeProducts, deletedProducts, currentVariant?.id)
         if (match != null) showInventoryMatch = true else requestCatalogLookup(code)
     }
 
@@ -770,7 +935,20 @@ fun ProductEditor(
         title = { Text(if (isNew) "Novi artikl" else "Uredi artikl") },
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                item { OutlinedTextField(name, { name = it.take(100) }, label = { Text("Naziv *") }, modifier = Modifier.fillMaxWidth()) }
+                item {
+                    OutlinedTextField(
+                        name,
+                        { value ->
+                            val previousName = name
+                            name = value.take(100)
+                            if (variantName.isBlank() || variantName == previousName) variantName = name
+                        },
+                        label = { Text("Naziv *") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                item { OutlinedTextField(variantName, { variantName = it.take(100) }, label = { Text("Naziv varijante *") }, modifier = Modifier.fillMaxWidth()) }
+                item { OutlinedTextField(manufacturer, { manufacturer = it.take(100) }, label = { Text("Proizvođač (opcionalno)") }, modifier = Modifier.fillMaxWidth()) }
                 item {
                     OutlinedTextField(
                         barcode,
@@ -810,6 +988,67 @@ fun ProductEditor(
                 }
                 item { OutlinedTextField(description, { description = it.take(500) }, label = { Text("Pakiranje / opis") }, modifier = Modifier.fillMaxWidth()) }
                 item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            packageAmount,
+                            { packageAmount = it.filter { char -> char.isDigit() || char == ',' || char == '.' }.take(20) },
+                            label = { Text("Količina u pakiranju") },
+                            isError = packageAmount.isNotBlank() && parsedPackageAmount == null,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Box(Modifier.weight(1f)) {
+                            PairPicker(
+                                "Jedinica",
+                                PackageUnit.entries.map { it.name to packageUnitLabel(it) },
+                                packageUnit,
+                            ) { packageUnit = it }
+                        }
+                    }
+                    if ((packageAmount.isBlank()) != (packageUnit == PackageUnit.UNKNOWN.name)) {
+                        Text("Za poznatu veličinu unesite količinu i odaberite jedinicu.", color = MaterialTheme.colorScheme.error)
+                    }
+                    packageSizeChangePreview?.let { preview ->
+                        Text(preview, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                item {
+                    OutlinedTextField(
+                        variantMinimum,
+                        { variantMinimum = it.filter(Char::isDigit) },
+                        label = { Text("Minimum ove varijante (pakiranja, opcionalno)") },
+                        isError = variantMinimum.isNotBlank() && parsedVariantMinimum == null,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                if (isNew && groupingSuggestion != null) item {
+                    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Prijedlog ujednačavanja", fontWeight = FontWeight.Bold)
+                            Text("Generički naziv: ${groupingSuggestion.suggestedGenericName}")
+                            Text("Sigurnost prijedloga: ${groupingSuggestion.confidencePercent} %")
+                            groupingSuggestion.existingProductId?.let { suggestedId ->
+                                Text("Postojeći artikl: ${activeProducts.firstOrNull { it.product.id == suggestedId }?.product?.name.orEmpty()}")
+                            }
+                            OutlinedButton({ name = groupingSuggestion.suggestedGenericName }) { Text("Primijeni predloženi naziv") }
+                            PairPicker(
+                                "Grupiranje",
+                                listOf("" to "Nova samostalna grupa") + activeProducts.filterNot { it.product.doNotGroup }.map { it.product.id to it.product.name },
+                                targetProductId,
+                            ) { selected -> targetProductId = selected; groupingConfirmed = false }
+                            if (targetProductId.isNotBlank()) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        groupingConfirmed,
+                                        { groupingConfirmed = it },
+                                        Modifier.semantics { contentDescription = "Potvrdi grupiranje" },
+                                    )
+                                    Text("Potvrđujem da ova varijanta pripada odabranom artiklu")
+                                }
+                            }
+                        }
+                    }
+                }
+                item {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         remotePhotoUri?.let { ProductPhoto(it, current?.updatedAt ?: 0, "Fotografija artikla", Modifier.fillMaxWidth().height(120.dp)) }
                         selectedPhotoPath?.let { path ->
@@ -842,6 +1081,7 @@ fun ProductEditor(
                         categories.firstOrNull { it.id == selectedId }?.let {
                             categoryId = it.id
                             category = it.name
+                            categoryManuallySelected = true
                         }
                     }
                 }
@@ -852,10 +1092,37 @@ fun ProductEditor(
                     operationError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
                 }
                 item {
+                    PairPicker(
+                        "Minimum se vodi u",
+                        listOf(
+                            MinimumMode.PACKAGES.name to "Broju pakiranja",
+                            MinimumMode.MASS_MG.name to "Masi (kg/g)",
+                            MinimumMode.VOLUME_ML.name to "Volumenu (l/ml)",
+                            MinimumMode.COUNT.name to "Brojivim jedinicama",
+                        ),
+                        minimumMode,
+                    ) { selected ->
+                        minimumMode = selected
+                        minimumUnit = when (MinimumMode.valueOf(selected)) {
+                            MinimumMode.MASS_MG -> PackageUnit.G.name
+                            MinimumMode.VOLUME_ML -> PackageUnit.ML.name
+                            else -> PackageUnit.PIECE.name
+                        }
+                    }
+                    if (minimumMode == MinimumMode.MASS_MG.name || minimumMode == MinimumMode.VOLUME_ML.name) {
+                        PairPicker(
+                            "Jedinica minimuma",
+                            (if (minimumMode == MinimumMode.MASS_MG.name) listOf(PackageUnit.G, PackageUnit.KG) else listOf(PackageUnit.ML, PackageUnit.L))
+                                .map { it.name to packageUnitLabel(it) },
+                            minimumUnit,
+                        ) { minimumUnit = it }
+                    }
+                }
+                item {
                     OutlinedTextField(
                         minimum,
                         { value ->
-                            val filtered = value.filter(Char::isDigit)
+                            val filtered = value.filter { it.isDigit() || it == ',' || it == '.' }
                             if (shouldExplainNotificationPermission(minimum, filtered, notificationPermissionRequired, notificationExplanationShown)) {
                                 notificationExplanationShown = true
                                 showNotificationExplanation = true
@@ -863,8 +1130,8 @@ fun ProductEditor(
                             minimum = filtered
                         },
                         label = { Text("Minimalna količina") },
-                        isError = parsedMinimum == null,
-                        supportingText = if (parsedMinimum == null) ({ Text("Unesite broj od 0 do 1 000 000.") }) else null,
+                        isError = parsedMinimumBase == null,
+                        supportingText = if (parsedMinimumBase == null) ({ Text("Unesite broj od 0 do 1 000 000.") }) else null,
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
@@ -872,7 +1139,7 @@ fun ProductEditor(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Automatski dodaj na kupnju", Modifier.weight(1f))
                         Switch(autoShopping, { enabled ->
-                            if (enabled && !autoShopping && (parsedMinimum ?: 0) > 0 &&
+                            if (enabled && !autoShopping && (parsedMinimumBase ?: 0) > 0 &&
                                 notificationPermissionRequired && !notificationExplanationShown
                             ) {
                                 notificationExplanationShown = true
@@ -882,7 +1149,7 @@ fun ProductEditor(
                         })
                     }
                 }
-                if (notificationPermissionRequired && (parsedMinimum ?: 0) > 0) item {
+                if (notificationPermissionRequired && (parsedMinimumBase ?: 0) > 0) item {
                     TextButton({
                         notificationExplanationShown = true
                         showNotificationExplanation = true
@@ -914,17 +1181,42 @@ fun ProductEditor(
                     submitting = true
                     val now = System.currentTimeMillis()
                     onSave(
-                        (current ?: Product("", "", name, createdAt = now, updatedAt = now)).copy(
+                        ProductEditorSubmission(
+                        product = (current ?: Product("", "", name, createdAt = now, updatedAt = now)).copy(
                             name = name,
-                            barcode = barcode.ifBlank { null },
-                            description = description,
+                            barcode = null,
+                            description = "",
                             category = category,
                             categoryId = categoryId,
                             photoUri = remotePhotoUri,
                             photoSource = PhotoSource.valueOf(remotePhotoSource),
-                            minimumQuantity = requireNotNull(parsedMinimum),
+                            minimumQuantity = if (minimumMode == MinimumMode.PACKAGES.name) requireNotNull(parsedMinimumBase).toInt() else 0,
+                            minimumMode = MinimumMode.valueOf(minimumMode),
+                            minimumAmountBase = requireNotNull(parsedMinimumBase),
                             autoShopping = autoShopping,
                             updatedAt = now,
+                        ),
+                        variant = (currentVariant ?: ProductVariant(
+                            id = if (current == null) "" else current.id,
+                            pantryId = current?.pantryId.orEmpty(),
+                            productId = current?.id.orEmpty(),
+                            displayName = variantName,
+                            createdAt = now,
+                            updatedAt = now,
+                        )).copy(
+                            displayName = variantName,
+                            manufacturer = manufacturer,
+                            barcode = barcode.ifBlank { null },
+                            packageAmountBase = parsedPackageAmount,
+                            packageUnit = if (parsedPackageAmount == null) PackageUnit.UNKNOWN else PackageUnit.valueOf(packageUnit),
+                            packageLabel = if (parsedPackageAmount == null) "" else "$packageAmount ${packageUnitLabel(PackageUnit.valueOf(packageUnit))}",
+                            description = description,
+                            photoUri = remotePhotoUri,
+                            photoSource = PhotoSource.valueOf(remotePhotoSource),
+                            minimumPackages = parsedVariantMinimum,
+                            updatedAt = now,
+                        ),
+                        targetProductId = targetProductId.ifBlank { null },
                         ),
                         shelfId,
                         requireNotNull(parsedInitialQuantity),
@@ -935,9 +1227,12 @@ fun ProductEditor(
                         if (success) finishEditor() else operationError = "Spremanje nije uspjelo. Pokušajte ponovno."
                     }
                 },
-                enabled = !submitting && !catalogLookup.isLoading && name.trim().length in 1..100 &&
+                enabled = !submitting && !catalogLookup.isLoading && name.trim().length in 1..100 && variantName.trim().length in 1..100 &&
                     categories.any { it.id == categoryId && it.name == category } &&
-                    parsedMinimum != null && (!isNew || parsedInitialQuantity != null) &&
+                    parsedMinimumBase != null && (!isNew || parsedInitialQuantity != null) &&
+                    (variantMinimum.isBlank() || parsedVariantMinimum != null) &&
+                    ((packageAmount.isBlank() && packageUnit == PackageUnit.UNKNOWN.name) || parsedPackageAmount != null) &&
+                    (targetProductId.isBlank() || groupingConfirmed) &&
                     (barcode.isBlank() || hr.smocnica.core.domain.BarcodePolicy.isSupported(barcode)) && (!isNew || shelves.isNotEmpty()),
             ) { Text(if (submitting) "Spremanje…" else "Spremi") }
         },
@@ -974,8 +1269,8 @@ fun ProductEditor(
                 if (success) finishEditor() else operationError = "Dodavanje količine nije uspjelo. Pokušajte ponovno."
             }
             when (inventoryMatch) {
-                is BarcodeInventoryMatch.Active -> onAddExisting(inventoryMatch.item, selectedShelfId, selectedQuantity, done)
-                is BarcodeInventoryMatch.Deleted -> onRestoreDeleted(inventoryMatch.item, selectedShelfId, selectedQuantity, done)
+                is BarcodeInventoryMatch.Active -> onAddExisting(inventoryMatch.item, inventoryMatch.variant, selectedShelfId, selectedQuantity, done)
+                is BarcodeInventoryMatch.Deleted -> onRestoreDeleted(inventoryMatch.item, inventoryMatch.variant, selectedShelfId, selectedQuantity, done)
             }
         }
     }
@@ -992,6 +1287,7 @@ private fun ExistingBarcodeDialog(
     confirm: (String, Int) -> Unit,
 ) {
     val item = match.item
+    val variant = match.variant
     var shelfId by rememberSaveable(item.product.id) {
         mutableStateOf(initialShelfId.takeIf { id -> shelves.any { it.id == id } } ?: shelves.firstOrNull()?.id.orEmpty())
     }
@@ -1003,16 +1299,20 @@ private fun ExistingBarcodeDialog(
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        item.product.photoUri?.let { ProductPhoto(it, item.product.updatedAt, item.product.name, Modifier.size(72.dp)) }
+                        variant.photoUri?.let { ProductPhoto(it, variant.updatedAt, variant.displayName, Modifier.size(72.dp)) }
                         Column {
                             Text(item.product.name, fontWeight = FontWeight.Bold)
-                            if (item.product.description.isNotBlank()) Text(item.product.description)
+                            if (GenericNamePolicy.normalize(variant.displayName) != GenericNamePolicy.normalize(item.product.name)) {
+                                Text(variant.displayName)
+                            }
+                            if (variant.manufacturer.isNotBlank()) Text(variant.manufacturer)
+                            if (variant.packageLabel.isNotBlank()) Text(variant.packageLabel)
                             Text("Ukupno: ${item.totalQuantity} kom")
                         }
                     }
                 }
                 item {
-                    val locations = item.stocks.filter { it.quantity > 0 }.joinToString("\n") { stock ->
+                    val locations = item.stocks.filter { it.variantId == variant.id && it.quantity > 0 }.joinToString("\n") { stock ->
                         "${shelves.firstOrNull { it.id == stock.shelfId }?.name ?: "Polica"}: ${stock.quantity} kom"
                     }
                     Text(locations.ifBlank { "Artikl trenutačno nema količinu ni na jednoj polici." })
@@ -1079,6 +1379,7 @@ fun ShoppingScreen(
     scanAndStore: (ShoppingItem) -> Unit,
 ) {
     val items by viewModel.shopping.collectAsStateWithLifecycle()
+    val products by viewModel.allProducts.collectAsStateWithLifecycle()
     val categories by viewModel.categories.collectAsStateWithLifecycle()
     val sync by viewModel.syncSummary.collectAsStateWithLifecycle()
     var showAdd by remember { mutableStateOf(false) }
@@ -1099,6 +1400,12 @@ fun ShoppingScreen(
                 items(group, key = { it.id }) { item ->
                     ShoppingRow(
                         item = item,
+                        preferredVariantLabel = products.firstOrNull { it.product.id == item.productId }
+                            ?.let { product ->
+                                val preferredId = item.preferredVariantId ?: product.product.preferredVariantId
+                                product.variants.firstOrNull { it.id == preferredId }
+                                    ?.let { variant -> listOf(variant.manufacturer, variant.displayName, variant.packageLabel).filter(String::isNotBlank).distinct().joinToString(", ") }
+                            },
                         checked = { viewModel.setChecked(item, it) },
                         scanAndStore = { scanAndStore(item) },
                         edit = { if (item.manual) editing = item },
@@ -1141,6 +1448,7 @@ fun ShoppingScreen(
 @Composable
 internal fun ShoppingRow(
     item: ShoppingItem,
+    preferredVariantLabel: String? = null,
     checked: (Boolean) -> Unit,
     scanAndStore: () -> Unit,
     edit: () -> Unit,
@@ -1153,6 +1461,9 @@ internal fun ShoppingRow(
             Column(Modifier.weight(1f)) {
                 Text(item.name, fontWeight = FontWeight.SemiBold, textDecoration = if (item.checked) TextDecoration.LineThrough else null, color = if (item.checked) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface)
                 Text("${item.requiredQuantity} kom · ${if (item.manual) "ručno" else "automatski manjak"}", style = MaterialTheme.typography.bodySmall)
+                if (!item.manual && !preferredVariantLabel.isNullOrBlank()) {
+                    Text("Preporučeno: $preferredVariantLabel", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             if (item.manual) {
                 Box {

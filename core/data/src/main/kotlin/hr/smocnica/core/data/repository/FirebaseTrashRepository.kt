@@ -17,11 +17,19 @@ class FirebaseTrashRepository @Inject constructor(
 ) : TrashRepository {
     override fun observe(pantryId: String): Flow<List<TrashItem>> = combine(
         database.productDao().observeDeleted(pantryId),
+        database.productVariantDao().observeDeleted(pantryId),
         database.shelfDao().observeDeleted(pantryId),
         database.categoryDao().observeDeleted(pantryId),
-    ) { products, shelves, categories ->
+        database.productDao().observeActive(pantryId),
+    ) { products, variants, shelves, categories, activeProducts ->
+        val activeProductIds = activeProducts.mapTo(hashSetOf()) { it.id }
         buildList {
             products.forEach { row -> row.deletedAt?.let { deleted -> row.purgeAfter?.let { purge -> add(TrashItem(AggregateType.PRODUCT, row.id, pantryId, row.name, deleted, purge)) } } }
+            variants.filter { it.productId in activeProductIds }.forEach { row ->
+                row.deletedAt?.let { deleted -> row.purgeAfter?.let { purge ->
+                    add(TrashItem(AggregateType.VARIANT, row.id, pantryId, row.displayName, deleted, purge))
+                } }
+            }
             shelves.forEach { row -> row.deletedAt?.let { deleted -> row.purgeAfter?.let { purge -> add(TrashItem(AggregateType.SHELF, row.id, pantryId, row.name, deleted, purge)) } } }
             categories.forEach { row -> row.deletedAt?.let { deleted -> row.purgeAfter?.let { purge -> add(TrashItem(AggregateType.CATEGORY, row.id, pantryId, row.name, deleted, purge)) } } }
         }.sortedByDescending(TrashItem::deletedAt)
@@ -32,6 +40,10 @@ class FirebaseTrashRepository @Inject constructor(
         client.call("purgeTrash", mapOf("pantryId" to pantryId, "type" to item.type.name, "id" to item.id))
         when (item.type) {
             AggregateType.PRODUCT -> database.productDao().deleteHard(item.id)
+            AggregateType.VARIANT -> {
+                database.stockDao().deleteVariantHard(pantryId, item.id)
+                database.productVariantDao().deleteHard(item.id)
+            }
             AggregateType.SHELF -> database.shelfDao().deleteHard(item.id)
             AggregateType.CATEGORY -> database.categoryDao().deleteHard(item.id)
             else -> error("Nepodržana vrsta zapisa u košu.")

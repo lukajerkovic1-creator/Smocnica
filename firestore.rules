@@ -7,6 +7,9 @@ service cloud.firestore {
 
     function activeMember(pantryId) {
       return signedIn()
+        && exists(/databases/$(database)/documents/pantries/$(pantryId))
+        && (!get(/databases/$(database)/documents/pantries/$(pantryId)).data.keys().hasAny(['deletedAt'])
+          || get(/databases/$(database)/documents/pantries/$(pantryId)).data.deletedAt == null)
         && exists(/databases/$(database)/documents/pantries/$(pantryId)/members/$(request.auth.uid))
         && get(/databases/$(database)/documents/pantries/$(pantryId)/members/$(request.auth.uid)).data.active == true;
     }
@@ -27,7 +30,7 @@ service cloud.firestore {
       match /{collection}/{documentId} {
         allow read: if activeMember(pantryId)
           && collection in [
-            'members', 'devices', 'shelves', 'categories', 'products', 'stocks',
+            'members', 'devices', 'shelves', 'categories', 'products', 'variants', 'synonymRules', 'stocks',
             'shoppingItems', 'activities', 'trash', 'inventorySessions'
           ];
         allow write: if false;
@@ -52,4 +55,3 @@ service cloud.firestore {
     }
   }
 }
-

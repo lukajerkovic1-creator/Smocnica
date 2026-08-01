@@ -4,6 +4,8 @@ import hr.smocnica.core.domain.CatalogProduct
 import hr.smocnica.core.model.PhotoSource
 import hr.smocnica.core.model.Category
 import hr.smocnica.core.model.ProductWithStock
+import hr.smocnica.core.model.Product
+import hr.smocnica.core.model.ProductVariant
 
 enum class CatalogLookupOutcome { IDLE, LOADING, SUCCESS, EMPTY, TIMEOUT, ERROR }
 
@@ -23,6 +25,7 @@ data class ProductEntryDraft(
     val categoryId: String = "",
     val photoUri: String? = null,
     val photoSource: PhotoSource = PhotoSource.NONE,
+    val manufacturer: String = "",
 ) {
     fun mergeEmptyFields(catalog: CatalogProduct, mappedCategory: Category? = null): ProductEntryDraft = copy(
         name = name.ifBlank { catalog.name },
@@ -32,6 +35,7 @@ data class ProductEntryDraft(
         categoryId = categoryId.ifBlank { if (category.isBlank()) mappedCategory?.id.orEmpty() else "" },
         photoUri = photoUri ?: catalog.imageUrl,
         photoSource = if (photoUri == null && catalog.imageUrl != null) PhotoSource.OPEN_FOOD_FACTS else photoSource,
+        manufacturer = manufacturer.ifBlank { catalog.manufacturer },
     )
 
     val missingRequiredFields: List<String>
@@ -42,22 +46,58 @@ data class ProductEntryDraft(
         }
 }
 
+data class ProductEditorSubmission(
+    val product: Product,
+    val variant: ProductVariant,
+    /** Existing generic article chosen by the user after reviewing the grouping suggestion. */
+    val targetProductId: String? = null,
+)
+
 sealed interface BarcodeInventoryMatch {
     val item: ProductWithStock
+    val variant: ProductVariant
 
-    data class Active(override val item: ProductWithStock) : BarcodeInventoryMatch
-    data class Deleted(override val item: ProductWithStock) : BarcodeInventoryMatch
+    data class Active(override val item: ProductWithStock, override val variant: ProductVariant) : BarcodeInventoryMatch
+    data class Deleted(override val item: ProductWithStock, override val variant: ProductVariant) : BarcodeInventoryMatch
 }
 
 internal fun findBarcodeInventoryMatch(
     barcode: String,
     active: List<ProductWithStock>,
     deleted: List<ProductWithStock>,
-    excludeProductId: String? = null,
+    excludeVariantId: String? = null,
 ): BarcodeInventoryMatch? {
     if (barcode.isBlank()) return null
-    active.firstOrNull { it.product.id != excludeProductId && it.product.barcode == barcode }
-        ?.let { return BarcodeInventoryMatch.Active(it) }
-    return deleted.firstOrNull { it.product.id != excludeProductId && it.product.barcode == barcode }
-        ?.let(BarcodeInventoryMatch::Deleted)
+    active.forEach { item ->
+        item.variants.firstOrNull { it.id != excludeVariantId && it.barcode == barcode }
+            ?.let { return BarcodeInventoryMatch.Active(item, it) }
+        if (item.variants.isEmpty() && item.product.id != excludeVariantId && item.product.barcode == barcode) {
+            return BarcodeInventoryMatch.Active(item, item.product.legacyVariant())
+        }
+    }
+    deleted.forEach { item ->
+        item.variants.firstOrNull { it.id != excludeVariantId && it.barcode == barcode }
+            ?.let { return BarcodeInventoryMatch.Deleted(item, it) }
+        if (item.variants.isEmpty() && item.product.id != excludeVariantId && item.product.barcode == barcode) {
+            return BarcodeInventoryMatch.Deleted(item, item.product.legacyVariant())
+        }
+    }
+    return null
 }
+
+private fun Product.legacyVariant() = ProductVariant(
+    id = id,
+    pantryId = pantryId,
+    productId = id,
+    displayName = name,
+    barcode = barcode,
+    description = description,
+    photoUri = photoUri,
+    photoSource = photoSource,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    deletedAt = deletedAt,
+    purgeAfter = purgeAfter,
+    revision = revision,
+    syncState = syncState,
+)

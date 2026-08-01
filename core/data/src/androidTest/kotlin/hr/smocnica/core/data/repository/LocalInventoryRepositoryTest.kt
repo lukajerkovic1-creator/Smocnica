@@ -19,11 +19,15 @@ import hr.smocnica.core.domain.ImportStrategy
 import hr.smocnica.core.model.Pantry
 import hr.smocnica.core.model.PantrySnapshot
 import hr.smocnica.core.model.Product
+import hr.smocnica.core.model.ProductVariant
+import hr.smocnica.core.model.PackageUnit
 import hr.smocnica.core.model.ProductFilter
 import hr.smocnica.core.model.Category
 import hr.smocnica.core.model.Shelf
 import hr.smocnica.core.model.SyncState
 import hr.smocnica.core.model.ShoppingItem
+import hr.smocnica.core.model.Stock
+import hr.smocnica.core.model.SynonymRule
 import hr.smocnica.core.model.AggregateType
 import hr.smocnica.core.model.ActivityType
 import hr.smocnica.core.model.OperationPayload
@@ -33,6 +37,10 @@ import hr.smocnica.core.data.remote.ApplyStatus
 import hr.smocnica.core.data.remote.OperationGateway
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import java.security.MessageDigest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -338,6 +346,84 @@ class LocalInventoryRepositoryTest {
     }
 
     @Test
+    fun splitVariantAtomicallyPreservesItsShelfStockAndCreatesANewGenericProduct() = runTest {
+        val source = repository.upsertProduct(
+            Product("", "p1", "Glatko brašno", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
+            "u1", "Test uređaj",
+        )
+        val initial = database.productVariantDao().forProduct(source.id).single().model()
+        val second = repository.upsertVariant(
+            ProductVariant(
+                id = "", pantryId = "p1", productId = source.id, displayName = "Drugi proizvođač 500 g",
+                manufacturer = "Drugi proizvođač", barcode = "4006381333931", packageAmountBase = 500_000,
+                packageUnit = PackageUnit.G, packageLabel = "500 g", createdAt = 1, updatedAt = 1,
+            ),
+            "u1", "Test uređaj",
+        )
+        repository.adjustVariantStock(second.id, "s1", 3, "u1", "Test uređaj")
+        database.operationDao().deleteForPantry("p1")
+        database.activityDao().deleteForPantry("p1")
+
+        val created = repository.splitVariant(second.id, "Integralno brašno", "u1", "Test uređaj")
+
+        assertEquals("Integralno brašno", created.name)
+        assertEquals(created.id, database.productVariantDao().get(second.id)?.productId)
+        assertEquals(source.id, database.productVariantDao().get(initial.id)?.productId)
+        assertEquals(created.id, database.stockDao().getVariant(second.id, "s1")?.productId)
+        assertEquals(3, database.stockDao().getVariant(second.id, "s1")?.quantity)
+        assertEquals(1, database.productVariantDao().forProduct(source.id).size)
+        assertEquals(1, database.productVariantDao().forProduct(created.id).size)
+        val operation = database.operationDao().next().single()
+        val payload = json.decodeFromString(OperationPayload.serializer(), operation.payloadJson)
+        assertTrue(payload is OperationPayload.SplitVariant)
+        assertEquals(ActivityType.VARIANT_UNGROUPED.name, database.activityDao().listSince("p1", 0).single().type)
+    }
+
+    @Test
+    fun deletingVariantsKeepsTheGenericProductUntilTheLastVariantIsDeleted() = runTest {
+        val product = repository.upsertProduct(
+            Product("", "p1", "Tjestenina", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
+            "u1", "Test uređaj",
+        )
+        val initial = database.productVariantDao().forProduct(product.id).single().model()
+        val second = repository.upsertVariant(
+            ProductVariant(
+                id = "", pantryId = "p1", productId = product.id, displayName = "Drugo pakiranje",
+                manufacturer = "Proizvođač", barcode = "4006381333931", packageAmountBase = 500_000,
+                packageUnit = PackageUnit.G, packageLabel = "500 g", createdAt = 1, updatedAt = 1,
+            ),
+            "u1", "Test uređaj",
+        )
+        database.operationDao().deleteForPantry("p1")
+        database.activityDao().deleteForPantry("p1")
+
+        repository.deleteVariant(initial.id, "u1", "Test uređaj")
+
+        assertEquals(null, database.productDao().get(product.id)?.deletedAt)
+        assertTrue(database.productVariantDao().get(initial.id)?.deletedAt != null)
+        assertEquals(null, database.productVariantDao().get(second.id)?.deletedAt)
+        assertEquals(second.id, database.productDao().get(product.id)?.preferredVariantId)
+        val variantDelete = json.decodeFromString(
+            OperationPayload.serializer(),
+            database.operationDao().next().single().payloadJson,
+        )
+        assertTrue(variantDelete is OperationPayload.SoftDelete)
+        assertEquals(AggregateType.VARIANT, (variantDelete as OperationPayload.SoftDelete).targetType)
+
+        database.operationDao().deleteForPantry("p1")
+        repository.deleteVariant(second.id, "u1", "Test uređaj")
+
+        assertTrue(database.productDao().get(product.id)?.deletedAt != null)
+        assertTrue(database.productVariantDao().get(second.id)?.deletedAt != null)
+        val productDelete = json.decodeFromString(
+            OperationPayload.serializer(),
+            database.operationDao().next().single().payloadJson,
+        )
+        assertTrue(productDelete is OperationPayload.SoftDelete)
+        assertEquals(AggregateType.PRODUCT, (productDelete as OperationPayload.SoftDelete).targetType)
+    }
+
+    @Test
     fun inventoryDraftSurvivesObservationAndCanBeDiscarded() = runTest {
         val product = repository.upsertProduct(
             Product("", "p1", "Sol", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1), "u1", "Test uređaj",
@@ -386,6 +472,79 @@ class LocalInventoryRepositoryTest {
         assertTrue(runCatching { backup.import(forged, ImportStrategy.MERGE, "p1", "u1", "Test uređaj") }.isFailure)
         assertEquals(null, database.shelfDao().get("duplicate-a"))
         assertEquals(null, database.shelfDao().get("duplicate-b"))
+    }
+
+    @Test
+    fun versionThreeBackupRoundTripPreservesVariantsStocksAndSynonyms() = runTest {
+        val product = repository.upsertProduct(
+            Product(
+                "", "p1", "Glatko brašno", barcode = "4006381333931", description = "1 kg",
+                category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1,
+            ),
+            "u1", "Test uređaj",
+        )
+        val second = repository.upsertVariant(
+            ProductVariant(
+                id = "", pantryId = "p1", productId = product.id, displayName = "B paket 500 g",
+                manufacturer = "B", barcode = "3850123456782", packageAmountBase = 500_000,
+                packageUnit = PackageUnit.G, packageLabel = "500 g", createdAt = 1, updatedAt = 1,
+            ),
+            "u1", "Test uređaj",
+        )
+        repository.adjustVariantStock(product.id, "s1", 2, "u1", "Test uređaj")
+        repository.adjustVariantStock(second.id, "s1", 3, "u1", "Test uređaj")
+        repository.upsertSynonymRule(
+            SynonymRule("", "p1", "pšenično brašno t-550", "Glatko brašno", "glatko brašno", product.id, updatedAt = 1),
+            "u1", "Test uređaj",
+        )
+
+        val preview = backup.previewImport(backup.exportJson("p1"))
+
+        assertEquals(3, preview.schemaVersion)
+        assertEquals(1, preview.snapshot.products.size)
+        assertEquals(2, preview.snapshot.variants.size)
+        assertEquals(5, preview.snapshot.stocks.sumOf(Stock::quantity))
+        assertEquals("Glatko brašno", preview.snapshot.synonymRules.single().genericName)
+        assertTrue(preview.conflicts.isEmpty())
+    }
+
+    @Test
+    fun legacyVersionTwoBackupIsUpgradedToInitialVariantWithoutDataLoss() = runTest {
+        val snapshot = PantrySnapshot(
+            pantry = Pantry("legacy", "Stara smočnica", "u1", createdAt = 1, updatedAt = 1),
+            members = emptyList(),
+            shelves = listOf(Shelf("legacy-shelf", "legacy", "Polica", 0, createdAt = 1, updatedAt = 1)),
+            categories = listOf(Category("legacy-other", "legacy", "Ostalo", 0, isDefault = true)),
+            products = listOf(
+                Product(
+                    "legacy-flour", "legacy", "Brašno glatko", barcode = "4006381333931", description = "1 kg",
+                    category = "Ostalo", categoryId = "legacy-other", minimumQuantity = 2, createdAt = 1, updatedAt = 1,
+                ),
+            ),
+            stocks = listOf(Stock("legacy", "legacy-flour", "legacy-shelf", 4, updatedAt = 1)),
+            shoppingItems = emptyList(), activities = emptyList(),
+        )
+        val payload = json.encodeToString(PantrySnapshot.serializer(), snapshot)
+        val checksum = MessageDigest.getInstance("SHA-256").digest(payload.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        val envelope = buildJsonObject {
+            put("schemaVersion", 2)
+            put("exportedAt", 1)
+            put("checksumSha256", checksum)
+            put("snapshot", json.encodeToJsonElement(PantrySnapshot.serializer(), snapshot))
+        }
+
+        val preview = backup.previewImport(json.encodeToString(JsonObject.serializer(), envelope).toByteArray())
+
+        val variant = preview.snapshot.variants.single()
+        assertEquals("legacy-flour", variant.id)
+        assertEquals("4006381333931", variant.barcode)
+        assertEquals(1_000_000L, variant.packageAmountBase)
+        assertEquals(PackageUnit.KG, variant.packageUnit)
+        assertEquals("legacy-flour", preview.snapshot.stocks.single().variantId)
+        assertEquals(4, preview.snapshot.stocks.single().quantity)
+        assertEquals(2L, preview.snapshot.products.single().minimumAmountBase)
+        assertTrue(preview.conflicts.isEmpty())
     }
 
     @Test
@@ -473,7 +632,7 @@ class LocalInventoryRepositoryTest {
         repository.adjustStock(product.id, "s1", 2, "u1", "Test uređaj")
         repository.deleteProduct(product, "u1", "Test uređaj")
 
-        repository.restoreProductAndAdjustStock("p1", product.id, "s1", 3, "u1", "Test uređaj")
+        repository.restoreProductAndAdjustStock("p1", product.id, "s1", 3, "u1", "Test uređaj", null)
 
         repository.observeProducts("p1").test {
             val restored = awaitItem().single()
@@ -488,5 +647,52 @@ class LocalInventoryRepositoryTest {
         val activityTypes = database.activityDao().listSince("p1", 0).map { it.type }
         assertTrue(ActivityType.ITEM_RESTORED.name in activityTypes)
         assertTrue(ActivityType.STOCK_ADDED.name in activityTypes)
+    }
+
+    @Test
+    fun restoringBarcodeMatchAddsStockToTheExactDeletedVariant() = runTest {
+        val product = repository.upsertProduct(
+            Product("", "p1", "Sok", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
+            "u1", "Test uređaj",
+        )
+        val initial = database.productVariantDao().forProduct(product.id).single().model()
+        val scanned = repository.upsertVariant(
+            ProductVariant(
+                id = "", pantryId = "p1", productId = product.id, displayName = "Sok 500 ml",
+                barcode = "4006381333931", packageAmountBase = 500, packageUnit = PackageUnit.ML,
+                packageLabel = "500 ml", createdAt = 1, updatedAt = 1,
+            ),
+            "u1", "Test uređaj",
+        )
+        repository.deleteProduct(product, "u1", "Test uređaj")
+
+        repository.restoreProductAndAdjustStock("p1", product.id, "s1", 3, "u1", "Test uređaj", scanned.id)
+
+        assertEquals(3, database.stockDao().getVariant(scanned.id, "s1")?.quantity)
+        assertEquals(null, database.stockDao().getVariant(initial.id, "s1"))
+    }
+
+    @Test
+    fun variantSearchMakesTheMatchingVariantRepresentative() = runTest {
+        val product = repository.upsertProduct(
+            Product("", "p1", "Glatko brašno", category = "Ostalo", categoryId = "cat-other", createdAt = 1, updatedAt = 1),
+            "u1", "Test uređaj",
+        )
+        val initial = database.productVariantDao().forProduct(product.id).single().model()
+        repository.adjustVariantStock(initial.id, "s1", 5, "u1", "Test uređaj")
+        val searched = repository.upsertVariant(
+            ProductVariant(
+                id = "", pantryId = "p1", productId = product.id, displayName = "Posebno brašno",
+                manufacturer = "Traženi mlin", barcode = "4006381333931", createdAt = 1, updatedAt = 1,
+            ),
+            "u1", "Test uređaj",
+        )
+
+        repository.observeProducts("p1", ProductFilter(query = "Traženi mlin")).test {
+            val result = awaitItem().single()
+            assertEquals(searched.id, result.matchedVariantId)
+            assertEquals(searched.id, result.representativeVariant?.id)
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 }

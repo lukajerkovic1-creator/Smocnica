@@ -79,7 +79,7 @@ fun MainNavigation(
                     is ScannerCompletion.StockAdjusted -> viewModel.adjustStock(result.productId, result.shelfId, -result.delta)
                     is ScannerCompletion.StockMoved -> viewModel.moveStock(result.productId, result.toShelfId, result.fromShelfId, result.quantity)
                     is ScannerCompletion.ProductCreated -> viewModel.deleteProduct(result.product)
-                    is ScannerCompletion.ProductRestored -> viewModel.undoRestoreProductAndAddStock(result.product, result.shelfId, result.quantity)
+                    is ScannerCompletion.ProductRestored -> viewModel.undoRestoreProductAndAddStock(result.product, result.variantId, result.shelfId, result.quantity)
                 }
             }
         }
@@ -202,6 +202,7 @@ fun MainNavigation(
             composable("update") { UpdateScreen(viewModel, padding) { navController.popBackStack() } }
             composable("about") { AboutScreen(padding) { navController.popBackStack() } }
             composable("conflicts") { ConflictsScreen(viewModel, padding) { navController.popBackStack() } }
+            composable("grouping-review") { GroupingReviewScreen(viewModel, padding) { navController.popBackStack() } }
         }
     }
 }

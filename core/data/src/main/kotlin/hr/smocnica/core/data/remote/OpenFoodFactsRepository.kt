@@ -22,13 +22,14 @@ data class OpenFoodFactsProduct(
     val quantity: String? = null,
     @SerialName("categories_tags") val categories: List<String> = emptyList(),
     @SerialName("image_front_url") val imageUrl: String? = null,
+    val brands: String? = null,
 )
 
 interface OpenFoodFactsApi {
     @retrofit2.http.GET("api/v2/product/{barcode}.json")
     suspend fun product(
         @retrofit2.http.Path("barcode") barcode: String,
-        @retrofit2.http.Query("fields") fields: String = "product_name_hr,product_name,quantity,categories_tags,image_front_url",
+        @retrofit2.http.Query("fields") fields: String = "product_name_hr,product_name,quantity,categories_tags,image_front_url,brands",
     ): OpenFoodFactsResponse
 }
 
@@ -48,6 +49,7 @@ class OpenFoodFactsRepository @Inject constructor(private val api: OpenFoodFacts
             description = product.quantity.orEmpty(),
             category = category,
             imageUrl = sanitizeOpenFoodFactsImageUrl(product.imageUrl),
+            manufacturer = product.brands.orEmpty().trim().take(100),
         )
     }
 }

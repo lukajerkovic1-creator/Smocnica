@@ -1,4 +1,4 @@
-import { DocumentSnapshot } from "firebase-admin/firestore";
+import { DocumentSnapshot, FieldValue } from "firebase-admin/firestore";
 import { HttpsError } from "firebase-functions/v2/https";
 import { db, now } from "./firebase";
 import { normalizedName, sha256 } from "./validation";
@@ -12,10 +12,24 @@ type CanonicalCategory = { id: string; name: string; normalizedName: string; sor
  */
 export async function migratePantryCanonicalSchema(pantryId: string): Promise<void> {
   const pantryRef = db.doc(`pantries/${pantryId}`);
-  const [shelves, categories, products, shopping] = await Promise.all([
+  const pantry = await pantryRef.get();
+  if (Number(pantry.get("contentSchemaVersion") || 1) >= 2) {
+    if (!pantry.get("quantityProjectionRemovedAt")) {
+      const products = await pantryRef.collection("products").get();
+      const cleanup = db.bulkWriter();
+      products.docs.filter((product) => product.get("totalQuantity") !== undefined)
+        .forEach((product) => cleanup.update(product.ref, { totalQuantity: FieldValue.delete() }));
+      cleanup.set(pantryRef, { quantityProjectionRemovedAt: now() }, { merge: true });
+      await cleanup.close();
+    }
+    return;
+  }
+  const [shelves, categories, products, variants, stocks, shopping] = await Promise.all([
     pantryRef.collection("shelves").get(),
     pantryRef.collection("categories").get(),
     pantryRef.collection("products").get(),
+    pantryRef.collection("variants").get(),
+    pantryRef.collection("stocks").get(),
     pantryRef.collection("shoppingItems").get(),
   ]);
   const activeShelves = shelves.docs.filter(activeDocument);
@@ -42,6 +56,9 @@ export async function migratePantryCanonicalSchema(pantryId: string): Promise<vo
   const productCategory = new Map<string, CanonicalCategory>();
   const timestamp = now();
   const writer = db.bulkWriter();
+  const genericSchemaComplete = false;
+  await pantryRef.set({ genericMigration: { targetVersion: 2, phase: "WRITING", updatedAt: timestamp } }, { merge: true });
+  const existingVariantIds = new Set(variants.docs.map((variant) => variant.id));
 
   for (const shelf of activeShelves) {
     const normalized = normalizedName(String(shelf.get("name")));
@@ -65,7 +82,48 @@ export async function migratePantryCanonicalSchema(pantryId: string): Promise<vo
       ?? categoryByName.get(normalizedName(String(product.get("category") || "")));
     if (!category) throw new HttpsError("failed-precondition", `Artikl ${product.id} nema valjanu aktivnu kategoriju.`);
     productCategory.set(product.id, category);
-    writer.set(product.ref, { categoryId: category.id, category: category.name }, { merge: true });
+    writer.set(product.ref, {
+      categoryId: category.id, category: category.name,
+      ...(genericSchemaComplete ? {} : {
+        normalizedName: normalizedName(String(product.get("name"))),
+        barcode: null, description: "", photoUrl: null, photoSource: "NONE",
+        minimumMode: "PACKAGES",
+        minimumAmountBase: Number(product.get("minimumQuantity") || 0),
+        preferredVariantId: product.id,
+        doNotGroup: false,
+        groupingRevision: 0,
+        totalQuantity: FieldValue.delete(),
+      }),
+    }, { merge: true });
+    if (!genericSchemaComplete && !existingVariantIds.has(product.id)) {
+      const code = typeof product.get("barcode") === "string" ? String(product.get("barcode")) : null;
+      // `set` makes the migration safe when two devices trigger it concurrently.
+      // Both writers persist the same deterministic initial variant instead of
+      // surfacing an asynchronous ALREADY_EXISTS error from BulkWriter.
+      writer.set(pantryRef.collection("variants").doc(product.id), {
+        productId: product.id,
+        displayName: String(product.get("name")), manufacturer: "", barcode: code,
+        packageAmountBase: null, packageUnit: "UNKNOWN", packageLabel: "",
+        description: String(product.get("description") || ""),
+        photoUrl: product.get("photoUrl") || null, photoSource: product.get("photoSource") || "NONE",
+        minimumPackages: null, purchaseCount: 0,
+        revision: Number(product.get("revision") || 0),
+        createdAt: product.get("createdAt") || timestamp, updatedAt: timestamp,
+        deletedAt: product.get("deletedAt") || null, purgeAfter: product.get("purgeAfter") || null,
+      }, { merge: true });
+      if (code) writer.set(db.doc(`barcodes/${sha256(`${pantryId}:${code}`)}`), {
+        pantryId, productId: product.id, variantId: product.id, barcode: code, updatedAt: timestamp,
+      }, { merge: true });
+    }
+  }
+
+  if (!genericSchemaComplete) {
+    for (const stock of stocks.docs) {
+      writer.set(stock.ref, {
+        productId: String(stock.get("productId")),
+        variantId: String(stock.get("variantId") || stock.get("productId")),
+      }, { merge: true });
+    }
   }
 
   for (const item of shopping.docs.filter(activeDocument)) {
@@ -75,9 +133,19 @@ export async function migratePantryCanonicalSchema(pantryId: string): Promise<vo
       : categoryById.get(String(item.get("categoryId") || ""))
         ?? categoryByName.get(normalizedName(String(item.get("category") || "")));
     if (!category) throw new HttpsError("failed-precondition", `Stavka kupnje ${item.id} nema valjanu aktivnu kategoriju.`);
-    writer.set(item.ref, { categoryId: category.id, category: category.name }, { merge: true });
+    writer.set(item.ref, {
+      categoryId: category.id, category: category.name,
+      preferredVariantId: productId || null,
+    }, { merge: true });
   }
   await writer.close();
+  if (!genericSchemaComplete) {
+    await pantryRef.set({
+      contentSchemaVersion: 2,
+      genericMigration: { targetVersion: 2, phase: "COMPLETED", completedAt: now(), updatedAt: now() },
+      updatedAt: now(),
+    }, { merge: true });
+  }
 }
 
 function activeDocument(document: DocumentSnapshot): boolean {

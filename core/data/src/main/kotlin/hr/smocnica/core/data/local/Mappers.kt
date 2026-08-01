@@ -9,12 +9,16 @@ import hr.smocnica.core.model.InventorySession
 import hr.smocnica.core.model.InventoryStatus
 import hr.smocnica.core.model.Member
 import hr.smocnica.core.model.MemberRole
+import hr.smocnica.core.model.MinimumMode
+import hr.smocnica.core.model.PackageUnit
 import hr.smocnica.core.model.Pantry
 import hr.smocnica.core.model.PhotoSource
 import hr.smocnica.core.model.Product
+import hr.smocnica.core.model.ProductVariant
 import hr.smocnica.core.model.Shelf
 import hr.smocnica.core.model.ShoppingItem
 import hr.smocnica.core.model.Stock
+import hr.smocnica.core.model.SynonymRule
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import java.text.Normalizer
@@ -23,8 +27,8 @@ internal fun String.searchKey(): String = Normalizer.normalize(trim(), Normalize
     .replace(Regex("\\s+"), " ")
     .lowercase(java.util.Locale.forLanguageTag("hr"))
 
-internal fun PantryEntity.model() = Pantry(id, name, ownerUid, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState)
-internal fun Pantry.entity() = PantryEntity(id, name, ownerUid, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState)
+internal fun PantryEntity.model() = Pantry(id, name, ownerUid, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState, contentSchemaVersion, groupingReviewCompletedAt)
+internal fun Pantry.entity() = PantryEntity(id, name, ownerUid, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState, null, contentSchemaVersion, groupingReviewCompletedAt)
 
 internal fun MemberEntity.model() = Member(pantryId, uid, displayName, photoUrl, MemberRole.valueOf(role), joinedAt, active)
 internal fun Member.entity() = MemberEntity(pantryId, uid, displayName, photoUrl, role.name, joinedAt, active)
@@ -53,6 +57,11 @@ internal fun ProductEntity.model() = Product(
     deletedAt = deletedAt,
     purgeAfter = purgeAfter,
     syncState = syncState,
+    minimumMode = runCatching { MinimumMode.valueOf(minimumMode) }.getOrDefault(MinimumMode.PACKAGES),
+    minimumAmountBase = minimumAmountBase,
+    preferredVariantId = preferredVariantId,
+    doNotGroup = doNotGroup,
+    groupingRevision = groupingRevision,
 )
 
 internal fun Product.entity() = ProductEntity(
@@ -74,18 +83,46 @@ internal fun Product.entity() = ProductEntity(
     deletedAt = deletedAt,
     purgeAfter = purgeAfter,
     syncState = syncState,
+    minimumMode = minimumMode.name,
+    minimumAmountBase = minimumAmountBase,
+    preferredVariantId = preferredVariantId,
+    doNotGroup = doNotGroup,
+    groupingRevision = groupingRevision,
 )
 
-internal fun StockEntity.model() = Stock(pantryId, productId, shelfId, quantity, revision, updatedAt, syncState)
-internal fun Stock.entity() = StockEntity(pantryId, productId, shelfId, quantity, revision, updatedAt, syncState)
+internal fun ProductVariantEntity.model() = ProductVariant(
+    id, pantryId, productId, displayName, manufacturer, barcode, packageAmountBase,
+    runCatching { PackageUnit.valueOf(packageUnit) }.getOrDefault(PackageUnit.UNKNOWN),
+    packageLabel, description, photoUri, PhotoSource.valueOf(photoSource), minimumPackages,
+    purchaseCount, revision, createdAt, updatedAt, deletedAt, purgeAfter, syncState,
+)
+
+internal fun ProductVariant.entity() = ProductVariantEntity(
+    id, pantryId, productId, displayName, manufacturer, barcode, packageAmountBase, packageUnit.name,
+    packageLabel, description, photoUri, photoSource.name, minimumPackages, purchaseCount, revision,
+    createdAt, updatedAt, deletedAt, purgeAfter, syncState,
+)
+
+internal fun StockEntity.model() = Stock(pantryId, productId, shelfId, quantity, revision, updatedAt, syncState, variantId)
+internal fun Stock.entity() = StockEntity(pantryId, productId, shelfId, quantity, revision, updatedAt, syncState, variantId)
 
 internal fun ShoppingEntity.model() = ShoppingItem(
     id, pantryId, productId, name, category, requiredQuantity, checked, manual,
-    revision, createdAt, updatedAt, deletedAt, syncState, categoryId.orEmpty(),
+    revision, createdAt, updatedAt, deletedAt, syncState, categoryId.orEmpty(), preferredVariantId,
 )
 internal fun ShoppingItem.entity() = ShoppingEntity(
     id, pantryId, productId, name, category, requiredQuantity, checked, manual,
-    revision, createdAt, updatedAt, deletedAt, syncState, categoryId.ifBlank { null },
+    revision, createdAt, updatedAt, deletedAt, syncState, categoryId.ifBlank { null }, preferredVariantId,
+)
+
+internal fun SynonymRuleEntity.model() = SynonymRule(
+    id, pantryId, sourceNormalized, genericName, genericNameNormalized, productId,
+    ownerConfirmed, revision, updatedAt, deletedAt, syncState,
+)
+
+internal fun SynonymRule.entity() = SynonymRuleEntity(
+    id, pantryId, sourceNormalized, genericName, genericNameNormalized, productId,
+    ownerConfirmed, revision, updatedAt, deletedAt, syncState,
 )
 
 internal fun ActivityEntity.model() = Activity(

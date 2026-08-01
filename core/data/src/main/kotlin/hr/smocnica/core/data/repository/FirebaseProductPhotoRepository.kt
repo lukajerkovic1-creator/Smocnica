@@ -24,10 +24,10 @@ class FirebaseProductPhotoRepository @Inject constructor(
         require(signature[0] == 0xFF.toByte() && signature[1] == 0xD8.toByte()) { "Datoteka nije valjana JPEG fotografija." }
         if (FirebaseApp.getApps(context).isEmpty()) throw FirebaseNotConfiguredException()
         val reference = FirebaseStorage.getInstance().reference
-            .child("pantries/$pantryId/products/$productId/main.jpg")
+            .child("pantries/$pantryId/variants/$productId/main.jpg")
         val metadata = StorageMetadata.Builder()
             .setContentType("image/jpeg")
-            .setCustomMetadata("productId", productId)
+            .setCustomMetadata("variantId", productId)
             .build()
         reference.putFile(android.net.Uri.fromFile(jpeg), metadata).await()
         return reference.toString()

@@ -23,7 +23,7 @@ class FirebaseOperationGateway @Inject constructor(
     override suspend fun apply(operation: PendingOperationEntity): ApplyResult {
         val payload: JsonObject = json.parseToJsonElement(operation.payloadJson).jsonObject
         val result = client.call(
-            "applyOperation",
+            if (payload["type"]?.toString()?.trim('"') == "import_snapshot") "importSnapshotJob" else "applyOperation",
             mapOf(
                 "operationId" to operation.operationId,
                 "pantryId" to operation.pantryId,
@@ -53,4 +53,3 @@ class FirebaseOperationGateway @Inject constructor(
         is kotlinx.serialization.json.JsonObject -> element.mapValues { jsonElementToAny(it.value) }
     }
 }
-

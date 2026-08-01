@@ -12,5 +12,6 @@ export {
   purgeTrash,
 } from "./pantry";
 export { applyOperation } from "./operations";
+export { importSnapshotJob } from "./import-job";
 export { notifyLowStock, purgeExpiredData, purgeOldActivities } from "./maintenance";
 export { getBackendCapabilities } from "./system";
