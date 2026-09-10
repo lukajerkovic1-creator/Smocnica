@@ -11,6 +11,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertAll
 import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isNotEnabled
@@ -50,6 +51,42 @@ class ProductEditorTest {
     )
 
     @Test
+    fun quickEntrySavesWithDefaultsWithoutOpeningAdvancedSettings() {
+        var saved: ProductEditorSubmission? = null
+        var savedShelf = ""
+        var savedCount = 0
+        compose.setContent {
+            SmocnicaTheme {
+                ProductEditor(
+                    current = Product("", "p1", "Glatko brašno", createdAt = 1, updatedAt = 1),
+                    shelves = shelves, categories = categories, initialShelfId = "s2", onDismiss = {},
+                    onSave = { submission, shelf, count, _, _, done ->
+                        saved = submission; savedShelf = shelf; savedCount = count; done(true)
+                    },
+                )
+            }
+        }
+        compose.onNodeWithText("Naziv varijante *").assertDoesNotExist()
+        compose.onNodeWithText("Minimalna količina").assertDoesNotExist()
+        scrollTo("Početna polica: Polica 2")
+        compose.onNodeWithText("Početna polica: Polica 2").assertExists()
+        compose.onNodeWithText("Spremi").assertIsEnabled().performClick()
+        assertEquals("Glatko brašno", saved?.product?.name)
+        assertEquals("cat-other", saved?.product?.categoryId)
+        assertEquals("s2", savedShelf)
+        assertEquals(1, savedCount)
+    }
+
+    private var expandedForTest = false
+    private fun expandDetails() {
+        if (expandedForTest) return
+        expandedForTest = true
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Dodatne postavke"))
+        compose.onNodeWithText("Dodatne postavke").performClick()
+    }
+    private fun scrollTo(text: String) { compose.onNode(hasScrollAction()).performScrollToNode(hasText(text)) }
+
+    @Test
     fun notificationPermissionIsExplainedOnlyAfterMinimumIsEnabled() {
         var permissionRequested = false
         compose.setContent {
@@ -66,6 +103,7 @@ class ProductEditorTest {
             }
         }
 
+        expandDetails()
         compose.onNodeWithText("Obavijesti o minimalnoj zalihi").assertDoesNotExist()
         assertFalse(permissionRequested)
 
@@ -93,7 +131,10 @@ class ProductEditorTest {
             }
         }
         compose.onNodeWithText("Spremi").assertIsNotEnabled()
+        scrollTo("Naziv *")
         compose.onNodeWithText("Naziv *").performTextInput("Glatko brašno")
+        expandDetails()
+        scrollTo("Pakiranje / opis")
         compose.onNodeWithText("Pakiranje / opis").performTextInput("1 kg")
         compose.onNodeWithText("Spremi").performClick()
         assertNotNull(saved)
@@ -115,7 +156,9 @@ class ProductEditorTest {
                 )
             }
         }
+        scrollTo("Naziv *")
         compose.onNodeWithText("Naziv *").performTextInput("Test")
+        expandDetails()
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Minimalna količina"))
         compose.onNodeWithText("Minimalna količina").performTextClearance()
         compose.onNodeWithText("Minimalna količina").performTextInput("1000001")
@@ -175,6 +218,7 @@ class ProductEditorTest {
                 )
             }
         }
+        scrollTo("Naziv *")
         compose.onNodeWithText("Naziv *").performTextInput("Artikl")
         compose.onNodeWithText("Spremi").assertIsNotEnabled()
     }
@@ -199,7 +243,10 @@ class ProductEditorTest {
                 )
             }
         }
+        scrollTo("Naziv *")
         compose.onNodeWithText("Naziv *").performTextInput("Ručno ime")
+        expandDetails()
+        scrollTo("Pakiranje / opis")
         compose.onNodeWithText("Pakiranje / opis").performTextInput("750 g")
         compose.onNodeWithContentDescription("Skeniraj barkod").performClick()
         compose.onNodeWithText("Zatvori bez očitanja").performClick()
@@ -236,14 +283,19 @@ class ProductEditorTest {
                 )
             }
         }
+        scrollTo("Naziv *")
         compose.onNodeWithText("Naziv *").performTextInput("Moje ime")
         compose.onNodeWithContentDescription("Skeniraj barkod").performClick()
         compose.onNodeWithText("Očitaj").performClick()
         compose.waitForIdle()
 
         compose.onNode(hasText("Naziv *") and hasText("Moje ime")).assertExists()
+        expandDetails()
+        scrollTo("Barkod (opcionalno)")
         compose.onNodeWithText("4006381333931").assertExists()
+        scrollTo("Pakiranje / opis")
         compose.onNodeWithText("500 g").assertExists()
+        expandDetails()
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Kategorija *: Grickalice"))
         compose.onNodeWithText("Kategorija *: Grickalice").assertExists()
     }
@@ -270,7 +322,10 @@ class ProductEditorTest {
         compose.onNodeWithContentDescription("Skeniraj barkod").performClick()
         compose.onNodeWithText("Očitaj").performClick()
 
+        expandDetails()
+        scrollTo("Barkod (opcionalno)")
         compose.onNodeWithText("4006381333931").assertExists()
+        scrollTo("Nastavi ručno")
         compose.onNodeWithText("Nastavi ručno").assertExists()
         compose.onNodeWithText("Open Food Facts nije odgovorio na vrijeme. Barkod je sačuvan.").assertExists()
     }
@@ -339,13 +394,15 @@ class ProductEditorTest {
             }
         }
 
+        scrollTo("Naziv *")
         compose.onNodeWithText("Naziv *").performTextInput("pšenično brašno T-550")
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Prijedlog ujednačavanja"))
-        compose.onNodeWithText("Generički naziv: Glatko brašno").assertExists()
+        expandDetails()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Prikaži zajedno"))
+        compose.onNodeWithText("Prikaži zajedno").assertExists()
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Grupiranje: Nova samostalna grupa"))
         compose.onNodeWithText("Grupiranje: Nova samostalna grupa").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Glatko brašno").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("Glatko brašno").performClick()
+        compose.onNode(hasText("Glatko brašno") and hasClickAction()).performClick()
         compose.onNode(hasScrollAction()).performScrollToNode(hasContentDescription("Potvrdi grupiranje"))
         compose.onNodeWithContentDescription("Potvrdi grupiranje").performClick().assertIsOn()
         // AlertDialog actions are outside the LazyColumn. Scrolling the form to an

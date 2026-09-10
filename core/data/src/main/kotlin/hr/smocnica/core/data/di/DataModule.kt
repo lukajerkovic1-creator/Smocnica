@@ -104,6 +104,7 @@ internal fun openFoodFactsUserAgent(metadata: AppMetadata): String =
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class DataBindings {
+    @Binds abstract fun photoRecognition(implementation: hr.smocnica.core.data.remote.GeminiPhotoRecognitionRepository): hr.smocnica.core.domain.PhotoRecognitionRepository
     @Binds abstract fun inventory(implementation: LocalInventoryRepository): InventoryRepository
     @Binds abstract fun session(implementation: FirebaseSessionRepository): SessionRepository
     @Binds abstract fun pantry(implementation: FirebasePantryRepository): PantryRepository

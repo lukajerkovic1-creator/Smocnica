@@ -17,6 +17,7 @@ export const BACKEND_CAPABILITIES = [
   "variant-stock:v1",
   "resumable-generic-migration:v1",
   "resumable-snapshot-import:v1",
+  "photo-recognition:v1",
 ] as const;
 
 export const CALLABLE_FUNCTIONS = [
@@ -34,6 +35,7 @@ export const CALLABLE_FUNCTIONS = [
   "purgeTrash",
   "applyOperation",
   "importSnapshotJob",
+  "recognizeProductPhoto",
 ] as const;
 
 export const EVENT_FUNCTIONS = [

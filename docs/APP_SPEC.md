@@ -177,7 +177,10 @@ Nakon očitanja:
 
 - Open Food Facts je primarni javni izvor.
 - Podaci moraju biti tretirani kao prijedlog i korisnik ih može ispraviti.
-- Ako nema rezultata, otvoriti ručni unos.
+- Ako nema rezultata, otvoriti brzi unos s fotografiranjem prednje strane ambalaže. Google Gemini predlaže generički naziv na hrvatskom, proizvođača i veličinu pakiranja. Prijedlog nije potvrđena identifikacija: korisnik može ispraviti podatke prije spremanja. Nepoznati proizvođač i veličina ostaju prazni.
+- Brzi unos prikazuje naziv, opcionalnog proizvođača, veličinu pakiranja, policu i broj pakiranja (zadano 1). Polica je obvezna; kontekstualna polica ima prednost, inače se pamti zadnja uspješno korištena polica te smočnice na uređaju. Obrisana polica se ne koristi.
+- Kategorija ima valjanu zadanu vrijednost. Naziv varijante, barkod, opis, minimumi i automatska kupnja dostupni su u dodatnim postavkama; prazni barkod može se skenirati u brzom unosu. Postojeća podudaranja generičkog artikla nude kratku, izričitu potvrdu grupiranja.
+- Prepoznavanje fotografije treba internet i koristi samo Gemini projekt na besplatnom paketu bez uključenog billinga. Dosegnuta kvota ili pogreška nude ponavljanje i ručni unos, bez automatskog prelaska na plaćenu uslugu. Već spremljeni barkodovi i dalje rade lokalno. Fotografija ne mijenja zalihe prije korisnikova spremanja.
 - Lokalne izmjene ostaju samo u zajedničkoj smočnici i ne šalju se automatski javnoj bazi.
 - Ako postoji javna fotografija, prikazati je.
 - Korisnik može snimiti vlastitu fotografiju ili odabrati postojeću.

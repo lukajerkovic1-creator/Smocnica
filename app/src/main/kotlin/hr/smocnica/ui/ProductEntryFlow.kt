@@ -9,6 +9,9 @@ import hr.smocnica.core.model.ProductVariant
 
 enum class CatalogLookupOutcome { IDLE, LOADING, SUCCESS, EMPTY, TIMEOUT, ERROR }
 
+internal fun preferredEntryShelf(explicit: String, remembered: String, available: List<String>): String =
+    explicit.takeIf { it in available } ?: remembered.takeIf { it in available } ?: available.firstOrNull().orEmpty()
+
 data class CatalogLookupState(
     val barcode: String = "",
     val outcome: CatalogLookupOutcome = CatalogLookupOutcome.IDLE,

@@ -93,6 +93,14 @@ Nacrti inventure ostaju u Roomu dok ih korisnik ne primijeni ili odbaci. Potvrđ
 
 ## Cloud Functions
 
+### Prijedlog proizvoda iz fotografije
+
+`PhotoRecognitionRepository` je domenski port; implementacija u `core:data` šalje komprimirani JPEG autentificiranoj callable funkciji `recognizeProductPhoto`. Funkcija provjerava App Check, aktivno članstvo i aktivnu smočnicu, veličinu/tip slike te transakcijski ograničava zahtjeve na 50 dnevno po smočnici i razmak 6 sekundi. Brojač u nedostupnoj klijentskoj kolekciji `photoRecognitionLimits` sadrži samo hash smočnice, dan, broj i vrijeme zahtjeva. To su zaštitni limiti aplikacije, ne zajamčena Gemini kvota.
+
+Gemini 3.6 Flash prima sliku i strogu JSON shemu. API ključ `GEMINI_API_KEY` ostaje u Secret Manageru poslužitelja, nikada u APK-u, Gitu ili zapisima pogrešaka. Koristi se zaseban Google projekt s isključenim billingom; postojeći Firebase projekt može imati vlastitu naplatu i to ne znači da je Gemini ključ besplatan. Nema retryja ni zamjenskog plaćenog modela nakon greške kvote. Udaljeni odgovor i tekst iz slike su nepouzdani podaci: validiraju se polja, ne prihvaćaju se upute sa slike ni proizvoljni URL-ovi. Fotografija za prepoznavanje ne sprema se u Firestore; spremanje slike uz artikl slijedi postojeći postupak tek nakon korisnikove potvrde.
+
+Prijedlog se čuva u nacrtu editora. Otkazivanje ili promjena slike otkazuje čekanje na stari rezultat; ručno izmijenjena polja ne prepisuju se dolaskom rezultata. Grupiranje ostaje izričita korisnikova odluka. Spremanje koristi postojeće Room/outbox mutacije, bez migracije baze. Zadnja polica je lokalna preferencija vezana uz ID smočnice.
+
 - `getBackendCapabilities` je javni, neosjetljivi handshake koji vraća samo `backendApiVersion`, statičke capability oznake i očekivani manifest funkcija. Android prije registracije uređaja i obnove cloud podataka zahtijeva API 9 te, uz ranije sigurnosne mogućnosti, `generic-products:v1`, `product-variants:v1`, `variant-stock:v1` i `resumable-snapshot-import:v1`. Potvrđena verzija lokalno se pamti samo za privremeni offline fallback; izričito zastario ili nepotpun odgovor uvijek blokira udaljene pozive.
 - `createPantry`, `listMyPantries`, `createInvitation`, `joinPantry`, `manageMember`, `transferOwnership`, `deletePantry`, `registerDevice`, `unregisterDevice` i `purgeTrash`.
 - `applyOperation`: validira i atomarno primjenjuje police, artikle, zalihe, kupnju i obnovu.

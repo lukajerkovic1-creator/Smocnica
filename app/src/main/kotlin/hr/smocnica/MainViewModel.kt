@@ -67,10 +67,19 @@ class MainViewModel @Inject constructor(
     private val updates: UpdateRepository,
     private val trash: TrashRepository,
     private val photos: ProductPhotoRepository,
+    private val photoRecognition: hr.smocnica.core.domain.PhotoRecognitionRepository,
     private val deviceRegistration: DeviceRegistration,
     private val backendCompatibilityChecker: BackendCompatibilityChecker,
     val deviceIdentity: DeviceIdentity,
 ) : ViewModel() {
+    suspend fun recognizePhoto(path: String): hr.smocnica.core.domain.PhotoProductSuggestion {
+        val pantryId = selectedPantry.value?.id ?: error("Smočnica nije odabrana.")
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val file = java.io.File(path)
+            require(file.length() in 4..5L * 1024 * 1024)
+            photoRecognition.recognize(pantryId, file.readBytes())
+        }
+    }
     val session = sessions.session.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val pantries = pantriesRepository.observePantries().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val selectedPantryId = MutableStateFlow<String?>(null)

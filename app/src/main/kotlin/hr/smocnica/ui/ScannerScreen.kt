@@ -135,6 +135,8 @@ fun ScannerScreen(
     onCompleted: (ScannerCompletion) -> Unit,
     lookup: ScannerLookupViewModel = hiltViewModel(),
 ) {
+    val context = LocalContext.current
+    val entryPreferences = remember(context) { context.getSharedPreferences("product-entry", Context.MODE_PRIVATE) }
     val haptics = LocalHapticFeedback.current
     val view = LocalView.current
     val products by viewModel.allProducts.collectAsStateWithLifecycle()
@@ -177,12 +179,13 @@ fun ScannerScreen(
                 item = local,
                 variant = localVariant,
                 shelves = shelves.map { it.id to it.name },
-                initialShelfId = scannerContext.shelfId,
+                initialShelfId = if (scannerContext.mode == ScannerMode.DEFAULT || scannerContext.mode == ScannerMode.ADD) preferredEntryShelf(scannerContext.shelfId, entryPreferences.getString(local.product.pantryId, "").orEmpty(), shelves.map { it.id }) else scannerContext.shelfId,
                 initialMode = scannerContext.mode,
                 initialQuantity = shopping.firstOrNull { it.id == scannerContext.shoppingItemId }?.requiredQuantity ?: 1,
                 dismiss = { detected = null },
                 adjust = { shelfId, delta ->
                     viewModel.adjustVariantStock(localVariant.id, shelfId, delta) {
+                        if (delta > 0) entryPreferences.edit().putString(local.product.pantryId, shelfId).apply();
                         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                         view.playSoundEffect(SoundEffectConstants.CLICK)
                         onCompleted(ScannerCompletion.StockAdjusted(local.product.id, shelfId, delta, "${local.product.name}: stanje je ažurirano."))
@@ -210,6 +213,7 @@ fun ScannerScreen(
                 )
                 ProductEditor(
                     current = suggested,
+                    recognizePhoto = viewModel::recognizePhoto,
                     shelves = shelves,
                     categories = categories,
                     onDismiss = { detected = null },
