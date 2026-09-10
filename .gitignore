@@ -23,6 +23,7 @@ app/src/release/res/values/update_config.xml
 **/firebase-adminsdk-*.json
 .firebaserc
 .runtimeconfig.json
+**/.secret.local
 *.iml
 google-services.json
 firebase-debug.log*

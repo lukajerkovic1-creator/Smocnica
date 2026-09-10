@@ -233,6 +233,7 @@ fun StocksScreen(
     }
     if (creating) ProductEditor(
         current = null,
+        recognizePhoto = viewModel::recognizePhoto,
         shelves = shelves,
         categories = categories,
         onDismiss = { creating = false },
@@ -697,6 +698,7 @@ internal fun variantDisplayText(variant: ProductVariant): String = listOfNotNull
 @Composable
 fun ProductEditor(
     current: Product?,
+    recognizePhoto: (suspend (String) -> hr.smocnica.core.domain.PhotoProductSuggestion)? = null,
     currentVariant: ProductVariant? = null,
     currentItem: ProductWithStock? = null,
     shelves: List<Shelf>,
@@ -718,6 +720,10 @@ fun ProductEditor(
     onSave: (ProductEditorSubmission, String, Int, String?, PhotoSource?, (Boolean) -> Unit) -> Unit,
 ) {
     val isNew = current == null || current.id.isBlank()
+    var detailsExpanded by rememberSaveable(current?.id) { mutableStateOf(!isNew) }
+    var recognizing by remember { mutableStateOf(false) }
+    var recognitionAttempt by remember { mutableStateOf(0) }
+    var recognitionMessage by remember { mutableStateOf<String?>(null) }
     var name by rememberSaveable(current?.id) { mutableStateOf(current?.name.orEmpty()) }
     var variantName by rememberSaveable(currentVariant?.id, current?.id) { mutableStateOf(currentVariant?.displayName ?: current?.name.orEmpty()) }
     var manufacturer by rememberSaveable(currentVariant?.id) { mutableStateOf(currentVariant?.manufacturer.orEmpty()) }
@@ -764,6 +770,8 @@ fun ProductEditor(
     var showNotificationExplanation by rememberSaveable(current?.id) { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val shelfPreferences = remember(context) { context.getSharedPreferences("product-entry", android.content.Context.MODE_PRIVATE) }
+    val pantryKey = shelves.firstOrNull()?.pantryId.orEmpty()
     var notificationPermissionGranted by remember {
         mutableStateOf(
             Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
@@ -812,11 +820,13 @@ fun ProductEditor(
             GenericNamePolicy.suggest(raw, activeProducts.map { it.product.id to it.product.name }, synonymRules)
         }
     }
+    LaunchedEffect(name, variantName) { targetProductId = ""; groupingConfirmed = false }
     fun replaceSelectedPhoto(path: String, source: PhotoSource) {
         deleteTemporaryProductPhoto(context.cacheDir, selectedPhotoPath)
         selectedPhotoPath = path
         selectedSourceName = source.name
         photoError = null
+        recognitionMessage = null
     }
 
     fun finishEditor() {
@@ -872,9 +882,40 @@ fun ProductEditor(
             if (photoError == "Kamera nije dopuštena. Omogućite je u postavkama aplikacije.") photoError = null
         }
     }
+    LaunchedEffect(selectedPhotoPath, recognitionAttempt) {
+        val path = selectedPhotoPath
+        val recognize = recognizePhoto
+        if (isNew && path != null && recognize != null) {
+            recognizing = true
+            recognitionMessage = null
+            val startingName = name
+            val startingManufacturer = manufacturer
+            val startingAmount = packageAmount
+            val startingUnit = packageUnit
+            try {
+                val suggestion = recognize(path)
+                if (name == startingName) { name = suggestion.name; variantName = suggestion.name }
+                if (manufacturer == startingManufacturer) manufacturer = suggestion.manufacturer
+                if (packageAmount == startingAmount && packageUnit == startingUnit) {
+                    packageAmount = suggestion.packageAmount
+                    packageUnit = suggestion.packageUnit.name
+                }
+                recognitionMessage = "Provjerite prepoznate podatke prije spremanja."
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                recognitionMessage = when ((failure as? com.google.firebase.functions.FirebaseFunctionsException)?.code) {
+                    com.google.firebase.functions.FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED -> "Dosegnuto je ograničenje prepoznavanja. Pokušajte kasnije ili unesite naziv ručno."
+                    com.google.firebase.functions.FirebaseFunctionsException.Code.FAILED_PRECONDITION,
+                    com.google.firebase.functions.FirebaseFunctionsException.Code.NOT_FOUND -> "Prepoznavanje fotografija još nije dostupno. Možete unijeti naziv ručno."
+                    else -> "Prepoznavanje nije uspjelo. Provjerite internet, ponovite fotografiju ili unesite naziv ručno."
+                }
+            } finally { recognizing = false }
+        }
+    }
     LaunchedEffect(shelves, initialShelfId) {
         if (shelves.none { it.id == shelfId }) {
-            shelfId = initialShelfId.takeIf { id -> shelves.any { it.id == id } } ?: shelves.firstOrNull()?.id.orEmpty()
+            shelfId = preferredEntryShelf(initialShelfId, shelfPreferences.getString(pantryKey, "").orEmpty(), shelves.map { it.id })
         }
     }
     LaunchedEffect(categories, current?.id) {
@@ -936,6 +977,41 @@ fun ProductEditor(
         text = {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        remotePhotoUri?.let { ProductPhoto(it, current?.updatedAt ?: 0, "Fotografija artikla", Modifier.fillMaxWidth().height(120.dp)) }
+                        selectedPhotoPath?.let { path ->
+                            ProductPhoto(
+                                Uri.fromFile(File(path)).toString(),
+                                0,
+                                "Nova fotografija artikla",
+                                Modifier.fillMaxWidth().height(120.dp),
+                            )
+                            Text(
+                                "Fotografija je spremna.",
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        if (isNew && recognizePhoto != null) Text("Fotografirajte prednju stranu ambalaže. Fotografija se šalje Google Geminiju za prijedlog podataka.")
+                        if (recognizing) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Prepoznajem proizvod…") }
+                        recognitionMessage?.let { Text(it) }
+                        if (selectedPhotoPath != null && recognizePhoto != null && !recognizing && isNew) {
+                            TextButton({ recognitionAttempt += 1 }) { Text("Ponovi prepoznavanje") }
+                        }
+                        photoError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                        if (cameraPermissionDenied) OutlinedButton({
+                            context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
+                        }) { Text("Otvori postavke aplikacije") }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton({
+                                if (cameraPermissionGranted) launchCameraCapture()
+                                else cameraPermission.launch(Manifest.permission.CAMERA)
+                            }) { Text(if (isNew && recognizePhoto != null) "Fotografiraj proizvod" else "Snimi") }
+                            OutlinedButton({ gallery.launch("image/*") }) { Text("Odaberi") }
+                        }
+                    }
+                }
+
+                item {
                     OutlinedTextField(
                         name,
                         { value ->
@@ -947,9 +1023,9 @@ fun ProductEditor(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                item { OutlinedTextField(variantName, { variantName = it.take(100) }, label = { Text("Naziv varijante *") }, modifier = Modifier.fillMaxWidth()) }
+                if (detailsExpanded) item { OutlinedTextField(variantName, { variantName = it.take(100) }, label = { Text("Naziv varijante *") }, modifier = Modifier.fillMaxWidth()) }
                 item { OutlinedTextField(manufacturer, { manufacturer = it.take(100) }, label = { Text("Proizvođač (opcionalno)") }, modifier = Modifier.fillMaxWidth()) }
-                item {
+                if (detailsExpanded || barcode.isBlank()) item {
                     OutlinedTextField(
                         barcode,
                         {
@@ -986,7 +1062,7 @@ fun ProductEditor(
                         TextButton(continueManually) { Text("Nastavi ručno") }
                     }
                 }
-                item { OutlinedTextField(description, { description = it.take(500) }, label = { Text("Pakiranje / opis") }, modifier = Modifier.fillMaxWidth()) }
+                if (detailsExpanded) item { OutlinedTextField(description, { description = it.take(500) }, label = { Text("Pakiranje / opis") }, modifier = Modifier.fillMaxWidth()) }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(
@@ -1011,7 +1087,7 @@ fun ProductEditor(
                         Text(preview, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                     }
                 }
-                item {
+                if (detailsExpanded) item {
                     OutlinedTextField(
                         variantMinimum,
                         { variantMinimum = it.filter(Char::isDigit) },
@@ -1020,62 +1096,52 @@ fun ProductEditor(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                if (isNew && groupingSuggestion != null) item {
+                if (isNew) {
+                    item { PairPicker("Početna polica", shelves.map { it.id to it.name }, shelfId) { shelfId = it } }
+                    item {
+                        OutlinedTextField(
+                            quantity,
+                            { quantity = it.filter(Char::isDigit) },
+                            label = { Text("Početna količina") },
+                            isError = parsedInitialQuantity == null,
+                            supportingText = if (parsedInitialQuantity == null) ({ Text("Unesite broj od 0 do 1 000 000.") }) else null,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+                if (!showInventoryMatch) {
+                    operationError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
+                }
+                item { TextButton({ detailsExpanded = !detailsExpanded }) { Text(if (detailsExpanded) "Sakrij dodatne postavke" else "Dodatne postavke") } }
+                if (isNew && groupingSuggestion != null && (detailsExpanded || groupingSuggestion.existingProductId != null)) item {
                     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Prijedlog ujednačavanja", fontWeight = FontWeight.Bold)
-                            Text("Generički naziv: ${groupingSuggestion.suggestedGenericName}")
-                            Text("Sigurnost prijedloga: ${groupingSuggestion.confidencePercent} %")
-                            groupingSuggestion.existingProductId?.let { suggestedId ->
-                                Text("Postojeći artikl: ${activeProducts.firstOrNull { it.product.id == suggestedId }?.product?.name.orEmpty()}")
-                            }
-                            OutlinedButton({ name = groupingSuggestion.suggestedGenericName }) { Text("Primijeni predloženi naziv") }
-                            PairPicker(
-                                "Grupiranje",
-                                listOf("" to "Nova samostalna grupa") + activeProducts.filterNot { it.product.doNotGroup }.map { it.product.id to it.product.name },
-                                targetProductId,
-                            ) { selected -> targetProductId = selected; groupingConfirmed = false }
-                            if (targetProductId.isNotBlank()) {
+                            Text("Prikaži zajedno", fontWeight = FontWeight.Bold)
+                            Text(groupingSuggestion.suggestedGenericName)
+                            val suggestedId = groupingSuggestion.existingProductId
+                            if (suggestedId != null && activeProducts.any { it.product.id == suggestedId && !it.product.doNotGroup }) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(
-                                        groupingConfirmed,
-                                        { groupingConfirmed = it },
-                                        Modifier.semantics { contentDescription = "Potvrdi grupiranje" },
-                                    )
-                                    Text("Potvrđujem da ova varijanta pripada odabranom artiklu")
+                                    Checkbox(groupingConfirmed && targetProductId == suggestedId, { checked ->
+                                        groupingConfirmed = checked
+                                        targetProductId = if (checked) suggestedId else ""
+                                    }, Modifier.semantics { contentDescription = "Potvrdi grupiranje" })
+                                    Text("Dodaj postojećoj zalihi: "+groupingSuggestion.suggestedGenericName)
+                                }
+                            }
+                            if (detailsExpanded) {
+                                OutlinedButton({ name = groupingSuggestion.suggestedGenericName }) { Text("Primijeni predloženi naziv") }
+                                PairPicker("Grupiranje", listOf("" to "Nova samostalna grupa") + activeProducts.filterNot { it.product.doNotGroup }.map { it.product.id to it.product.name }, targetProductId) { selected ->
+                                    targetProductId = selected; groupingConfirmed = false
+                                }
+                                if (targetProductId.isNotBlank() && targetProductId != suggestedId) Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(groupingConfirmed, { groupingConfirmed = it }, Modifier.semantics { contentDescription = "Potvrdi grupiranje" })
+                                    Text("Potvrđujem dodavanje odabranom artiklu")
                                 }
                             }
                         }
                     }
                 }
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        remotePhotoUri?.let { ProductPhoto(it, current?.updatedAt ?: 0, "Fotografija artikla", Modifier.fillMaxWidth().height(120.dp)) }
-                        selectedPhotoPath?.let { path ->
-                            ProductPhoto(
-                                Uri.fromFile(File(path)).toString(),
-                                0,
-                                "Nova fotografija artikla",
-                                Modifier.fillMaxWidth().height(120.dp),
-                            )
-                            Text(
-                                "Odabrana je nova fotografija (${File(path).length() / 1024} KiB).",
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                        photoError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                        if (cameraPermissionDenied) OutlinedButton({
-                            context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
-                        }) { Text("Otvori postavke aplikacije") }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton({
-                                if (cameraPermissionGranted) launchCameraCapture()
-                                else cameraPermission.launch(Manifest.permission.CAMERA)
-                            }) { Text("Snimi") }
-                            OutlinedButton({ gallery.launch("image/*") }) { Text("Odaberi") }
-                        }
-                    }
-                }
+                if (detailsExpanded) {
                 item {
                     PairPicker("Kategorija *", categories.map { it.id to it.name }, categoryId) { selectedId ->
                         categories.firstOrNull { it.id == selectedId }?.let {
@@ -1087,9 +1153,6 @@ fun ProductEditor(
                 }
                 if (lookupAttempted && !catalogLookup.isLoading && missingRequired.isNotEmpty()) item {
                     Text("Još ispunite obvezna polja: ${missingRequired.joinToString()}.", color = MaterialTheme.colorScheme.error)
-                }
-                if (!showInventoryMatch) {
-                    operationError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
                 }
                 item {
                     PairPicker(
@@ -1155,18 +1218,7 @@ fun ProductEditor(
                         showNotificationExplanation = true
                     }) { Text("Uključi obavijesti o minimalnoj zalihi") }
                 }
-                if (isNew) {
-                    item { PairPicker("Početna polica", shelves.map { it.id to it.name }, shelfId) { shelfId = it } }
-                    item {
-                        OutlinedTextField(
-                            quantity,
-                            { quantity = it.filter(Char::isDigit) },
-                            label = { Text("Početna količina") },
-                            isError = parsedInitialQuantity == null,
-                            supportingText = if (parsedInitialQuantity == null) ({ Text("Unesite broj od 0 do 1 000 000.") }) else null,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
+
                 }
             }
         },
@@ -1224,16 +1276,16 @@ fun ProductEditor(
                         selectedSource,
                     ) { success ->
                         submitting = false
-                        if (success) finishEditor() else operationError = "Spremanje nije uspjelo. Pokušajte ponovno."
+                        if (success) { shelfPreferences.edit().putString(pantryKey, shelfId).apply(); finishEditor() } else operationError = "Spremanje nije uspjelo. Pokušajte ponovno."
                     }
                 },
-                enabled = !submitting && !catalogLookup.isLoading && name.trim().length in 1..100 && variantName.trim().length in 1..100 &&
+                enabled = !submitting && !recognizing && !catalogLookup.isLoading && name.trim().length in 1..100 && variantName.trim().length in 1..100 &&
                     categories.any { it.id == categoryId && it.name == category } &&
                     parsedMinimumBase != null && (!isNew || parsedInitialQuantity != null) &&
                     (variantMinimum.isBlank() || parsedVariantMinimum != null) &&
                     ((packageAmount.isBlank() && packageUnit == PackageUnit.UNKNOWN.name) || parsedPackageAmount != null) &&
                     (targetProductId.isBlank() || groupingConfirmed) &&
-                    (barcode.isBlank() || hr.smocnica.core.domain.BarcodePolicy.isSupported(barcode)) && (!isNew || shelves.isNotEmpty()),
+                    (barcode.isBlank() || hr.smocnica.core.domain.BarcodePolicy.isSupported(barcode)) && (!isNew || shelves.any { it.id == shelfId }),
             ) { Text(if (submitting) "Spremanje…" else "Spremi") }
         },
         dismissButton = { TextButton(::dismissEditor, enabled = !submitting) { Text("Odustani") } },
@@ -1266,7 +1318,7 @@ fun ProductEditor(
             submitting = true
             val done: (Boolean) -> Unit = { success ->
                 submitting = false
-                if (success) finishEditor() else operationError = "Dodavanje količine nije uspjelo. Pokušajte ponovno."
+                if (success) { shelfPreferences.edit().putString(pantryKey, selectedShelfId).apply(); finishEditor() } else operationError = "Dodavanje količine nije uspjelo. Pokušajte ponovno."
             }
             when (inventoryMatch) {
                 is BarcodeInventoryMatch.Active -> onAddExisting(inventoryMatch.item, inventoryMatch.variant, selectedShelfId, selectedQuantity, done)
