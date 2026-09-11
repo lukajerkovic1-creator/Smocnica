@@ -106,6 +106,9 @@ class InventoryShelfManagementTest {
     private fun capture(name: String, dark: Boolean) {
         compose.waitForIdle()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.waitForIdleSync()
+        // UIAutomator captures the system compositor, which may trail Compose's first frame.
+        android.os.SystemClock.sleep(200)
         val bitmap = instrumentation.uiAutomation.takeScreenshot()
         java.io.File(instrumentation.targetContext.cacheDir, "shelf-management-$name-${if (dark) "dark" else "light"}.png").outputStream().use {
             bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
