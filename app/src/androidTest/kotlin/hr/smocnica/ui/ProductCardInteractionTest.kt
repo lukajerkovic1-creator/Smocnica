@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -61,6 +62,7 @@ class ProductCardInteractionTest {
     @Test
     fun narrowCardKeepsQuantityActionsVisibleAndDisablesInvalidRemoval() {
         var added = 0
+        var edited = false
         compose.setContent {
             SmocnicaTheme {
                 Box(Modifier.width(360.dp)) {
@@ -78,7 +80,7 @@ class ProductCardInteractionTest {
                         increment = { added++ },
                         decrement = {},
                         move = {},
-                        edit = {},
+                        edit = { edited = true },
                         delete = {},
                     )
                 }
@@ -89,6 +91,18 @@ class ProductCardInteractionTest {
         compose.onNodeWithContentDescription("Izvadi jedan").assertIsDisplayed().assertIsNotEnabled()
         compose.onNodeWithContentDescription("Dodatne radnje").assertIsDisplayed()
         assertEquals(1, added)
+        val anchor = compose.onNodeWithContentDescription("Dodatne radnje").fetchSemanticsNode()
+        compose.onNodeWithContentDescription("Dodatne radnje").performClick()
+        val editItem = compose.onNodeWithText("Uredi").assertIsDisplayed().fetchSemanticsNode()
+        // Android popups have separate windows; compare physical screen coordinates.
+        val anchorLeft = anchor.layoutInfo.coordinates.localToScreen(Offset.Zero).x
+        val menuLeft = editItem.layoutInfo.coordinates.localToScreen(Offset.Zero).x
+        // Allow the menu's own padding and screen-edge adjustment, but require it
+        // to open alongside the trailing button rather than on the opposite edge.
+        assertTrue("Izbornik mora biti uz gumb s tri točkice na desnoj strani.",
+            menuLeft <= anchorLeft + anchor.size.width && menuLeft + editItem.size.width >= anchorLeft)
+        compose.onNodeWithText("Uredi").performClick()
+        compose.runOnIdle { assertTrue("Izbornik mora pokrenuti uređivanje.", edited) }
     }
 
     @Test
