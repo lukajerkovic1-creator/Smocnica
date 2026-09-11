@@ -16,6 +16,7 @@ import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Density
 import hr.smocnica.core.model.Product
+import hr.smocnica.core.model.ProductVariant
 import hr.smocnica.core.model.ProductWithStock
 import hr.smocnica.core.model.Shelf
 import hr.smocnica.core.model.Stock
@@ -27,6 +28,35 @@ import org.junit.Test
 
 class ProductCardInteractionTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test
+    fun genericCardShowsPhotoFromAnotherPackageWhenLeadingPackageHasNone() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
+        val photo = java.io.File.createTempFile("card-photo-test-", ".jpg", context.cacheDir)
+        val bitmap = android.graphics.Bitmap.createBitmap(32, 32, android.graphics.Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(android.graphics.Color.GREEN)
+        photo.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+        bitmap.recycle()
+        try {
+            compose.setContent {
+                SmocnicaTheme {
+                    ProductCard(
+                        item = ProductWithStock(
+                            Product("a1", "p1", "Brašno", createdAt = 1, updatedAt = 1),
+                            listOf(Stock("p1", "a1", "s1", 5, updatedAt = 1, variantId = "plain")),
+                            listOf(
+                                ProductVariant("plain", "p1", "a1", "Bez fotografije", createdAt = 1, updatedAt = 1),
+                                ProductVariant("photo", "p1", "a1", "Glatko brašno", photoUri = android.net.Uri.fromFile(photo).toString(), createdAt = 1, updatedAt = 2),
+                            ),
+                        ),
+                        shelves = emptyList(), selectedShelfId = null, selected = false, selectionMode = false,
+                        open = {}, select = {}, increment = {}, decrement = {}, move = {}, edit = {}, delete = {},
+                    )
+                }
+            }
+            compose.onNodeWithContentDescription("Fotografija: Glatko brašno", useUnmergedTree = true).assertIsDisplayed()
+        } finally { photo.delete() }
+    }
 
     @Test
     fun narrowCardKeepsQuantityActionsVisibleAndDisablesInvalidRemoval() {
