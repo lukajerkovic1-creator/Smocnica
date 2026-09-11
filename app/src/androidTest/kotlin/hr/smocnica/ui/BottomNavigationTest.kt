@@ -28,7 +28,7 @@ class BottomNavigationTest {
             }
         }
         compose.runOnIdle {
-            fun tab(route: String) = controller.navigate(route, bottomNavigationOptions(controller.graph.findStartDestination().id))
+            fun tab(route: String) = controller.navigate(route, sectionNavigationOptions(controller.graph.findStartDestination().id))
             sections.forEach { route ->
                 tab(route)
                 controller.navigate("stocks")

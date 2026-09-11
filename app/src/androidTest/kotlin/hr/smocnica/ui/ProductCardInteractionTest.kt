@@ -202,7 +202,7 @@ class ProductCardInteractionTest {
         }
 
         compose.onNodeWithText("Vrlo dugačak naziv proizvoda").assertIsDisplayed()
-        compose.onNodeWithText("Pakiranje i opis koji se ne smiju odrezati").assertIsDisplayed()
+        compose.onNodeWithText("Polica 1").assertIsDisplayed()
         listOf("Dodatne radnje").forEach { label ->
             val bounds = compose.onNodeWithContentDescription(label).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
             assertTrue("Dodirna površina za $label mora biti najmanje 48 dp.", bounds.width >= 48f * compose.density.density && bounds.height >= 48f * compose.density.density)

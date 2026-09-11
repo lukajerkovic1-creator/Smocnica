@@ -347,7 +347,7 @@ fun MenuScreen(
     var editDeviceName by remember { mutableStateOf(false) }
     var deleteAccountDialog by remember { mutableStateOf(false) }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = padding.calculateTopPadding() + 12.dp, bottom = padding.calculateBottomPadding() + 30.dp)) {
-        item { ScreenTitle("Izbornik", selected?.name ?: "Postavke smočnice") }
+        item { ScreenTitle("Postavke", selected?.name ?: "Postavke smočnice") }
         item {
             Card(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(18.dp)) {

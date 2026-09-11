@@ -73,40 +73,17 @@ Samo vlasnik može:
 
 ## 4. Početni ekran i dizajn
 
-Vizualna referenca: `smocnica_dashboard_reference.png`.
+Odobrena referenca za početni popis, dodavanje i bočni izbornik: `docs/design/minimal-inventory-reference.png`. Korisnik je izričito odabrao ovaj izgled umjesto prethodne nadzorne ploče.
 
-Dizajn:
+Početni ekran prikazuje sve aktivne generičke artikle u ravnim kompaktnim redcima na svijetloj površini, odvojene tankim linijama. Svaki redak ima fotografiju lijevo (44 × 56 dp, cijelo pakiranje), naziv i kratku oznaku pakiranja/police, količinu desno i tri točkice. Podaci, fotografije, duljina naziva i sustavne trake ovise o stvarnim podacima i uređaju. Veća slova povećavaju visinu retka.
 
-- moderan, minimalistički i pregledan
-- tema hrane, smočnice i polica
-- primarna boja ljubičasta
-- hrvatski jezik
-- podrška za svijetli i tamni način
-- responzivan prikaz za različite veličine mobitela
-- pristupačne veličine dodirnih zona, kontrast i čitljivost
+Na vrhu su naslov „Smočnica”, tri crtice za bočni izbornik, pretraga te neposredan odabir police i redoslijeda: „Abecedno”, „Najnovije dodano” (datum nastanka artikla) ili „Po policama” (redoslijed polica, potom naziv). Artikli na više polica pojavljuju se jednom, prema prvoj zauzetoj polici; artikli bez zalihe idu na kraj. Dodatni filtri ostaju dostupni ikonicom filtra.
 
-Početni ekran mora sadržavati:
+Donje navigacije nema. Bočni izbornik sadrži „Svi artikli”, „Popis za kupnju”, „Police”, „Skeniraj barkod”, „Inventura”, „Povijest”, „Koš” i „Postavke”. Odabir sekcije zatvara izbornik i otvara njezin početni prikaz bez obnavljanja prethodnih podstranica.
 
-- naslov „Smočnica” i profil/postavke
-- veliku sažetu karticu:
-  - broj artikala ispod minimuma
-  - broj stavki na popisu za kupnju
-  - ukupan broj različitih artikala ili pakiranja
-- veliki gumb „Skeniraj proizvod”
-- pločice:
-  - Police
-  - Sve zalihe
-  - Popis za kupnju
-  - Inventura
-- kratku listu zadnjih aktivnosti
-- donju navigaciju:
-  - Početno
-  - Skeniraj
-  - Kupnja
-  - Police
-  - Izbornik
+U donjem desnom kutu je ljubičasti gumb samo s ikonicom plus (pristupačni naziv „Dodaj artikl”). Otvara donji panel s dvije radnje: „Dodaj ručno — Upiši naziv, količinu i policu” i „Fotografiraj — Slikaj proizvod i provjeri podatke”. Fotografiranje otvara kameru uz dopuštenje, predlaže podatke postojećim prepoznavanjem i zadržava fotografiju za spremanje. Ni jedan put ne sprema artikl bez potvrde korisnika; odabir police ostaje obvezan.
 
-Svaki dodir donje navigacije otvara početni prikaz odabrane sekcije i uklanja njezine prethodne podstranice, uključujući kontekstni skener. Ponovni dodir „Police” vraća popis svih polica; „Početno” uvijek vraća nadzornu ploču. Stanje prethodnog navigacijskog stoga ne obnavlja se.
+Zadržani su svijetli/tamni način, dodirne zone od najmanje 48 dp, upozorenja sinkronizacije, pristupačne radnje količine i višestruki odabir dugim pritiskom.
 
 ## 5. Police
 
@@ -116,7 +93,7 @@ Povlačenje kartice artikla ulijevo otkriva gumbe „+1” i „−1” na desno
 
 Pri unosu novog artikla podaci njegove prve varijante spremaju se zajedno s artiklom u jednoj lokalnoj transakciji i jednom outbox zapisu. Ne stvara se dodatna prazna varijanta. U prikazu se izostavlja samo prepoznatljiv stari automatski početni zapis bez podataka o pakiranju, kupnji, minimumu i zalihi, ako postoji stvarna varijanta; izvorni zapis ostaje sačuvan u bazi i izvozu. Stvarne varijante s količinom nula ostaju dostupne.
 
-Kartice polica i proizvoda slijede referentni dizajn: zaobljeni rubovi, diskretni obrubi i sjene, ljubičasti naglasci te odvojeni nazivi, količine i radnje. Kartice su kompaktne: polica ima ilustraciju od 48 dp, naziv, broj komada i gumbe „Skeniraj” / „Dodaj”; redoslijed, premještanje, preimenovanje i brisanje dostupni su u izborniku s tri točkice. Proizvod ima fotografiju od 52 dp, podatke o pakiranju, količinu i izbornik s tri točkice uz naziv. Stalne tipke + / − nisu prikazane; promjena količine dostupna je povlačenjem ulijevo, a čitaču zaslona i kroz prilagođene radnje kartice. Dodirne površine ostaju najmanje 48 dp, uz podršku svijetloj i tamnoj temi. Svi ekrani dijele usklađene boje površina, tipografiju i zaobljenja obrazaca i dijaloga; visina sadržaja raste kad korisnik poveća slova.
+Kartice polica i proizvoda slijede referentni dizajn: zaobljeni rubovi, diskretni obrubi i sjene, ljubičasti naglasci te odvojeni nazivi, količine i radnje. Kartice su kompaktne: polica ima ilustraciju od 48 dp, naziv, broj komada i gumbe „Skeniraj” / „Dodaj”; redoslijed, premještanje, preimenovanje i brisanje dostupni su u izborniku s tri točkice. Proizvodi koriste ravni popis opisan u odjeljku 4, s fotografijom, kratkim podacima, količinom i izbornikom s tri točkice. Stalne tipke + / − nisu prikazane; promjena količine dostupna je povlačenjem ulijevo, a čitaču zaslona i kroz prilagođene radnje kartice. Dodirne površine ostaju najmanje 48 dp, uz podršku svijetloj i tamnoj temi. Svi ekrani dijele usklađene boje površina, tipografiju i zaobljenja obrazaca i dijaloga; visina sadržaja raste kad korisnik poveća slova.
 
 - Početno koristiti numerirane police.
 - Korisnik može:

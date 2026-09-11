@@ -10,7 +10,7 @@ class BottomNavigationOptionsTest {
     fun `bottom navigation discards nested destination state`() {
         val startDestinationId = 42
 
-        val options = bottomNavigationOptions(startDestinationId)
+        val options = sectionNavigationOptions(startDestinationId)
 
         assertEquals(startDestinationId, options.popUpToId)
         assertFalse(options.isPopUpToInclusive())

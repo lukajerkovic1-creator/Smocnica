@@ -26,13 +26,14 @@ internal fun ProductPhoto(
     version: Long,
     contentDescription: String?,
     modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
 ) {
     if (uri == null) {
         Icon(Icons.Outlined.Inventory2, contentDescription, modifier)
         return
     }
     if (!uri.startsWith("gs://")) {
-        AsyncImage(uri, contentDescription, modifier, contentScale = ContentScale.Crop)
+        AsyncImage(uri, contentDescription, modifier, contentScale = contentScale)
         return
     }
     val context = LocalContext.current
@@ -50,7 +51,7 @@ internal fun ProductPhoto(
         }.getOrNull()
     }
     val bitmap = bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
-    if (bitmap != null) Image(bitmap.asImageBitmap(), contentDescription, modifier, contentScale = ContentScale.Crop)
+    if (bitmap != null) Image(bitmap.asImageBitmap(), contentDescription, modifier, contentScale = contentScale)
     else Icon(Icons.Outlined.Inventory2, contentDescription, modifier)
 }
 

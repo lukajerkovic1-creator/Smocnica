@@ -1,23 +1,13 @@
 package hr.smocnica.ui
 
 import android.net.Uri
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Inventory2
-import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.material.icons.outlined.QrCodeScanner
-import androidx.compose.material.icons.outlined.ShoppingCart
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -36,17 +26,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import hr.smocnica.ui.theme.ThemeMode
 import kotlinx.coroutines.launch
 
-private data class Destination(val route: String, val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
-
-private val bottomDestinations = listOf(
-    Destination("home", "Početno", Icons.Outlined.Home),
-    Destination("scanner", "Skeniraj", Icons.Outlined.QrCodeScanner),
-    Destination("shopping", "Kupnja", Icons.Outlined.ShoppingCart),
-    Destination("shelves", "Police", Icons.Outlined.Inventory2),
-    Destination("menu", "Izbornik", Icons.Outlined.Menu),
-)
-
-internal fun bottomNavigationOptions(startDestinationId: Int): NavOptions =
+internal fun sectionNavigationOptions(startDestinationId: Int): NavOptions =
     NavOptions.Builder()
         .setPopUpTo(startDestinationId, inclusive = false, saveState = false)
         .setLaunchSingleTop(true)
@@ -91,29 +71,24 @@ fun MainNavigation(
         }
     }
     val current by navController.currentBackStackEntryAsState()
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbar) },
-        bottomBar = {
-            NavigationBar(containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface) {
-                bottomDestinations.forEach { destination ->
-                    NavigationBarItem(
-                        selected = current?.destination?.route == destination.route,
-                        onClick = {
-                            val startDestinationId = navController.graph.findStartDestination().id
-                            navController.navigate(
-                                destination.route,
-                                bottomNavigationOptions(startDestinationId),
-                            )
-                        },
-                        icon = { Icon(destination.icon, destination.label) },
-                        label = { Text(destination.label) },
-                    )
-                }
-            }
+    var homeVisit by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
+    PantryNavigationShell(
+        currentRoute = current?.destination?.route,
+        navigate = { route ->
+            if (route == "home") homeVisit++
+            navController.navigate(route, sectionNavigationOptions(navController.graph.findStartDestination().id))
         },
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         NavHost(navController, startDestination = "home", modifier = Modifier) {
-            composable("home") { DashboardScreen(viewModel, padding, navController::navigate) }
+            composable("home") {
+                androidx.compose.runtime.key(homeVisit) {
+                StocksScreen(viewModel, padding,
+                    scan = { shelfId -> navController.navigate(scannerRoute(ScannerContext("Svi artikli", shelfId = shelfId))) },
+                    openProduct = { productId -> navController.navigate("product/" + Uri.encode(productId)) },
+                )
+                }
+            }
             composable("scanner") { ScannerScreen(viewModel, padding, onCompleted = { completeScanner(it, false) }) }
             composable(
                 route = "scanner/context?source={source}&shelfId={shelfId}&productId={productId}&shoppingItemId={shoppingItemId}&mode={mode}",
@@ -168,9 +143,9 @@ fun MainNavigation(
                     initialShelfId = shelfId,
                     initialAction = entry.arguments?.getString("action").orEmpty(),
                     initialFilter = entry.arguments?.getString("filter").orEmpty(),
-                    scan = {
-                        val source = viewModel.shelves.value.firstOrNull { it.id == shelfId }?.name?.let { "Polica: $it" } ?: "Sve zalihe"
-                        navController.navigate(scannerRoute(ScannerContext(source, shelfId = shelfId)))
+                    scan = { selectedShelfId ->
+                        val source = viewModel.shelves.value.firstOrNull { it.id == selectedShelfId }?.name?.let { "Polica: $it" } ?: "Sve zalihe"
+                        navController.navigate(scannerRoute(ScannerContext(source, shelfId = selectedShelfId)))
                     },
                     openProduct = { productId -> navController.navigate("product/${Uri.encode(productId)}?shelfId=${Uri.encode(shelfId)}") },
                 )
