@@ -276,7 +276,10 @@ interface StockDao {
     @Query("SELECT COALESCE(SUM(quantity), 0) FROM stocks WHERE variantId = :variantId")
     suspend fun totalVariant(variantId: String): Int
 
-    @Query("SELECT quantity FROM stocks WHERE shelfId = :shelfId")
+    @Query("""SELECT s.quantity FROM stocks s
+        LEFT JOIN products p ON p.id = s.productId AND p.pantryId = s.pantryId
+        LEFT JOIN product_variants v ON v.id = s.variantId AND v.pantryId = s.pantryId
+        WHERE s.shelfId = :shelfId AND p.deletedAt IS NULL AND v.deletedAt IS NULL""")
     suspend fun quantitiesOnShelf(shelfId: String): List<Int>
 
     @Query("SELECT * FROM stocks WHERE shelfId = :shelfId")

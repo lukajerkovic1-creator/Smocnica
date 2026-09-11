@@ -119,7 +119,7 @@ fun ShelvesScreen(
             }
             items(shelves, key = { it.id }) { shelf ->
                 val index = shelves.indexOfFirst { it.id == shelf.id }
-                val count = products.sumOf { product -> product.stocks.firstOrNull { it.shelfId == shelf.id }?.quantity ?: 0 }
+                val count = hr.smocnica.core.domain.ShelfPolicy.quantity(products, shelf.id)
                 ShelfCard(
                     shelf = shelf,
                     count = count,

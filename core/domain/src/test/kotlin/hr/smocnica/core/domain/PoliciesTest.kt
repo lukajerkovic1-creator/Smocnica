@@ -12,6 +12,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PoliciesTest {
+    @Test fun `shelf counts every variant and only its own stock`() {
+        val product = Product("p", "pantry", "Fusilli", createdAt = 1, updatedAt = 1)
+        val items = listOf(ProductWithStock(product, listOf(
+            Stock("pantry", "p", "s1", 0, updatedAt = 1, variantId = "v0"),
+            Stock("pantry", "p", "s1", 3, updatedAt = 1, variantId = "v1"),
+            Stock("pantry", "p", "s1", 2, updatedAt = 1, variantId = "v2"),
+            Stock("pantry", "p", "s2", 9, updatedAt = 1, variantId = "v1"),
+        )))
+        assertEquals(5, ShelfPolicy.quantity(items, "s1"))
+        assertEquals(0, ShelfPolicy.quantity(items, "empty"))
+        assertThrows(IllegalArgumentException::class.java) { ShelfPolicy.requireCanDelete(listOf(0, 3, 2)) }
+        ShelfPolicy.requireCanDelete(listOf(0))
+    }
+
     @Test
     fun `removal cannot exceed shelf stock`() {
         assertThrows(IllegalArgumentException::class.java) {

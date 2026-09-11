@@ -35,6 +35,7 @@ Pokretanje realtime slušatelja promatra i lokalni popis smočnica i rezultat pr
 - Redoslijed polica šalje cijeli poredak i revision smočnice; konflikt se ponovno bazira na trenutačnom skupu polica.
 - Inventura šalje očekivanu revision i konačni skup količina; primjenjuje se sve ili ništa.
 - Brisanja su tombstone zapisi; obnova nadjačava brisanje samo prije `purgeAfter` i uz novu reviziju.
+- Brisanje police provjerava pozitivnu zalihu samo neobrisanih artikala i varijanti, u Room i Firestore transakciji. Zaliha zapisa iz koša ostaje sačuvana. Obnova artikla ili varijante s pozitivnom zalihom zahtijeva aktivne povezane police; obrisana polica najprije se vraća iz koša. Nepoznati vlasnik zalihe ne smatra se obrisanim.
 
 Firestore offline cache nije izvor prikaza i isključen je kako ne bi postojao drugi nesinkronizirani cache; Room + outbox čine jedinstvenu offline strategiju.
 

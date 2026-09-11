@@ -126,6 +126,9 @@ object InventoryPolicy {
 }
 
 object ShelfPolicy {
+    fun quantity(products: List<ProductWithStock>, shelfId: String): Int =
+        products.sumOf { product -> product.stocks.filter { it.shelfId == shelfId }.sumOf { it.quantity } }
+
     fun requireCanDelete(stockQuantities: List<Int>) {
         require(stockQuantities.none { it > 0 }) { "Polica se može obrisati tek kada je prazna." }
     }

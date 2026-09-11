@@ -110,6 +110,8 @@ Svaki dodir donje navigacije otvara početni prikaz odabrane sekcije i uklanja n
 
 ## 5. Police
 
+Broj komada zbraja sve aktivne varijante na polici. Artikli i varijante u košu ne zauzimaju policu i ne blokiraju njezino brisanje. Njihove sačuvane količine ostaju dostupne za obnovu; ako je obrisana i polica, prvo treba vratiti policu iz koša pa artikl. Brisanje police s aktivnom zalihom ostaje zabranjeno.
+
 Povlačenje kartice artikla ulijevo otkriva gumbe „+1” i „−1” na desnom rubu. Pomak je ograničen na širinu tih gumba; kartica ne može skliznuti iz prikaza niti se iz zatvorenog položaja pomaknuti udesno. Povlačenje otvorene kartice udesno zatvara radnje. Gesta sama ne mijenja količinu; dodir gumba izvršava promjenu i zatvara radnje. „−1” je onemogućen pri nultoj zalihi, a „+1” ostaje dostupan. U načinu višestrukog odabira povlačenje je isključeno.
 
 Pri unosu novog artikla podaci njegove prve varijante spremaju se zajedno s artiklom u jednoj lokalnoj transakciji i jednom outbox zapisu. Ne stvara se dodatna prazna varijanta. U prikazu se izostavlja samo prepoznatljiv stari automatski početni zapis bez podataka o pakiranju, kupnji, minimumu i zalihi, ako postoji stvarna varijanta; izvorni zapis ostaje sačuvan u bazi i izvozu. Stvarne varijante s količinom nula ostaju dostupne.
