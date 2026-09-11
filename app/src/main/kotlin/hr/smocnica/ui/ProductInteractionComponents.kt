@@ -19,7 +19,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
-import androidx.compose.material3.AlertDialog
+import hr.smocnica.ui.PantryDialog as AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -486,13 +486,5 @@ fun ProductDetailScreen(
 
 @Composable
 internal fun PairPicker(label: String, options: List<Pair<String, String>>, selected: String, select: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Column {
-        OutlinedButton({ expanded = true }, Modifier.fillMaxWidth(), enabled = options.isNotEmpty()) {
-            Text("$label: ${options.firstOrNull { it.first == selected }?.second ?: "Odaberite"}")
-        }
-        DropdownMenu(expanded, { expanded = false }) {
-            options.forEach { option -> DropdownMenuItem({ Text(option.second) }, { select(option.first); expanded = false }) }
-        }
-    }
+    PantryPicker(label, options, selected, select)
 }

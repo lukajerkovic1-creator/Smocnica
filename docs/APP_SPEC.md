@@ -87,6 +87,8 @@ Zadržani su svijetli/tamni način, dodirne zone od najmanje 48 dp, upozorenja s
 
 U redoslijedu „Po policama” svaka neprazna skupina ima traku preko širine popisa u boji teme, s podebljanim nazivom police i pristupačnom oznakom zaglavlja. Trake su prilagođene svijetlom i tamnom načinu. Kod filtriranja se artikl svrstava na prvu zauzetu policu među odabranim policama. Skupina bez zalihe nalazi se na kraju, pod nazivom „Bez zalihe na policama”. Ostali redoslijedi nemaju trake.
 
+Dijalozi za unos, filtre, količinu, premještanje i potvrde koriste zajednički izgled: površinu teme bez ljubičastog preljeva, zaobljenje 24 dp, kompaktan podebljan naslov s tankim razdjelnikom i zaobljena polja 12 dp. Odabiri imaju lijevo poravnat naziv i vrijednost, strelicu te kvačicu uz odabranu opciju. Dugi sadržaji ostaju pomični, a potvrda i odustajanje dostupni. Isti izgled vrijedi u svijetlom i tamnom načinu.
+
 ## 5. Police
 
 Broj komada zbraja sve aktivne varijante na polici. Artikli i varijante u košu ne zauzimaju policu i ne blokiraju njezino brisanje. Njihove sačuvane količine ostaju dostupne za obnovu; ako je obrisana i polica, prvo treba vratiti policu iz koša pa artikl. Brisanje police s aktivnom zalihom ostaje zabranjeno.
