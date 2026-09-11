@@ -20,6 +20,44 @@ const invokeTransferOwnership = testEnvironment.wrap(transferOwnership);
 const invokeCreatePantry = testEnvironment.wrap(createPantry);
 
 describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", () => {
+  it("deletes an empty shelf with trashed stock and restores its stock only after the shelf", async () => {
+    const request = (operationId: string, aggregateType: string, aggregateId: string, payload: object, baseRevision = 1, uid = "u1") =>
+      callable({ operationId, pantryId: "p1", aggregateType, aggregateId, baseRevision, payload,
+        deviceId: "device-0001", deviceDisplayName: "Test" }, uid);
+    const deletion = (operationId: string, uid = "u1") => request(operationId, "SHELF", "s1", { type: "delete_shelf", shelfId: "s1" }, 1, uid);
+    await expect(invoke(deletion("op-shelf-occupied") as never)).rejects.toThrow("prazna");
+    await expect(invoke(request("op-shelf-bypass", "SHELF", "s1", { type: "soft_delete", targetType: "SHELF", id: "s1" }) as never)).rejects.toThrow("prazna");
+    await invoke(request("op-trash-product", "PRODUCT", "a", { type: "soft_delete", targetType: "PRODUCT", id: "a" }) as never);
+    await expect(invoke(deletion("op-shelf-outsider", "outsider") as never)).rejects.toThrow();
+    await invoke(deletion("op-shelf-empty") as never);
+    expect((await invoke(deletion("op-shelf-empty") as never)).status).toBe("ALREADY_APPLIED");
+    expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(5);
+    expect((await db.doc("pantries/p1/shelves/s1").get()).get("deletedAt")).toBeTruthy();
+    await expect(invoke(request("op-restore-too-early", "PRODUCT", "a", { type: "restore", targetType: "PRODUCT", id: "a" }, 0) as never)).rejects.toThrow("Prvo vratite obrisanu policu");
+    expect((await db.doc("pantries/p1/products/a").get()).get("deletedAt")).toBeTruthy();
+    await invoke(request("op-restore-shelf", "SHELF", "s1", { type: "restore", targetType: "SHELF", id: "s1" }, 0) as never);
+    await invoke(request("op-restore-product", "PRODUCT", "a", { type: "restore", targetType: "PRODUCT", id: "a" }, 0) as never);
+    expect((await db.doc("pantries/p1/stocks/a_s1").get()).get("quantity")).toBe(5);
+    await expect(invoke(request("op-restored-occupied", "SHELF", "s1", { type: "delete_shelf", shelfId: "s1" }, 3) as never)).rejects.toThrow("prazna");
+  });
+
+  it("ignores trashed variant stock but checks every active variant before deleting a shelf", async () => {
+    // Trigger the legacy fixture migration before creating multiple canonical variants.
+    await invoke(operation("op-migrate-shelf", -1) as never);
+    await db.doc("pantries/p1/variants/trashed").set({ productId: "a", deletedAt: new Date(), revision: 1 });
+    await db.doc("pantries/p1/stocks/trashed_s2").set({ productId: "a", variantId: "trashed", shelfId: "s2", quantity: 3 });
+    await db.doc("pantries/p1/stocks/a_s2").set({ productId: "a", variantId: "a", shelfId: "s2", quantity: 1 });
+    const request = callable({ operationId: "op-delete-s2", pantryId: "p1", aggregateType: "SHELF", aggregateId: "s2", baseRevision: 1,
+      payload: { type: "delete_shelf", shelfId: "s2" }, deviceId: "device-0001", deviceDisplayName: "Test" });
+    await expect(invoke(request as never)).rejects.toThrow("prazna");
+    await db.doc("pantries/p1/stocks/a_s2").update({ quantity: 0 });
+    await invoke(request as never);
+    expect((await db.doc("pantries/p1/stocks/trashed_s2").get()).get("quantity")).toBe(3);
+    const restore = callable({ operationId: "op-restore-variant-s2", pantryId: "p1", aggregateType: "VARIANT", aggregateId: "trashed", baseRevision: 0,
+      payload: { type: "restore", targetType: "VARIANT", id: "trashed" }, deviceId: "device-0001", deviceDisplayName: "Test" });
+    await expect(invoke(restore as never)).rejects.toThrow("Prvo vratite obrisanu policu");
+  });
+
   it("creates one complete first variant and stocks it without a placeholder", async () => {
     const request = {
       operationId: "op-first-variant", pantryId: "p1", aggregateType: "PRODUCT", aggregateId: "first-product", baseRevision: 0,

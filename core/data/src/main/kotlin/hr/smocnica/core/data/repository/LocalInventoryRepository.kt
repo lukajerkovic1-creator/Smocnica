@@ -685,6 +685,7 @@ class LocalInventoryRepository @Inject constructor(
             require(product.pantryId == pantryId && product.deletedAt != null) { "Artikl nije dostupan za vraćanje." }
             require(product.purgeAfter == null || product.purgeAfter > now) { "Rok za vraćanje artikla je istekao." }
             require(shelf.pantryId == pantryId && shelf.deletedAt == null) { "Odabrana polica nije dostupna." }
+            requireRestorableStockShelves(pantryId, productId)
             val deletedVariants = variants.listAll(pantryId).filter { it.productId == productId }
             require(deletedVariants.isNotEmpty()) { "Artikl nema varijantu za vraćanje." }
             deletedVariants.mapNotNull { it.barcode }.forEach { barcode ->
@@ -1200,6 +1201,7 @@ class LocalInventoryRepository @Inject constructor(
             when (aggregate) {
                 AggregateType.PRODUCT -> {
                     val row = products.get(id) ?: error("Artikl nije pronađen u košu.")
+                    requireRestorableStockShelves(pantryId, id)
                     require(row.purgeAfter == null || row.purgeAfter > now) { "Rok za vraćanje artikla je istekao." }
                     val childVariants = variants.listAll(pantryId).filter { it.productId == id }
                     require(childVariants.isNotEmpty()) { "Artikl nema varijantu za vraćanje." }
@@ -1231,6 +1233,7 @@ class LocalInventoryRepository @Inject constructor(
                 }
                 AggregateType.VARIANT -> {
                     val row = variants.get(id) ?: error("Varijanta nije pronađena u košu.")
+                    requireRestorableStockShelves(pantryId, row.productId, row.id)
                     require(row.purgeAfter == null || row.purgeAfter > now) { "Rok za vraćanje varijante je istekao." }
                     val product = products.get(row.productId)
                         ?.takeIf { it.pantryId == pantryId && it.deletedAt == null }
@@ -1250,6 +1253,17 @@ class LocalInventoryRepository @Inject constructor(
             val operationId = enqueue(pantryId, aggregate, id, 0, OperationPayload.Restore(aggregate, id), actorUid, deviceName, now)
             record(operationId, ActivityType.ITEM_RESTORED, pantryId, id, "Vraćen zapis", actorUid, deviceName, now = now)
         }
+    }
+
+    private suspend fun requireRestorableStockShelves(pantryId: String, productId: String, variantId: String? = null) {
+        stocks.listForPantry(pantryId)
+            .filter { it.productId == productId && (variantId == null || it.variantId == variantId) && it.quantity > 0 }
+            .map { it.shelfId }.distinct().forEach { shelfId ->
+                val shelf = shelves.get(shelfId)
+                require(shelf != null && shelf.pantryId == pantryId && shelf.deletedAt == null) {
+                    "Prvo vratite obrisanu policu iz koša, zatim artikl."
+                }
+            }
     }
 
     private suspend fun reconcileAutomaticShopping(product: Product, now: Long) {

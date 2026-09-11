@@ -74,6 +74,38 @@ class LocalInventoryRepositoryTest {
 
     @After fun tearDown() = database.close()
 
+    @Test fun trashedProductDoesNotBlockShelfDeletionAndStockSurvivesRestore() = runTest {
+        val product = repository.upsertProduct(Product("", "p1", "Test", categoryId = "cat-other", createdAt = 1, updatedAt = 1), "u1", "Test")
+        repository.adjustStock(product.id, "s1", 3, "u1", "Test")
+        val shelf = database.shelfDao().get("s1")!!.model()
+        assertTrue(runCatching { repository.deleteShelf(shelf, "u1", "Test") }.isFailure)
+        repository.deleteProduct(product, "u1", "Test")
+        repository.deleteShelf(shelf, "u1", "Test")
+        assertEquals(3, database.stockDao().total(product.id))
+        assertTrue(database.shelfDao().get("s1")!!.deletedAt != null)
+        assertTrue(json.decodeFromString(OperationPayload.serializer(), database.operationDao().next().last().payloadJson) is OperationPayload.DeleteShelf)
+        val pending = database.operationDao().next().size
+        assertTrue(runCatching { repository.restore("p1", "PRODUCT", product.id, "u1", "Test") }.isFailure)
+        assertEquals(pending, database.operationDao().next().size)
+        repository.restore("p1", "SHELF", "s1", "u1", "Test")
+        repository.restore("p1", "PRODUCT", product.id, "u1", "Test")
+        assertEquals(listOf(3), database.stockDao().quantitiesOnShelf("s1"))
+    }
+
+    @Test fun trashedVariantDoesNotBlockShelfButAnotherActiveVariantDoes() = runTest {
+        val product = repository.upsertProduct(Product("", "p1", "Test", categoryId = "cat-other", createdAt = 1, updatedAt = 1), "u1", "Test")
+        val variant = repository.upsertVariant(ProductVariant("", "p1", product.id, "Druga", createdAt = 1, updatedAt = 1), "u1", "Test")
+        repository.adjustVariantStock(variant.id, "s1", 2, "u1", "Test")
+        repository.deleteVariant(variant.id, "u1", "Test")
+        assertEquals(0, database.stockDao().quantitiesOnShelf("s1").sum())
+        repository.adjustStock(product.id, "s1", 1, "u1", "Test")
+        assertTrue(runCatching { repository.deleteShelf(database.shelfDao().get("s1")!!.model(), "u1", "Test") }.isFailure)
+        repository.adjustStock(product.id, "s1", -1, "u1", "Test")
+        repository.deleteShelf(database.shelfDao().get("s1")!!.model(), "u1", "Test")
+        assertEquals(2, database.stockDao().totalVariant(variant.id))
+        assertTrue(runCatching { repository.restore("p1", "VARIANT", variant.id, "u1", "Test") }.isFailure)
+    }
+
     @Test fun completeFirstVariantIsStoredInOneProductOperation() = runTest {
         val draft = ProductVariant("", "p1", "", "Fusilli", manufacturer = "Barilla", barcode = "8076802085981",
             packageAmountBase = 500000, packageUnit = PackageUnit.G, packageLabel = "500 g", createdAt = 1, updatedAt = 1)

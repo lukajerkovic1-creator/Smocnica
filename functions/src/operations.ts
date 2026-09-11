@@ -224,10 +224,22 @@ async function deleteShelf({ tx, pantryRef, payload, baseRevision, timestamp }: 
   const ref = pantryRef.collection("shelves").doc(id);
   const [shelf, occupied] = await Promise.all([
     tx.get(ref),
-    tx.get(pantryRef.collection("stocks").where("shelfId", "==", id).where("quantity", ">", 0).limit(1)),
+    tx.get(pantryRef.collection("stocks").where("shelfId", "==", id).where("quantity", ">", 0)),
   ]);
   assertRevision(shelf, baseRevision, "Polica");
-  if (!occupied.empty) throw new HttpsError("failed-precondition", "Polica se može obrisati tek kada je prazna.");
+  const refs = new Map<string, DocumentReference>();
+  occupied.docs.forEach((stock) => {
+    const product = pantryRef.collection("products").doc(safeId(String(stock.get("productId"))));
+    const variant = pantryRef.collection("variants").doc(safeId(String(stock.get("variantId") || stock.get("productId"))));
+    refs.set(product.path, product);
+    refs.set(variant.path, variant);
+  });
+  const records = refs.size > 0 ? await tx.getAll(...refs.values()) : [];
+  const deleted = new Set(records.filter((record) => record.get("deletedAt")).map((record) => record.ref.path));
+  const hasActiveStock = occupied.docs.some((stock) =>
+    !deleted.has(`${pantryRef.path}/products/${stock.get("productId")}`) &&
+    !deleted.has(`${pantryRef.path}/variants/${stock.get("variantId") || stock.get("productId")}`));
+  if (hasActiveStock) throw new HttpsError("failed-precondition", "Polica se može obrisati tek kada je prazna.");
   const revision = baseRevision + 1;
   tx.update(ref, { deletedAt: timestamp, purgeAfter: daysFromNow(30), revision, updatedAt: timestamp });
   tx.delete(pantryRef.collection("shelfNames").doc(sha256(documentNormalizedName(shelf))));
@@ -1107,9 +1119,11 @@ async function applyInventory({ tx, pantryRef, payload, baseRevision, operationI
   };
 }
 
-async function softDelete({ tx, pantryRef, payload, baseRevision, timestamp }: HandlerContext): Promise<HandlerResult> {
+async function softDelete(context: HandlerContext): Promise<HandlerResult> {
+  const { tx, pantryRef, payload, baseRevision, timestamp } = context;
   const kind = text(payload, "targetType", 1, 30);
   const id = safeId(text(payload, "id"));
+  if (kind === "SHELF") return deleteShelf({ ...context, payload: { ...payload, shelfId: id } });
   const collection = collectionForAggregate(kind);
   const ref = pantryRef.collection(collection).doc(id);
   const shoppingRef = collection === "products" ? pantryRef.collection("shoppingItems").doc(`auto_${id}`) : null;
@@ -1211,6 +1225,15 @@ async function restore({ tx, pantryRef, payload, timestamp }: HandlerContext): P
     if (!restoredVariantProduct?.exists || restoredVariantProduct.get("deletedAt")) {
       throw new HttpsError("failed-precondition", "Generički artikl nije aktivan. Vratite cijeli artikl iz koša.");
     }
+  }
+  const restoredStocks = kind === "PRODUCT" ? productStocks : kind === "VARIANT"
+    ? await tx.get(pantryRef.collection("stocks").where("variantId", "==", id)) : null;
+  const restoredShelfIds = [...new Set(restoredStocks?.docs.filter((stock) => Number(stock.get("quantity")) > 0)
+    .map((stock) => safeId(String(stock.get("shelfId")))) || [])];
+  const restoredShelves = restoredShelfIds.length > 0
+    ? await tx.getAll(...restoredShelfIds.map((shelfId) => pantryRef.collection("shelves").doc(shelfId))) : [];
+  if (restoredShelves.some((shelf) => !shelf.exists || shelf.get("deletedAt"))) {
+    throw new HttpsError("failed-precondition", "Prvo vratite obrisanu policu iz koša, zatim artikl.");
   }
   const variantReservationRef = kind === "VARIANT" && typeof doc.get("barcode") === "string"
     ? db.doc(`barcodes/${sha256(`${pantryRef.id}:${String(doc.get("barcode"))}`)}`)
