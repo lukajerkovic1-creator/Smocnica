@@ -146,8 +146,6 @@ fun StocksScreen(
     var showFilters by remember { mutableStateOf(false) }
     var showEditor by remember { mutableStateOf<ProductWithStock?>(null) }
     var creating by rememberSaveable(initialAction) { mutableStateOf(initialAction == "new") }
-    var showAddChoice by rememberSaveable { mutableStateOf(false) }
-    var startWithPhoto by rememberSaveable { mutableStateOf(false) }
     var orderName by rememberSaveable { mutableStateOf(InventoryOrder.NAME.name) }
     val order = InventoryOrder.valueOf(orderName)
     var movingProduct by remember { mutableStateOf<ProductWithStock?>(null) }
@@ -180,7 +178,7 @@ fun StocksScreen(
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
-            InventoryAddButton { showAddChoice = true }
+            InventoryAddButton(scanSelected)
         },
     ) { inner ->
         LazyColumn(
@@ -227,16 +225,11 @@ fun StocksScreen(
                     { deletingProduct = item.product },
                 )
             }
-            if (products.isEmpty()) item { ContextEmptyState("Nema artikala za odabrane filtre.", scanSelected, { startWithPhoto = false; creating = true }, if (selectedShelf != null) ({ chooseMoveProduct = true }) else null) }
+            if (products.isEmpty()) item { ContextEmptyState("Nema artikala za odabrane filtre.", scanSelected, { creating = true }, if (selectedShelf != null) ({ chooseMoveProduct = true }) else null) }
         }
     }
-    if (showAddChoice) AddArticleChoice({ showAddChoice = false },
-        { showAddChoice = false; startWithPhoto = false; creating = true },
-        { showAddChoice = false; startWithPhoto = true; creating = true },
-    )
     if (creating) ProductEditor(
         current = null,
-        capturePhotoInitially = startWithPhoto,
         recognizePhoto = viewModel::recognizePhoto,
         shelves = shelves,
         categories = categories,

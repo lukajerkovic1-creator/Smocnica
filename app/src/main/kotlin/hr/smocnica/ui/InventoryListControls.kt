@@ -1,8 +1,6 @@
 package hr.smocnica.ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.Alignment
 import androidx.compose.material.icons.Icons
@@ -86,34 +84,3 @@ internal fun InventoryListControls(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun AddArticleChoice(dismiss: () -> Unit, manual: () -> Unit, photo: () -> Unit) {
-    ModalBottomSheet(
-        onDismissRequest = dismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = MaterialTheme.colorScheme.outlineVariant) },
-    ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp)) {
-            Text("Dodaj artikl", style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, modifier = Modifier.padding(bottom = 20.dp))
-            AddChoiceRow("Dodaj ručno", "Upiši naziv, količinu i policu", Icons.Outlined.Edit, manual)
-            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
-            AddChoiceRow("Fotografiraj", "Slikaj proizvod i provjeri podatke", Icons.Outlined.PhotoCamera, photo)
-        }
-    }
-}
-
-@Composable
-private fun AddChoiceRow(label: String, description: String, icon: androidx.compose.ui.graphics.vector.ImageVector, click: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = click).padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(52.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-        }
-        Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-            Text(label, style = MaterialTheme.typography.titleMedium)
-            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Icon(Icons.Outlined.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}

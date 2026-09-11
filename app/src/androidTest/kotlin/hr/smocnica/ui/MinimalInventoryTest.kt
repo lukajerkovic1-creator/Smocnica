@@ -26,16 +26,14 @@ class MinimalInventoryTest {
             listOf(ProductVariant("v$i", "p", "p$i", name, packageLabel = listOf("1 kg", "500 g", "1 l", "1 kg", "1 l", "1 kg")[i], createdAt = 1, updatedAt = 1)))
     }
 
-    @Test fun homeDrawerAndAddSheetMatchReferenceStructure() {
+    @Test fun homePlusOpensScannerWithoutManualOrPhotoChoice() {
         var destination = "home"
-        var manual = 0
-        var photo = 0
+        var scans = 0
         compose.setContent {
             SmocnicaTheme(darkTheme = false) {
-                var showAdd by remember { mutableStateOf(false) }
                 PantryNavigationShell("home", { destination = it }) { outer ->
                     Scaffold(Modifier.padding(outer), containerColor = MaterialTheme.colorScheme.surface, contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                        floatingActionButton = { InventoryAddButton { showAdd = true } }) { inner ->
+                        floatingActionButton = { InventoryAddButton { scans++ } }) { inner ->
                         LazyColumn(contentPadding = PaddingValues(top = inner.calculateTopPadding(), bottom = inner.calculateBottomPadding() + 96.dp)) {
                             item { InventorySearchField("") {} }
                             item { Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) { InventoryListControls(shelves, null, InventoryOrder.NAME, {}, {}, {}) } }
@@ -43,7 +41,6 @@ class MinimalInventoryTest {
                         }
                     }
                 }
-                if (showAdd) AddArticleChoice({ showAdd = false }, { manual++; showAdd = false }, { photo++; showAdd = false })
             }
         }
         compose.onNodeWithText("Pretraži artikle").assertIsDisplayed()
@@ -58,14 +55,9 @@ class MinimalInventoryTest {
         assertTrue(plus.center.x > screen.center.x && plus.center.y > screen.center.y)
         capture("minimal-home")
         compose.onNodeWithContentDescription("Dodaj artikl").performClick()
-        compose.onNodeWithText("Dodaj ručno").assertIsDisplayed()
-        compose.onNodeWithText("Fotografiraj").assertIsDisplayed()
-        capture("minimal-add")
-        compose.onNodeWithText("Dodaj ručno").performClick()
-        compose.runOnIdle { assertEquals(1, manual) }
-        compose.onNodeWithContentDescription("Dodaj artikl").performClick()
-        compose.onNodeWithText("Fotografiraj").performClick()
-        compose.runOnIdle { assertEquals(1, photo) }
+        compose.runOnIdle { assertEquals(1, scans) }
+        compose.onNodeWithText("Dodaj ručno").assertDoesNotExist()
+        compose.onNodeWithText("Fotografiraj").assertDoesNotExist()
         compose.onNodeWithContentDescription("Otvori izbornik").performClick()
         compose.onNodeWithText("Postavke").assertIsDisplayed()
         compose.onNodeWithText("Popis za kupnju").assertIsDisplayed()
