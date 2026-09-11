@@ -36,4 +36,11 @@ class InventoryOrderTest {
         val items = listOf(item("empty", "A", 1, "s1" to 0), item("second", "B", 1, "s2" to 2), item("first", "C", 1, "s2" to 0, "s1" to 3))
         assertEquals(listOf("first", "second", "empty"), orderInventory(items, shelves, InventoryOrder.SHELF).map { it.product.id })
     }
+
+    @Test fun shelfCountCountsProductsOnceAcrossVariantsAndIgnoresZeroStock() {
+        val products = listOf(item("a", "A", 1, "s1" to 2, "s1" to 3, "s2" to 1), item("b", "B", 1, "s1" to 0))
+        assertEquals(1, shelfProductCount(products, "s1"))
+        assertEquals(1, shelfProductCount(products, "s2"))
+        assertEquals(0, shelfProductCount(products, "missing"))
+    }
 }

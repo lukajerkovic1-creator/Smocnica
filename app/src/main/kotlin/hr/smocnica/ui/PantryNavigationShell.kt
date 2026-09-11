@@ -18,7 +18,6 @@ private data class DrawerDestination(val route: String, val label: String, val i
 private val drawerDestinations = listOf(
     DrawerDestination("home", "Svi artikli", Icons.Outlined.Inventory2),
     DrawerDestination("shopping", "Popis za kupnju", Icons.Outlined.ShoppingCart),
-    DrawerDestination("shelves", "Police", Icons.Outlined.GridView),
     DrawerDestination("scanner", "Skeniraj barkod", Icons.Outlined.QrCodeScanner),
     DrawerDestination("inventory", "Inventura", Icons.Outlined.FactCheck),
     DrawerDestination("history", "Povijest", Icons.Outlined.History),

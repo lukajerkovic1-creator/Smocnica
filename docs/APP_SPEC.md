@@ -79,7 +79,7 @@ Početni ekran prikazuje sve aktivne generičke artikle u ravnim kompaktnim redc
 
 Na vrhu su naslov „Smočnica”, tri crtice za bočni izbornik, pretraga te neposredan odabir police i redoslijeda: „Abecedno”, „Najnovije dodano” (datum nastanka artikla) ili „Po policama” (redoslijed polica, potom naziv). Artikli na više polica pojavljuju se jednom, prema prvoj zauzetoj polici; artikli bez zalihe idu na kraj. Dodatni filtri ostaju dostupni ikonicom filtra.
 
-Donje navigacije nema. Bočni izbornik sadrži „Svi artikli”, „Popis za kupnju”, „Police”, „Skeniraj barkod”, „Inventura”, „Povijest”, „Koš” i „Postavke”. Odabir sekcije zatvara izbornik i otvara njezin početni prikaz bez obnavljanja prethodnih podstranica.
+Donje navigacije nema. Bočni izbornik sadrži „Svi artikli”, „Popis za kupnju”, „Skeniraj barkod”, „Inventura”, „Povijest”, „Koš” i „Postavke”. Odabir sekcije zatvara izbornik i otvara njezin početni prikaz bez obnavljanja prethodnih podstranica.
 
 U donjem desnom kutu je ljubičasti gumb samo s ikonicom plus (pristupačni naziv „Dodaj artikl”). Odmah otvara skener barkoda uz očuvanje odabrane police; nema izbornika ručnog unosa i fotografiranja. Skeniranje je glavni način dodavanja. Nakon provjere lokalne baze i kataloga, nepoznati proizvod otvara obrazac u kojem korisnik može fotografirati ambalažu radi prepoznavanja podataka ili nastaviti ručno. Skenirani barkod ostaje sačuvan u obrascu. Ni jedan put ne sprema artikl bez potvrde korisnika; odabir police ostaje obvezan.
 
@@ -90,6 +90,11 @@ U redoslijedu „Po policama” svaka neprazna skupina ima traku preko širine p
 Dijalozi za unos, filtre, količinu, premještanje i potvrde koriste zajednički izgled: površinu teme bez ljubičastog preljeva, zaobljenje 24 dp, kompaktan podebljan naslov s tankim razdjelnikom i zaobljena polja 12 dp. Odabiri imaju lijevo poravnat naziv i vrijednost, strelicu te kvačicu uz odabranu opciju. Dugi sadržaji ostaju pomični, a potvrda i odustajanje dostupni. Isti izgled vrijedi u svijetlom i tamnom načinu.
 
 ## 5. Police
+
+Upravljanje policama dostupno je iz „Svi artikli”, prema odobrenoj referenci `docs/design/inventory-shelf-management-reference.png`. Odabir „Sve police” prikazuje i prazne police, broj različitih artikala s pozitivnom zalihom (ne zbroj pakiranja) te tri točkice za preimenovanje i brisanje. Broj se računa iz svih aktivnih artikala, ne trenutačne pretrage. Na dnu je „Dodaj policu”. Obojene trake u redoslijedu „Po policama” nude iste radnje. Zasebna stavka „Police” uklonjena je iz bočnog izbornika. Plus i dalje otvara skener s odabranom policom.
+
+Brisanje traži potvrdu. Ako postoje artikli, nudi premještanje na drugu policu postojećom transakcijskom radnjom; nakon premještanja korisnik ponovno potvrđuje brisanje prazne police. Bez druge police premještanje je onemogućeno i prikazana je uputa za dodavanje police. Poslužiteljska i lokalna provjera prazne police i dalje vrijede. Brisanje odabrane police uklanja je iz trenutačnog filtra.
+
 
 Broj komada zbraja sve aktivne varijante na polici. Artikli i varijante u košu ne zauzimaju policu i ne blokiraju njezino brisanje. Njihove sačuvane količine ostaju dostupne za obnovu; ako je obrisana i polica, prvo treba vratiti policu iz koša pa artikl. Brisanje police s aktivnom zalihom ostaje zabranjeno.
 
