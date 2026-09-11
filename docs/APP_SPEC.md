@@ -184,6 +184,8 @@ Nakon očitanja:
 - Lokalne izmjene ostaju samo u zajedničkoj smočnici i ne šalju se automatski javnoj bazi.
 - Ako postoji javna fotografija, prikazati je.
 - Korisnik može snimiti vlastitu fotografiju ili odabrati postojeću.
+- Fotografija upotrijebljena za prepoznavanje zadano se sprema uz varijantu. Pregled slike ima uključenu opciju „Prikaži ovu fotografiju na kartici”; korisnik je može isključiti za prepoznavanje bez spremanja ili odabrati drugu fotografiju. Slika se prenosi tek pritiskom na „Spremi”.
+- Generička kartica koristi fotografiju reprezentativne varijante, a ako je nema, fotografiju druge aktivne varijante (prvo preferirane, zatim zadnje ažurirane). Kartica pronađena točnim podudaranjem varijante ne prikazuje fotografiju drugog pakiranja.
 - Vlastitu fotografiju:
   - smanjiti i komprimirati prije prijenosa
   - spremiti u Firebase Storage

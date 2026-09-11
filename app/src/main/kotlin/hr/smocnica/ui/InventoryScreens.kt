@@ -588,10 +588,10 @@ internal fun ProductCard(
 
 @Composable
 private fun ProductCardLeading(item: ProductWithStock, selectionMode: Boolean, selected: Boolean, select: () -> Unit) {
+    val photo = productCardPhoto(item)
     if (selectionMode) Checkbox(selected, { select() })
-    else if (item.representativeVariant?.photoUri != null) {
-        val variant = requireNotNull(item.representativeVariant)
-        ProductPhoto(variant.photoUri, variant.updatedAt, null, Modifier.size(54.dp))
+    else if (photo != null) {
+        ProductPhoto(photo.photoUri, photo.updatedAt, "Fotografija: ${photo.displayName}", Modifier.size(54.dp))
     }
     else Icon(Icons.Outlined.ShoppingCart, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
 }
@@ -787,6 +787,7 @@ fun ProductEditor(
         ?: { notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }
     var selectedPhotoPath by rememberProductPhotoDraftPath(current?.id)
     var selectedSourceName by rememberSaveable { mutableStateOf<String?>(null) }
+    var saveSelectedPhoto by rememberSaveable(current?.id) { mutableStateOf(true) }
     val selectedSource = selectedSourceName?.let(PhotoSource::valueOf)
     var photoError by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingCameraPath by rememberSaveable(current?.id) { mutableStateOf<String?>(null) }
@@ -825,6 +826,7 @@ fun ProductEditor(
         deleteTemporaryProductPhoto(context.cacheDir, selectedPhotoPath)
         selectedPhotoPath = path
         selectedSourceName = source.name
+        saveSelectedPhoto = true
         photoError = null
         recognitionMessage = null
     }
@@ -978,7 +980,7 @@ fun ProductEditor(
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        remotePhotoUri?.let { ProductPhoto(it, current?.updatedAt ?: 0, "Fotografija artikla", Modifier.fillMaxWidth().height(120.dp)) }
+                        if (selectedPhotoPath == null) remotePhotoUri?.let { ProductPhoto(it, currentVariant?.updatedAt ?: current?.updatedAt ?: 0, "Fotografija artikla", Modifier.fillMaxWidth().height(120.dp)) }
                         selectedPhotoPath?.let { path ->
                             ProductPhoto(
                                 Uri.fromFile(File(path)).toString(),
@@ -986,10 +988,9 @@ fun ProductEditor(
                                 "Nova fotografija artikla",
                                 Modifier.fillMaxWidth().height(120.dp),
                             )
-                            Text(
-                                "Fotografija je spremna.",
-                                color = MaterialTheme.colorScheme.primary,
-                            )
+                            ProductPhotoSaveOption(saveSelectedPhoto) { saveSelectedPhoto = it }
+                            Text(if (saveSelectedPhoto) "Fotografija će se spremiti uz proizvod kada dodirnete Spremi."
+                                else "Ova fotografija služi samo za prepoznavanje i neće se spremiti uz proizvod.")
                         }
                         if (isNew && recognizePhoto != null) Text("Fotografirajte prednju stranu ambalaže. Fotografija se šalje Google Geminiju za prijedlog podataka.")
                         if (recognizing) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Prepoznajem proizvod…") }
@@ -1001,12 +1002,12 @@ fun ProductEditor(
                         if (cameraPermissionDenied) OutlinedButton({
                             context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
                         }) { Text("Otvori postavke aplikacije") }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton({
                                 if (cameraPermissionGranted) launchCameraCapture()
                                 else cameraPermission.launch(Manifest.permission.CAMERA)
-                            }) { Text(if (isNew && recognizePhoto != null) "Fotografiraj proizvod" else "Snimi") }
-                            OutlinedButton({ gallery.launch("image/*") }) { Text("Odaberi") }
+                            }, Modifier.weight(1f)) { Text(if (isNew && recognizePhoto != null) "Fotografiraj proizvod" else "Snimi") }
+                            OutlinedButton({ gallery.launch("image/*") }, Modifier.weight(1f)) { Text("Odaberi fotografiju") }
                         }
                     }
                 }
@@ -1272,8 +1273,8 @@ fun ProductEditor(
                         ),
                         shelfId,
                         requireNotNull(parsedInitialQuantity),
-                        selectedPhotoPath,
-                        selectedSource,
+                        selectedPhotoPath.takeIf { saveSelectedPhoto },
+                        selectedSource.takeIf { saveSelectedPhoto },
                     ) { success ->
                         submitting = false
                         if (success) { shelfPreferences.edit().putString(pantryKey, shelfId).apply(); finishEditor() } else operationError = "Spremanje nije uspjelo. Pokušajte ponovno."
