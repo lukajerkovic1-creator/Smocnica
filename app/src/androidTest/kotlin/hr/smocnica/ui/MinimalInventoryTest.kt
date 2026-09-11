@@ -62,8 +62,9 @@ class MinimalInventoryTest {
         compose.onNodeWithText("Postavke").assertIsDisplayed()
         compose.onNodeWithText("Popis za kupnju").assertIsDisplayed()
         capture("minimal-drawer")
-        compose.onNodeWithText("Police").performClick()
-        compose.runOnIdle { assertEquals("shelves", destination) }
+        compose.onNodeWithText("Police").assertDoesNotExist()
+        compose.onNodeWithText("Svi artikli").performClick()
+        compose.runOnIdle { assertEquals("home", destination) }
         compose.onNodeWithText("Postavke").assertIsNotDisplayed()
     }
 

@@ -166,6 +166,11 @@ fun StocksScreen(
     val selectedShelfId = activeFilter.shelfIds.singleOrNull().orEmpty()
     val selectedShelf = shelves.firstOrNull { it.id == selectedShelfId }
     val scanSelected = { scan(selectedShelfId) }
+    var newShelf by remember { mutableStateOf(false) }
+    var renameShelf by remember { mutableStateOf<Shelf?>(null) }
+    var deleteShelf by remember { mutableStateOf<Shelf?>(null) }
+    val shelfActions = ShelfManagementActions({ newShelf = true }, { renameShelf = it }, { deleteShelf = it })
+
 
     LaunchedEffect(initialShelfId, initialFilter) { viewModel.updateFilter(activeFilter) }
     DisposableEffect(Unit) { onDispose { viewModel.updateFilter(ProductFilter()) } }
@@ -197,7 +202,7 @@ fun StocksScreen(
                     activeFilter = activeFilter.copy(shelfIds = shelfId?.let(::setOf) ?: emptySet())
                     lastQuickShelfId = shelfId.orEmpty()
                     viewModel.updateFilter(activeFilter)
-                }, { orderName = it.name }, { showFilters = true })
+                }, { orderName = it.name }, { showFilters = true }, allProducts, shelfActions)
             } }
             if (selectedIds.isNotEmpty()) item {
                 BulkActionBar(
@@ -209,7 +214,7 @@ fun StocksScreen(
                     { selectedIds = emptySet(); selecting = false },
                 )
             }
-            inventoryRows(products, shelves, order, activeFilter.shelfIds) { item ->
+            inventoryRows(products, shelves, order, activeFilter.shelfIds, shelfActions) { item ->
                 ProductCard(
                     item,
                     shelves,
@@ -228,6 +233,16 @@ fun StocksScreen(
             if (products.isEmpty()) item { ContextEmptyState("Nema artikala za odabrane filtre.", scanSelected, { creating = true }, if (selectedShelf != null) ({ chooseMoveProduct = true }) else null) }
         }
     }
+    if (newShelf) NameDialog("Nova polica", "", { newShelf = false }) { viewModel.createShelf(it); newShelf = false }
+    renameShelf?.let { shelf -> NameDialog("Preimenuj policu", shelf.name, { renameShelf = null }) { viewModel.renameShelf(shelf, it); renameShelf = null } }
+    deleteShelf?.let { shelf -> InventoryShelfDeleteDialog(shelf, allProducts, shelves, { deleteShelf = null }, {
+        viewModel.deleteShelf(shelf)
+        if (shelf.id in activeFilter.shelfIds) {
+            activeFilter = activeFilter.copy(shelfIds = activeFilter.shelfIds - shelf.id)
+            viewModel.updateFilter(activeFilter)
+        }
+        deleteShelf = null
+    }, { target -> viewModel.moveAllStock(shelf.id, target, allProducts); deleteShelf = null }) }
     if (creating) ProductEditor(
         current = null,
         recognizePhoto = viewModel::recognizePhoto,

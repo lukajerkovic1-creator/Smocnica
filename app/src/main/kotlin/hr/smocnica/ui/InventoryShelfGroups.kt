@@ -33,12 +33,12 @@ internal fun groupInventoryByShelf(
 
 internal fun LazyListScope.inventoryRows(
     products: List<ProductWithStock>, shelves: List<Shelf>, order: InventoryOrder,
-    filteredShelfIds: Set<String> = emptySet(), row: @Composable (ProductWithStock) -> Unit,
+    filteredShelfIds: Set<String> = emptySet(), shelfActions: ShelfManagementActions? = null, row: @Composable (ProductWithStock) -> Unit,
 ) {
     if (order == InventoryOrder.SHELF) {
         groupInventoryByShelf(products, shelves, filteredShelfIds).forEach { group ->
             item(key = "shelf-header:${group.shelf?.id ?: "unassigned"}", contentType = "shelf-header") {
-                InventoryShelfHeader(group.shelf?.name ?: "Bez zalihe na policama")
+                InventoryShelfHeader(group.shelf?.name ?: "Bez zalihe na policama", group.shelf, shelfActions)
             }
             items(group.products, key = { "product:${it.product.id}" }, contentType = { "product" }) { row(it) }
         }
@@ -48,9 +48,12 @@ internal fun LazyListScope.inventoryRows(
 }
 
 @Composable
-private fun InventoryShelfHeader(name: String) {
+private fun InventoryShelfHeader(name: String, shelf: Shelf?, actions: ShelfManagementActions?) {
     Surface(color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
-        Text(name, modifier = Modifier.fillMaxWidth().semantics { heading() }.padding(horizontal = 16.dp, vertical = 10.dp),
+        androidx.compose.foundation.layout.Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Text(name, modifier = Modifier.weight(1f).semantics { heading() }.padding(horizontal = 16.dp, vertical = 10.dp),
             style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+        if (shelf != null && actions != null) ShelfActionMenu(shelf, actions)
+        }
     }
 }

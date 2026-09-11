@@ -58,20 +58,12 @@ internal fun orderInventory(items: List<ProductWithStock>, shelves: List<Shelf>,
 internal fun InventoryListControls(
     shelves: List<Shelf>, selectedShelfId: String?, order: InventoryOrder,
     selectShelf: (String?) -> Unit, selectOrder: (InventoryOrder) -> Unit, moreFilters: () -> Unit,
+    products: List<ProductWithStock> = emptyList(), shelfActions: ShelfManagementActions? = null,
 ) {
-    var shelfMenu by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
       androidx.compose.foundation.layout.FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Box {
-            AssistChip({ shelfMenu = true }, { Text(shelves.firstOrNull { it.id == selectedShelfId }?.name ?: "Sve police", fontWeight = androidx.compose.ui.text.font.FontWeight.Normal) },
-                shape = CircleShape,
-                trailingIcon = { Icon(Icons.Outlined.ExpandMore, null, tint = MaterialTheme.colorScheme.onSurface) })
-            DropdownMenu(shelfMenu, { shelfMenu = false }) {
-                DropdownMenuItem({ Text("Sve police") }, { shelfMenu = false; selectShelf(null) })
-                shelves.forEach { shelf -> DropdownMenuItem({ Text(shelf.name) }, { shelfMenu = false; selectShelf(shelf.id) }) }
-            }
-        }
+        InventoryShelfSelector(shelves, selectedShelfId, products, selectShelf, shelfActions)
         Box {
             AssistChip({ sortMenu = true }, { Text(order.label, fontWeight = androidx.compose.ui.text.font.FontWeight.Normal) }, shape = CircleShape,
                 trailingIcon = { Icon(Icons.Outlined.ExpandMore, null, tint = MaterialTheme.colorScheme.onSurface) })
