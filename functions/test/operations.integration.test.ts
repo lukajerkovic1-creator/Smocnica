@@ -48,13 +48,13 @@ describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", ()
     await db.doc("pantries/p1/stocks/trashed_s2").set({ productId: "a", variantId: "trashed", shelfId: "s2", quantity: 3 });
     await db.doc("pantries/p1/stocks/a_s2").set({ productId: "a", variantId: "a", shelfId: "s2", quantity: 1 });
     const request = callable({ operationId: "op-delete-s2", pantryId: "p1", aggregateType: "SHELF", aggregateId: "s2", baseRevision: 1,
-      payload: { type: "delete_shelf", shelfId: "s2" }, deviceId: "device-0001", deviceDisplayName: "Test" });
+      payload: { type: "delete_shelf", shelfId: "s2" }, deviceId: "device-0001", deviceDisplayName: "Test" }, "u1");
     await expect(invoke(request as never)).rejects.toThrow("prazna");
     await db.doc("pantries/p1/stocks/a_s2").update({ quantity: 0 });
     await invoke(request as never);
     expect((await db.doc("pantries/p1/stocks/trashed_s2").get()).get("quantity")).toBe(3);
     const restore = callable({ operationId: "op-restore-variant-s2", pantryId: "p1", aggregateType: "VARIANT", aggregateId: "trashed", baseRevision: 0,
-      payload: { type: "restore", targetType: "VARIANT", id: "trashed" }, deviceId: "device-0001", deviceDisplayName: "Test" });
+      payload: { type: "restore", targetType: "VARIANT", id: "trashed" }, deviceId: "device-0001", deviceDisplayName: "Test" }, "u1");
     await expect(invoke(restore as never)).rejects.toThrow("Prvo vratite obrisanu policu");
   });
 
