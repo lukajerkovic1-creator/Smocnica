@@ -65,9 +65,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -83,7 +80,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -516,45 +512,7 @@ internal fun ProductCard(
 ) {
     val available = selectedShelfId?.let { id -> item.stocks.filter { it.shelfId == id }.sumOf { it.quantity } } ?: item.totalQuantity
     var menu by remember { mutableStateOf(false) }
-    val swipeScope = rememberCoroutineScope()
-    val swipeState = rememberSwipeToDismissBoxState(confirmValueChange = { target ->
-        when (target) {
-            SwipeToDismissBoxValue.StartToEnd -> increment()
-            SwipeToDismissBoxValue.EndToStart -> return@rememberSwipeToDismissBoxState true
-            SwipeToDismissBoxValue.Settled -> Unit
-        }
-        false
-    })
-    SwipeToDismissBox(
-        state = swipeState,
-        enableDismissFromStartToEnd = !selectionMode,
-        enableDismissFromEndToStart = !selectionMode && (available > 0 || item.totalQuantity > 0 && shelves.size > 1),
-        backgroundContent = {
-            val adding = swipeState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
-            Box(
-                Modifier.fillMaxSize().background(
-                    if (swipeState.dismissDirection == SwipeToDismissBoxValue.Settled) Color.Transparent
-                    else if (adding) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-                    RoundedCornerShape(20.dp),
-                ).padding(horizontal = 14.dp),
-                contentAlignment = if (adding) Alignment.CenterStart else Alignment.CenterEnd,
-            ) {
-                if (adding) Text("+1", fontWeight = FontWeight.Bold)
-                else Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(
-                        onClick = { decrement(); swipeScope.launch { swipeState.reset() } },
-                        modifier = Modifier.semantics { contentDescription = "Izvadi jedan gestom" },
-                        enabled = available > 0,
-                    ) { Text("−1") }
-                    TextButton(
-                        onClick = { move(); swipeScope.launch { swipeState.reset() } },
-                        modifier = Modifier.semantics { contentDescription = "Premjesti gestom" },
-                        enabled = item.totalQuantity > 0 && shelves.size > 1,
-                    ) { Text("Premjesti") }
-                }
-            }
-        },
-    ) {
+    SwipeQuantityActions(!selectionMode, available, increment, decrement) {
       Card(
           shape = RoundedCornerShape(20.dp),
           colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface),

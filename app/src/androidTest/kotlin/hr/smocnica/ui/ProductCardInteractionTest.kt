@@ -106,8 +106,8 @@ class ProductCardInteractionTest {
     }
 
     @Test
-    fun swipeRevealsAndRunsMoveAction() {
-        var moved = 0
+    fun swipeRevealsAndRunsAddAction() {
+        var added = 0
         compose.setContent {
             SmocnicaTheme {
                 ProductCard(
@@ -124,9 +124,9 @@ class ProductCardInteractionTest {
                     selectionMode = false,
                     open = {},
                     select = {},
-                    increment = {},
+                    increment = { added++ },
                     decrement = {},
-                    move = { moved++ },
+                    move = {},
                     edit = {},
                     delete = {},
                 )
@@ -135,8 +135,8 @@ class ProductCardInteractionTest {
 
         compose.onNodeWithContentDescription("Dodatne radnje").performTouchInput { swipeLeft() }
         compose.onNodeWithContentDescription("Izvadi jedan gestom").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Premjesti gestom").performClick()
-        compose.runOnIdle { assertEquals(1, moved) }
+        compose.onNodeWithContentDescription("Dodaj jedan gestom").performClick()
+        compose.runOnIdle { assertEquals(1, added) }
     }
 
     @Test
@@ -168,7 +168,7 @@ class ProductCardInteractionTest {
         }
 
         compose.onNodeWithContentDescription("Dodatne radnje").performTouchInput { swipeLeft() }
-        compose.onNodeWithContentDescription("Premjesti gestom").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Dodaj jedan gestom").assertIsDisplayed()
         compose.onNodeWithContentDescription("Izvadi jedan gestom").performClick()
         compose.runOnIdle { assertEquals(1, removed) }
     }
