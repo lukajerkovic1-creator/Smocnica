@@ -81,7 +81,7 @@ Na vrhu su naslov „Smočnica”, tri crtice za bočni izbornik, pretraga te ne
 
 Donje navigacije nema. Bočni izbornik sadrži „Svi artikli”, „Popis za kupnju”, „Police”, „Skeniraj barkod”, „Inventura”, „Povijest”, „Koš” i „Postavke”. Odabir sekcije zatvara izbornik i otvara njezin početni prikaz bez obnavljanja prethodnih podstranica.
 
-U donjem desnom kutu je ljubičasti gumb samo s ikonicom plus (pristupačni naziv „Dodaj artikl”). Otvara donji panel s dvije radnje: „Dodaj ručno — Upiši naziv, količinu i policu” i „Fotografiraj — Slikaj proizvod i provjeri podatke”. Fotografiranje otvara kameru uz dopuštenje, predlaže podatke postojećim prepoznavanjem i zadržava fotografiju za spremanje. Ni jedan put ne sprema artikl bez potvrde korisnika; odabir police ostaje obvezan.
+U donjem desnom kutu je ljubičasti gumb samo s ikonicom plus (pristupačni naziv „Dodaj artikl”). Odmah otvara skener barkoda uz očuvanje odabrane police; nema izbornika ručnog unosa i fotografiranja. Skeniranje je glavni način dodavanja. Nakon provjere lokalne baze i kataloga, nepoznati proizvod otvara obrazac u kojem korisnik može fotografirati ambalažu radi prepoznavanja podataka ili nastaviti ručno. Skenirani barkod ostaje sačuvan u obrascu. Ni jedan put ne sprema artikl bez potvrde korisnika; odabir police ostaje obvezan.
 
 Zadržani su svijetli/tamni način, dodirne zone od najmanje 48 dp, upozorenja sinkronizacije, pristupačne radnje količine i višestruki odabir dugim pritiskom.
 
