@@ -19,6 +19,21 @@ class PantryDialogAppearanceTest {
     @Test fun lightDialogs() = verify(false)
     @Test fun darkDialogs() = verify(true)
 
+    @Test fun largeTextStacksPairedFields() {
+        compose.setContent {
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 1.5f)) {
+                SmocnicaTheme {
+                    AdaptiveFormRow { field -> Text("Fotografiraj proizvod", field); Text("Odaberi fotografiju", field) }
+                }
+            }
+        }
+        val first = compose.onNodeWithText("Fotografiraj proizvod").fetchSemanticsNode().boundsInRoot
+        val second = compose.onNodeWithText("Odaberi fotografiju").fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue(first.bottom <= second.top)
+        assertEquals(first.width, second.width)
+    }
+
     private fun verify(dark: Boolean) {
         var stage by mutableStateOf(0)
         var savedName = ""

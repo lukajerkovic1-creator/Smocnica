@@ -966,12 +966,12 @@ fun ProductEditor(
                         if (cameraPermissionDenied) OutlinedButton({
                             context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
                         }) { Text("Otvori postavke aplikacije") }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AdaptiveFormRow { fieldModifier ->
                             OutlinedButton({
                                 if (cameraPermissionGranted) launchCameraCapture()
                                 else cameraPermission.launch(Manifest.permission.CAMERA)
-                            }, Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text(if (isNew && recognizePhoto != null) "Fotografiraj proizvod" else "Snimi") }
-                            OutlinedButton({ gallery.launch("image/*") }, Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("Odaberi fotografiju") }
+                            }, fieldModifier, shape = RoundedCornerShape(12.dp)) { Text(if (isNew && recognizePhoto != null) "Fotografiraj proizvod" else "Snimi") }
+                            OutlinedButton({ gallery.launch("image/*") }, fieldModifier, shape = RoundedCornerShape(12.dp)) { Text("Odaberi fotografiju") }
                         }
                     }
                 }
@@ -1029,15 +1029,15 @@ fun ProductEditor(
                 }
                 if (detailsExpanded) item { OutlinedTextField(description, { description = it.take(500) }, label = { Text("Pakiranje / opis") }, modifier = Modifier.fillMaxWidth()) }
                 item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AdaptiveFormRow { fieldModifier ->
                         OutlinedTextField(
                             packageAmount,
                             { packageAmount = it.filter { char -> char.isDigit() || char == ',' || char == '.' }.take(20) },
                             label = { Text("Količina u pakiranju") },
                             isError = packageAmount.isNotBlank() && parsedPackageAmount == null,
-                            modifier = Modifier.weight(1f),
+                            modifier = fieldModifier,
                         )
-                        Box(Modifier.weight(1f)) {
+                        Box(fieldModifier) {
                             PairPicker(
                                 "Jedinica",
                                 PackageUnit.entries.map { it.name to packageUnitLabel(it) },

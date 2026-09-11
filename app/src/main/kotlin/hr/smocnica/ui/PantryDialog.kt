@@ -16,6 +16,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 
+@Composable
+internal fun AdaptiveFormRow(content: @Composable (Modifier) -> Unit) {
+    if (LocalDensity.current.fontScale > 1.2f) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) { content(Modifier.fillMaxWidth()) }
+    } else {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            content(Modifier.weight(1f))
+        }
+    }
+}
+
 /** Shared visual treatment; callers retain their validation and confirmation callbacks. */
 @Composable
 internal fun PantryDialog(
