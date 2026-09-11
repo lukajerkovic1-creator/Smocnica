@@ -65,9 +65,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxValue
-import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -83,10 +80,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -516,82 +514,32 @@ internal fun ProductCard(
 ) {
     val available = selectedShelfId?.let { id -> item.stocks.filter { it.shelfId == id }.sumOf { it.quantity } } ?: item.totalQuantity
     var menu by remember { mutableStateOf(false) }
-    val swipeScope = rememberCoroutineScope()
-    val swipeState = rememberSwipeToDismissBoxState(confirmValueChange = { target ->
-        when (target) {
-            SwipeToDismissBoxValue.StartToEnd -> increment()
-            SwipeToDismissBoxValue.EndToStart -> return@rememberSwipeToDismissBoxState true
-            SwipeToDismissBoxValue.Settled -> Unit
-        }
-        false
-    })
-    SwipeToDismissBox(
-        state = swipeState,
-        enableDismissFromStartToEnd = !selectionMode,
-        enableDismissFromEndToStart = !selectionMode && (available > 0 || item.totalQuantity > 0 && shelves.size > 1),
-        backgroundContent = {
-            val adding = swipeState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
-            Box(
-                Modifier.fillMaxSize().background(
-                    if (swipeState.dismissDirection == SwipeToDismissBoxValue.Settled) Color.Transparent
-                    else if (adding) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-                    RoundedCornerShape(20.dp),
-                ).padding(horizontal = 14.dp),
-                contentAlignment = if (adding) Alignment.CenterStart else Alignment.CenterEnd,
-            ) {
-                if (adding) Text("+1", fontWeight = FontWeight.Bold)
-                else Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(
-                        onClick = { decrement(); swipeScope.launch { swipeState.reset() } },
-                        modifier = Modifier.semantics { contentDescription = "Izvadi jedan gestom" },
-                        enabled = available > 0,
-                    ) { Text("−1") }
-                    TextButton(
-                        onClick = { move(); swipeScope.launch { swipeState.reset() } },
-                        modifier = Modifier.semantics { contentDescription = "Premjesti gestom" },
-                        enabled = item.totalQuantity > 0 && shelves.size > 1,
-                    ) { Text("Premjesti") }
-                }
-            }
-        },
-    ) {
+    SwipeQuantityActions(!selectionMode, available, increment, decrement) {
       Card(
           shape = RoundedCornerShape(20.dp),
           colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface),
           border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f)),
           elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-          modifier = Modifier.fillMaxWidth().combinedClickable(onClick = open, onLongClick = select),
+          modifier = Modifier.fillMaxWidth().combinedClickable(onClick = open, onLongClick = select).semantics {
+              if (!selectionMode) customActions = buildList {
+                  add(CustomAccessibilityAction("Dodaj jedno pakiranje") { increment(); true })
+                  if (available > 0) add(CustomAccessibilityAction("Izvadi jedno pakiranje") { decrement(); true })
+              }
+          },
       ) {
         BoxWithConstraints {
             val compact = maxWidth < 600.dp || LocalDensity.current.fontScale >= 1.5f
-            if (compact) {
-                Column(Modifier.fillMaxWidth().padding(10.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        ProductCardLeading(item, selectionMode, selected, select)
-                        ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(start = 10.dp))
-                    }
-                    if (!selectionMode) {
-                        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            ProductQuantityButtons(available, increment, decrement)
-                            Box {
-                                IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
-                                ProductCardMenu(menu, { menu = false }, item, shelves, move, edit, delete)
-                            }
-                        }
-                    }
-                }
-            } else {
-                Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ProductCardLeading(item, selectionMode, selected, select)
-                    ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(horizontal = 10.dp))
-                    if (!selectionMode) {
-                        ProductQuantityButtons(available, increment, decrement)
+            Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                ProductCardLeading(item, selectionMode, selected, select)
+                ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(horizontal = 10.dp))
+                if (!selectionMode) {
+                    if (!compact) {
                         IconButton(move, Modifier.size(48.dp).semantics { contentDescription = "Premjesti" }, enabled = item.totalQuantity > 0 && shelves.size > 1) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) }
                         IconButton(edit, Modifier.size(48.dp).semantics { contentDescription = "Uredi" }) { Icon(Icons.Outlined.Edit, null) }
-                        Box {
-                            IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
-                            ProductCardMenu(menu, { menu = false }, item, shelves, move, edit, delete)
-                        }
+                    }
+                    Box {
+                        IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
+                        ProductCardMenu(menu, { menu = false }, item, shelves, move, edit, delete)
                     }
                 }
             }
