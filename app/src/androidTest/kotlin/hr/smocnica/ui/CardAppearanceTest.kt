@@ -14,6 +14,7 @@ import hr.smocnica.core.model.*
 import hr.smocnica.ui.theme.SmocnicaTheme
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertTrue
 
 class CardAppearanceTest {
     @get:Rule val compose = createComposeRule()
@@ -40,6 +41,8 @@ class CardAppearanceTest {
         }
         compose.onNodeWithText("Namirnice za pečenje").assertIsDisplayed()
         compose.onNodeWithText("Glatko brašno").assertIsDisplayed()
+        val productBounds = compose.onNodeWithText("Glatko brašno").fetchSemanticsNode().boundsInRoot
+        assertTrue("Kartica s pakiranjem i upozorenjem treba ostati kompaktna.", productBounds.height <= 180f * compose.density.density)
         compose.onNodeWithContentDescription("Dodaj jedan").assertIsDisplayed().assertIsEnabled()
         compose.onNodeWithText("Ispod minimalne zalihe").assertIsDisplayed()
         val context = InstrumentationRegistry.getInstrumentation().targetContext

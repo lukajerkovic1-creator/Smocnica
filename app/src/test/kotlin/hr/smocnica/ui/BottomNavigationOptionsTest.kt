@@ -7,15 +7,15 @@ import org.junit.Test
 
 class BottomNavigationOptionsTest {
     @Test
-    fun `bottom navigation saves and restores destination state`() {
+    fun `bottom navigation discards nested destination state`() {
         val startDestinationId = 42
 
         val options = bottomNavigationOptions(startDestinationId)
 
         assertEquals(startDestinationId, options.popUpToId)
         assertFalse(options.isPopUpToInclusive())
-        assertTrue(options.shouldPopUpToSaveState())
-        assertTrue(options.shouldRestoreState())
+        assertFalse(options.shouldPopUpToSaveState())
+        assertFalse(options.shouldRestoreState())
         assertTrue(options.shouldLaunchSingleTop())
     }
 }

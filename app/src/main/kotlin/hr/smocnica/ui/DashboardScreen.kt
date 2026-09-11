@@ -250,9 +250,20 @@ private fun Metric(value: Int, label: String, icon: ImageVector, color: Color, m
 
 @Composable
 internal fun DashboardTile(title: String, subtitle: String, icon: ImageVector, route: String, modifier: Modifier, navigate: (String) -> Unit, compact: Boolean = false) {
-    val cardModifier = if (compact) modifier.heightIn(min = 124.dp) else modifier.aspectRatio(1.42f)
+    val cardModifier = if (compact) modifier.heightIn(min = 80.dp) else modifier.aspectRatio(1.42f)
     Card(cardModifier.clickable { navigate(route) }, shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
+        if (compact) {
+            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                    Icon(icon, null, Modifier.padding(12.dp).size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(Icons.AutoMirrored.Outlined.ArrowForwardIos, null, Modifier.size(16.dp))
+            }
+        } else Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Icon(icon, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
