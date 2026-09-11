@@ -83,4 +83,3 @@ internal fun InventoryListControls(
       IconButton(moreFilters) { Icon(Icons.Outlined.FilterList, "Dodatni filtri") }
     }
 }
-

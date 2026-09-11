@@ -47,7 +47,7 @@ class ProductEditorTest {
                 ProductEditor(
                     current = Product("", "p1", "", barcode = "4006381333931", createdAt = 1, updatedAt = 1),
                     shelves = shelves, categories = categories, onDismiss = {},
-                    catalogLookup = CatalogLookupState("4006381333931", CatalogLookupOutcome.NOT_FOUND),
+                    catalogLookup = CatalogLookupState("4006381333931", CatalogLookupOutcome.EMPTY),
                     recognizePhoto = { error("Prepoznavanje ne smije krenuti bez fotografije.") },
                     onSave = { _, _, _, _, _, _ -> error("Spremanje zahtijeva potvrdu.") },
                 )
