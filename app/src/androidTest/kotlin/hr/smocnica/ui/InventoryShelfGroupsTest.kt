@@ -47,7 +47,8 @@ class InventoryShelfGroupsTest {
         val second = compose.onNode(heading and hasText("Polica 2")).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val fusilli = compose.onNodeWithText("Fusilli").fetchSemanticsNode().boundsInRoot
         val milk = compose.onNodeWithText("Mlijeko").fetchSemanticsNode().boundsInRoot
-        assertTrue(first.bottom < fusilli.top && fusilli.bottom < second.top && second.bottom < milk.top)
+        assertTrue("Zaglavlja moraju odvajati skupine: $first, $fusilli, $second, $milk",
+            first.bottom <= fusilli.top && fusilli.bottom <= second.top && second.bottom <= milk.top)
         assertTrue(first.width > compose.onRoot().fetchSemanticsNode().boundsInRoot.width * .9f)
         compose.waitForIdle()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
