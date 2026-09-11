@@ -19,7 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.QrCodeScanner
-import androidx.compose.material3.AlertDialog
+import hr.smocnica.ui.PantryDialog as AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -241,15 +241,5 @@ private fun InventoryScannerDialog(lastScan: String?, error: String?, onError: (
 
 @Composable
 private fun SimpleShelfPicker(options: List<Pair<String, String>>, selectedId: String, select: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Column {
-        androidx.compose.material3.OutlinedButton({ expanded = true }, Modifier.fillMaxWidth()) {
-            Text("Polica: ${options.firstOrNull { it.first == selectedId }?.second ?: "Odaberite"}")
-        }
-        androidx.compose.material3.DropdownMenu(expanded, { expanded = false }) {
-            options.forEach { (id, name) ->
-                androidx.compose.material3.DropdownMenuItem({ Text(name) }, { select(id); expanded = false })
-            }
-        }
-    }
+    PantryPicker("Polica", options, selectedId, select)
 }

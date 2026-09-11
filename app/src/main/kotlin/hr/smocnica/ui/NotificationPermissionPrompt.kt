@@ -1,6 +1,6 @@
 package hr.smocnica.ui
 
-import androidx.compose.material3.AlertDialog
+import hr.smocnica.ui.PantryDialog as AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton

@@ -41,7 +41,7 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material.icons.automirrored.outlined.DriveFileMove
-import androidx.compose.material3.AlertDialog
+import hr.smocnica.ui.PantryDialog as AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -461,7 +461,7 @@ private fun BulkCategoryDialog(categories: List<Category>, dismiss: () -> Unit, 
 }
 
 @Composable
-private fun ProductFilterDialog(
+internal fun ProductFilterDialog(
     initial: ProductFilter,
     shelves: List<Shelf>,
     categories: List<Category>,
@@ -598,7 +598,7 @@ internal fun productQuantityText(item: ProductWithStock, shelves: List<Shelf>, s
 }
 
 @Composable
-private fun VariantQuickActionDialog(
+internal fun VariantQuickActionDialog(
     item: ProductWithStock,
     shelves: List<Shelf>,
     initialShelfId: String,
@@ -956,7 +956,7 @@ fun ProductEditor(
                             Text(if (saveSelectedPhoto) "Fotografija će se spremiti uz proizvod kada dodirnete Spremi."
                                 else "Ova fotografija služi samo za prepoznavanje i neće se spremiti uz proizvod.")
                         }
-                        if (isNew && recognizePhoto != null) Text("Fotografirajte prednju stranu ambalaže. Fotografija se šalje Google Geminiju za prijedlog podataka.")
+                        if (isNew && recognizePhoto != null) Text("Fotografirajte ambalažu za prijedlog podataka. Fotografija se šalje Google Geminiju.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (recognizing) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Prepoznajem proizvod…") }
                         recognitionMessage?.let { Text(it) }
                         if (selectedPhotoPath != null && recognizePhoto != null && !recognizing && isNew) {
@@ -966,12 +966,12 @@ fun ProductEditor(
                         if (cameraPermissionDenied) OutlinedButton({
                             context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
                         }) { Text("Otvori postavke aplikacije") }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AdaptiveFormRow { fieldModifier ->
                             OutlinedButton({
                                 if (cameraPermissionGranted) launchCameraCapture()
                                 else cameraPermission.launch(Manifest.permission.CAMERA)
-                            }, Modifier.weight(1f)) { Text(if (isNew && recognizePhoto != null) "Fotografiraj proizvod" else "Snimi") }
-                            OutlinedButton({ gallery.launch("image/*") }, Modifier.weight(1f)) { Text("Odaberi fotografiju") }
+                            }, fieldModifier, shape = RoundedCornerShape(12.dp)) { Text(if (isNew && recognizePhoto != null) "Fotografiraj proizvod" else "Snimi") }
+                            OutlinedButton({ gallery.launch("image/*") }, fieldModifier, shape = RoundedCornerShape(12.dp)) { Text("Odaberi fotografiju") }
                         }
                     }
                 }
@@ -1029,15 +1029,15 @@ fun ProductEditor(
                 }
                 if (detailsExpanded) item { OutlinedTextField(description, { description = it.take(500) }, label = { Text("Pakiranje / opis") }, modifier = Modifier.fillMaxWidth()) }
                 item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    AdaptiveFormRow { fieldModifier ->
                         OutlinedTextField(
                             packageAmount,
                             { packageAmount = it.filter { char -> char.isDigit() || char == ',' || char == '.' }.take(20) },
                             label = { Text("Količina u pakiranju") },
                             isError = packageAmount.isNotBlank() && parsedPackageAmount == null,
-                            modifier = Modifier.weight(1f),
+                            modifier = fieldModifier,
                         )
-                        Box(Modifier.weight(1f)) {
+                        Box(fieldModifier) {
                             PairPicker(
                                 "Jedinica",
                                 PackageUnit.entries.map { it.name to packageUnitLabel(it) },
@@ -1530,13 +1530,7 @@ internal fun ManualShoppingDialog(
 
 @Composable
 private fun SimpleDropdown(label: String, selected: String, options: List<String>, onSelect: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Column {
-        OutlinedButton({ expanded = true }, Modifier.fillMaxWidth()) { Text("$label: ${selected.ifBlank { "Odaberite" }}") }
-        DropdownMenu(expanded, { expanded = false }) {
-            options.forEach { option -> DropdownMenuItem({ Text(option) }, { onSelect(option); expanded = false }) }
-        }
-    }
+    PantryPicker(label, options.map { it to it }, selected, onSelect)
 }
 
 @Composable

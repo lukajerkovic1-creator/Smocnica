@@ -44,7 +44,7 @@ import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material3.AlertDialog
+import hr.smocnica.ui.PantryDialog as AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -294,15 +294,7 @@ private fun CategoryDeleteDialog(category: Category, replacements: List<Category
 
 @Composable
 private fun SimpleManagementPicker(label: String, selected: String, options: List<Pair<String, String>>, select: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Column {
-        androidx.compose.material3.OutlinedButton({ expanded = true }, Modifier.fillMaxWidth()) {
-            Text("$label: ${options.firstOrNull { it.first == selected }?.second ?: "Odaberite"}")
-        }
-        androidx.compose.material3.DropdownMenu(expanded, { expanded = false }) {
-            options.forEach { option -> androidx.compose.material3.DropdownMenuItem({ Text(option.second) }, { select(option.first); expanded = false }) }
-        }
-    }
+    PantryPicker(label, options, selected, select)
 }
 
 @Composable
@@ -489,12 +481,12 @@ private fun MenuEntry(label: String, icon: ImageVector, click: () -> Unit) {
 }
 
 @Composable
-private fun NameDialog(title: String, initial: String, dismiss: () -> Unit, save: (String) -> Unit) {
+internal fun NameDialog(title: String, initial: String, dismiss: () -> Unit, save: (String) -> Unit) {
     var value by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text(title) },
-        text = { OutlinedTextField(value, { value = it.take(100) }, label = { Text("Naziv") }) },
+        text = { OutlinedTextField(value, { value = it.take(100) }, label = { Text("Naziv") }, modifier = Modifier.fillMaxWidth(), singleLine = true) },
         confirmButton = { Button({ save(value.trim()) }, enabled = value.trim().length in 1..100) { Text("Spremi") } },
         dismissButton = { TextButton(dismiss) { Text("Odustani") } },
     )
