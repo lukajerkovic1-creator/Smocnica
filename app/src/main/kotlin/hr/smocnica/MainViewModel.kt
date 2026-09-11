@@ -321,8 +321,10 @@ class MainViewModel @Inject constructor(
         onSaved: ((Product) -> Unit)? = null,
         onFailure: (() -> Unit)? = null,
     ) = actorAction({ pantry, uid ->
-        val saved = inventory.upsertProduct(submission.product.copy(pantryId = pantry.id), uid, deviceIdentity.displayName)
-        val variant = inventory.upsertVariant(
+        val newProduct = submission.product.id.isBlank()
+        val saved = inventory.upsertProduct(submission.product.copy(pantryId = pantry.id), uid, deviceIdentity.displayName,
+            initialVariant = submission.variant.takeIf { newProduct })
+        val variant = if (newProduct) submission.variant.copy(id = requireNotNull(saved.preferredVariantId), pantryId = pantry.id, productId = saved.id) else inventory.upsertVariant(
             submission.variant.copy(pantryId = pantry.id, productId = saved.id),
             uid,
             deviceIdentity.displayName,
@@ -345,13 +347,15 @@ class MainViewModel @Inject constructor(
         onFailure: (() -> Unit)? = null,
     ) = actorAction({ pantry, uid ->
         val targetId = submission.targetProductId
+        val newProduct = targetId == null && submission.product.id.isBlank()
         val created = if (targetId == null) {
-            inventory.upsertProduct(submission.product.copy(pantryId = pantry.id), uid, deviceIdentity.displayName)
+            inventory.upsertProduct(submission.product.copy(pantryId = pantry.id), uid, deviceIdentity.displayName,
+                initialVariant = submission.variant.takeIf { newProduct })
         } else {
             allProducts.value.firstOrNull { it.product.id == targetId }?.product
                 ?: error("Odabrani generički artikl više nije dostupan.")
         }
-        val variant = inventory.upsertVariant(
+        val variant = if (newProduct) submission.variant.copy(id = requireNotNull(created.preferredVariantId), pantryId = pantry.id, productId = created.id) else inventory.upsertVariant(
             submission.variant.copy(pantryId = pantry.id, productId = created.id),
             uid,
             deviceIdentity.displayName,

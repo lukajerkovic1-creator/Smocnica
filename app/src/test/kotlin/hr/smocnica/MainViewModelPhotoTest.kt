@@ -69,6 +69,30 @@ class MainViewModelPhotoTest {
             it.photoUri == "gs://test/variants/variant/main.jpg" && it.photoSource == PhotoSource.CAMERA }, "user", "Test device") }
     }
 
+    @Test fun newProductUsesItsCanonicalFirstVariantForStockAndPhoto() = runTest(dispatcher) {
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.selectedPantry.collect {} }
+        runCurrent()
+        coEvery { inventory.upsertProduct(any(), any(), any(), any()) } returns product.copy(preferredVariantId = "first")
+        coEvery { photos.uploadJpeg("pantry", "first", "selected.jpg") } returns "gs://test/variants/first/main.jpg"
+        viewModel.createProductAndStock(ProductEditorSubmission(product.copy(id = ""), variant.copy(id = "")), "shelf", 1,
+            "selected.jpg", PhotoSource.CAMERA)
+        runCurrent()
+        coVerify { inventory.upsertProduct(match { it.id.isBlank() }, "user", "Test device", match { it.id.isBlank() }) }
+        coVerify { inventory.adjustVariantStock("first", "shelf", 1, "user", "Test device") }
+        coVerify(exactly = 1) { inventory.upsertVariant(match { it.id == "first" && it.photoUri == "gs://test/variants/first/main.jpg" }, any(), any()) }
+        coVerify(exactly = 0) { inventory.upsertVariant(match { it.id.isBlank() }, any(), any()) }
+    }
+
+    @Test fun manualNewProductDoesNotCreateASecondVariant() = runTest(dispatcher) {
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.selectedPantry.collect {} }
+        runCurrent()
+        coEvery { inventory.upsertProduct(any(), any(), any(), any()) } returns product.copy(preferredVariantId = "first")
+        viewModel.saveProduct(ProductEditorSubmission(product.copy(id = ""), variant.copy(id = "")))
+        runCurrent()
+        coVerify(exactly = 1) { inventory.upsertProduct(any(), any(), any(), match { it.id.isBlank() }) }
+        coVerify(exactly = 0) { inventory.upsertVariant(any(), any(), any()) }
+    }
+
     @Test fun failedInitialSyncDoesNotClaimPhotoWasSaved() = runTest(dispatcher) {
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.selectedPantry.collect {} }
         runCurrent()

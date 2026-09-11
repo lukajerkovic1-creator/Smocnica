@@ -20,6 +20,32 @@ const invokeTransferOwnership = testEnvironment.wrap(transferOwnership);
 const invokeCreatePantry = testEnvironment.wrap(createPantry);
 
 describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", () => {
+  it("creates one complete first variant and stocks it without a placeholder", async () => {
+    const request = {
+      operationId: "op-first-variant", pantryId: "p1", aggregateType: "PRODUCT", aggregateId: "first-product", baseRevision: 0,
+      payload: { type: "upsert_product", product: {
+        id: "first-product", name: "Fusilli", categoryId: "c1", minimumQuantity: 0, autoShopping: true, preferredVariantId: "first-product",
+      }, initialVariant: {
+        id: "first-product", productId: "first-product", displayName: "Fusilli", manufacturer: "Barilla",
+        barcode: "8076802085981", packageAmountBase: 500000, packageUnit: "G", packageLabel: "500 g",
+        description: "", photoSource: "NONE", photoUri: null,
+      } }, deviceId: "device-0001", deviceDisplayName: "Test",
+    };
+    await expect(invoke(callable(request, "outsider") as never)).rejects.toThrow();
+    expect((await db.doc("pantries/p1/products/first-product").get()).exists).toBe(false);
+    await invoke(callable(request, "u1") as never);
+    await invoke(callable({
+      operationId: "op-stock-first", pantryId: "p1", aggregateType: "STOCK", aggregateId: "first-product_s1", baseRevision: 0,
+      payload: { type: "adjust_stock", productId: "first-product", variantId: "first-product", shelfId: "s1", delta: 1 },
+      deviceId: "device-0001", deviceDisplayName: "Test",
+    }, "u1") as never);
+    const variants = await db.collection("pantries/p1/variants").where("productId", "==", "first-product").get();
+    expect(variants.size).toBe(1);
+    expect(variants.docs[0].get("barcode")).toBe("8076802085981");
+    expect(variants.docs[0].get("packageAmountBase")).toBe(500000);
+    const stocks = await db.collection("pantries/p1/stocks").where("productId", "==", "first-product").get();
+    expect(stocks.docs.reduce((sum, stock) => sum + stock.get("quantity"), 0)).toBe(1);
+  });
   afterAll(() => testEnvironment.cleanup());
   beforeEach(async () => {
     await db.recursiveDelete(db.doc("pantries/p1"));

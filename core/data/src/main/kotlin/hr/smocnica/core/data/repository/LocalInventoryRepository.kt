@@ -35,6 +35,7 @@ import hr.smocnica.core.model.OperationState
 import hr.smocnica.core.model.Product
 import hr.smocnica.core.model.ProductFilter
 import hr.smocnica.core.model.ProductWithStock
+import hr.smocnica.core.domain.InitialVariantPolicy
 import hr.smocnica.core.model.ProductVariant
 import hr.smocnica.core.model.Shelf
 import hr.smocnica.core.model.ShoppingItem
@@ -98,7 +99,7 @@ class LocalInventoryRepository @Inject constructor(
                     row.model(),
                     stockModels.filter { it.productId == row.id },
                     variantModels.filter { it.productId == row.id },
-                )
+                ).let(InitialVariantPolicy::withoutObsoletePlaceholder)
             }.map { item ->
                 if (query.isBlank()) item
                 else item.copy(
@@ -294,12 +295,12 @@ class LocalInventoryRepository @Inject constructor(
         }
     }
 
-    override suspend fun upsertProduct(product: Product, actorUid: String, deviceName: String): Product =
+    override suspend fun upsertProduct(product: Product, actorUid: String, deviceName: String, initialVariant: ProductVariant?): Product =
         database.withTransaction {
             val cleanName = GenericNamePolicy.displayName(requireName(product.name, "Naziv artikla"))
             require(product.minimumAmountBase in 0..MAX_MINIMUM_BASE) { "Minimalna količina nije u dopuštenom rasponu." }
             require(product.description.length <= 500) { "Opis artikla može imati najviše 500 znakova." }
-            val barcode = product.barcode?.takeIf(String::isNotBlank)?.let(BarcodePolicy::requireSupported)
+            val barcode = (initialVariant?.barcode ?: product.barcode)?.takeIf(String::isNotBlank)?.let(BarcodePolicy::requireSupported)
             val duplicate = barcode?.let { variants.findAnyBarcode(product.pantryId, it) }
             val activeCategories = categories.listActive(product.pantryId)
             val canonicalCategory = product.categoryId.takeIf(String::isNotBlank)
@@ -309,7 +310,9 @@ class LocalInventoryRepository @Inject constructor(
             val existing = product.id.takeIf(String::isNotBlank)?.let { products.get(it) }
             val id = product.id.ifBlank { ids.next() }
             requireMinimumCompatible(product.minimumMode, variants.forProduct(id).map { it.model().packageUnit.kind })
-            val preferredVariantId = product.preferredVariantId ?: existing?.preferredVariantId ?: id
+            require(initialVariant == null || existing == null) { "Početna varijanta dopuštena je samo za novi artikl." }
+            val preferredVariantId = initialVariant?.id?.takeIf(String::isNotBlank) ?: product.preferredVariantId ?: existing?.preferredVariantId ?: id
+            require(initialVariant == null || variants.get(preferredVariantId) == null) { "Varijanta već postoji." }
             require(duplicate == null || duplicate.id == preferredVariantId) { "Ovaj barkod već je povezan s drugom varijantom." }
             val persisted = product.copy(
                 id = id,
@@ -331,7 +334,12 @@ class LocalInventoryRepository @Inject constructor(
             )
             products.upsert(persisted.entity())
             val currentPreferred = variants.get(preferredVariantId)
-            val initialVariant = if (existing == null || currentPreferred == null) {
+            val persistedInitial = if (initialVariant != null) {
+                InitialVariantPolicy.create(persisted, initialVariant, preferredVariantId, now).also {
+                    requireMinimumCompatible(persisted.minimumMode, listOf(it.packageUnit.kind))
+                    variants.upsert(it.entity())
+                }
+            } else if (existing == null || currentPreferred == null) {
                 val parsed = PackageAmountPolicy.parse(product.description)
                 ProductVariant(
                     id = preferredVariantId,
@@ -353,7 +361,7 @@ class LocalInventoryRepository @Inject constructor(
             reconcileAutomaticShopping(persisted, now)
             val operationId = enqueue(
                 persisted.pantryId, AggregateType.PRODUCT, persisted.id, existing?.revision ?: 0,
-                OperationPayload.UpsertProduct(persisted, initialVariant), actorUid, deviceName, now,
+                OperationPayload.UpsertProduct(persisted, persistedInitial), actorUid, deviceName, now,
             )
             record(operationId, if (existing == null) ActivityType.PRODUCT_CREATED else ActivityType.PRODUCT_UPDATED, persisted.pantryId, persisted.id, persisted.name, actorUid, deviceName, now = now)
             persisted

@@ -74,6 +74,50 @@ class LocalInventoryRepositoryTest {
 
     @After fun tearDown() = database.close()
 
+    @Test fun completeFirstVariantIsStoredInOneProductOperation() = runTest {
+        val draft = ProductVariant("", "p1", "", "Fusilli", manufacturer = "Barilla", barcode = "8076802085981",
+            packageAmountBase = 500000, packageUnit = PackageUnit.G, packageLabel = "500 g", createdAt = 1, updatedAt = 1)
+        val saved = repository.upsertProduct(Product("", "p1", "Fusilli", categoryId = "cat-other", createdAt = 1, updatedAt = 1), "u1", "Test", draft)
+        val variant = database.productVariantDao().forProduct(saved.id).single()
+        assertEquals(saved.preferredVariantId, variant.id)
+        assertEquals(draft.barcode, variant.barcode)
+        val operations = database.operationDao().next()
+        assertEquals(1, operations.size)
+        val payload = json.decodeFromString(OperationPayload.serializer(), operations.single().payloadJson) as OperationPayload.UpsertProduct
+        assertEquals(draft.packageAmountBase, payload.initialVariant?.packageAmountBase)
+        repository.adjustVariantStock(variant.id, "s1", 1, "u1", "Test")
+        repository.observeProducts("p1").test {
+            val item = awaitItem().single()
+            assertEquals(1, item.variants.size)
+            assertEquals(1, item.totalQuantity)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test fun legacyEmptyDuplicateIsOmittedFromProjectionButRetainedInStorage() = runTest {
+        val saved = repository.upsertProduct(Product("", "p1", "Fusilli", categoryId = "cat-other", createdAt = 1, updatedAt = 1), "u1", "Test")
+        val actual = repository.upsertVariant(ProductVariant("", "p1", saved.id, "Fusilli", manufacturer = "Barilla", barcode = "8076802085981", createdAt = 1, updatedAt = 1), "u1", "Test")
+        repository.adjustVariantStock(actual.id, "s1", 1, "u1", "Test")
+        repository.observeProducts("p1").test {
+            val item = awaitItem().single()
+            assertEquals(listOf(actual.id), item.variants.map { it.id })
+            assertEquals(actual.id, item.product.preferredVariantId)
+            assertEquals(1, item.totalQuantity)
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertEquals(2, database.productVariantDao().forProduct(saved.id).size)
+    }
+
+    @Test fun invalidFirstVariantRollsBackProductAndOutbox() = runTest {
+        val failure = runCatching {
+            repository.upsertProduct(Product("invalid", "p1", "Fusilli", categoryId = "cat-other", createdAt = 1, updatedAt = 1), "u1", "Test",
+                ProductVariant("", "p1", "", "Fusilli", packageAmountBase = -1, createdAt = 1, updatedAt = 1))
+        }
+        assertTrue(failure.exceptionOrNull() is IllegalArgumentException)
+        assertEquals(null, database.productDao().get("invalid"))
+        assertTrue(database.operationDao().next().isEmpty())
+    }
+
     @Test
     fun productStockAndOutboxAreCommittedTogether() = runTest {
         val product = repository.upsertProduct(

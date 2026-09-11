@@ -62,7 +62,7 @@ interface InventoryRepository {
     suspend fun upsertCategory(category: Category, actorUid: String, deviceName: String): Category
     suspend fun reorderCategories(pantryId: String, orderedIds: List<String>, baseRevision: Long, actorUid: String, deviceName: String)
     suspend fun deleteCategory(category: Category, replacementCategoryId: String, actorUid: String, deviceName: String)
-    suspend fun upsertProduct(product: Product, actorUid: String, deviceName: String): Product
+    suspend fun upsertProduct(product: Product, actorUid: String, deviceName: String, initialVariant: ProductVariant? = null): Product
     suspend fun upsertVariant(variant: ProductVariant, actorUid: String, deviceName: String): ProductVariant
     suspend fun deleteVariant(variantId: String, actorUid: String, deviceName: String)
     suspend fun moveVariant(variantId: String, targetProductId: String, actorUid: String, deviceName: String)
