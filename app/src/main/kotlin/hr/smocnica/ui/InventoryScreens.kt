@@ -535,12 +535,12 @@ internal fun ProductCard(
                 Modifier.fillMaxSize().background(
                     if (swipeState.dismissDirection == SwipeToDismissBoxValue.Settled) Color.Transparent
                     else if (adding) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-                    RoundedCornerShape(24.dp),
+                    RoundedCornerShape(20.dp),
                 ).padding(horizontal = 14.dp),
                 contentAlignment = if (adding) Alignment.CenterStart else Alignment.CenterEnd,
             ) {
                 if (adding) Text("+1", fontWeight = FontWeight.Bold)
-                else Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                else Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
                     TextButton(
                         onClick = { decrement(); swipeScope.launch { swipeState.reset() } },
                         modifier = Modifier.semantics { contentDescription = "Izvadi jedan gestom" },
@@ -556,7 +556,7 @@ internal fun ProductCard(
         },
     ) {
       Card(
-          shape = RoundedCornerShape(24.dp),
+          shape = RoundedCornerShape(20.dp),
           colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface),
           border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f)),
           elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -565,13 +565,13 @@ internal fun ProductCard(
         BoxWithConstraints {
             val compact = maxWidth < 600.dp || LocalDensity.current.fontScale >= 1.5f
             if (compact) {
-                Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                Column(Modifier.fillMaxWidth().padding(10.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         ProductCardLeading(item, selectionMode, selected, select)
-                        ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(start = 14.dp))
+                        ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(start = 10.dp))
                     }
                     if (!selectionMode) {
-                        Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             ProductQuantityButtons(available, increment, decrement)
                             IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
                             ProductCardMenu(menu, { menu = false }, item, shelves, move, edit, delete)
@@ -579,7 +579,7 @@ internal fun ProductCard(
                     }
                 }
             } else {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                     ProductCardLeading(item, selectionMode, selected, select)
                     ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(horizontal = 10.dp))
                     if (!selectionMode) {
@@ -601,18 +601,17 @@ private fun ProductCardLeading(item: ProductWithStock, selectionMode: Boolean, s
     val photo = productCardPhoto(item)
     if (selectionMode) Checkbox(selected, { select() })
     else if (photo != null) {
-        ProductPhoto(photo.photoUri, photo.updatedAt, "Fotografija: ${photo.displayName}", Modifier.size(76.dp).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.primaryContainer))
+        ProductPhoto(photo.photoUri, photo.updatedAt, "Fotografija: ${photo.displayName}", Modifier.size(52.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primaryContainer))
     }
-    else Box(Modifier.size(76.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
-        Icon(Icons.Outlined.ShoppingCart, null, Modifier.size(34.dp), tint = MaterialTheme.colorScheme.primary)
+    else Box(Modifier.size(52.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
+        Icon(Icons.Outlined.ShoppingCart, null, Modifier.size(26.dp), tint = MaterialTheme.colorScheme.primary)
     }
 }
 
 @Composable
 private fun ProductCardSummary(item: ProductWithStock, shelves: List<Shelf>, selectedShelfId: String?, modifier: Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(item.product.category, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-        Text(item.product.name, style = MaterialTheme.typography.titleMedium, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(item.product.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         val variantSummary = item.representativeVariant?.let { variant ->
             listOf(
                 variant.manufacturer.takeIf(String::isNotBlank),
@@ -626,8 +625,8 @@ private fun ProductCardSummary(item: ProductWithStock, shelves: List<Shelf>, sel
         if (variantSummary.isNotBlank()) {
             Text(variantSummary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(10.dp), modifier = Modifier.padding(top = 4.dp)) {
-            Text(productQuantityText(item, shelves, selectedShelfId), Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(10.dp), modifier = Modifier) {
+            Text(productQuantityText(item, shelves, selectedShelfId), Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                 style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.SemiBold)
         }
         if (item.isBelowMinimum) Text("Ispod minimalne zalihe", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
@@ -1524,7 +1523,7 @@ internal fun ShoppingRow(
     delete: () -> Unit,
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(18.dp)).padding(10.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Checkbox(item.checked, checked)
             Column(Modifier.weight(1f)) {
@@ -1557,7 +1556,6 @@ internal fun ShoppingRow(
             Text("Skeniraj i spremi", Modifier.padding(start = 8.dp))
         }
     }
-    HorizontalDivider()
 }
 
 @Composable
@@ -1594,9 +1592,9 @@ private fun SimpleDropdown(label: String, selected: String, options: List<String
 
 @Composable
 fun ScreenTitle(title: String, subtitle: String) {
-    Column(Modifier.padding(vertical = 10.dp)) {
+    Column(Modifier.padding(top = 8.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

@@ -54,7 +54,8 @@ class ShelfCardTest {
 
         val quantity = compose.onNodeWithText("0 komada").assertIsDisplayed().fetchSemanticsNode()
         assertTrue("Količina mora ostati u jednom retku.", quantity.boundsInRoot.width > quantity.boundsInRoot.height)
-        compose.onNodeWithContentDescription("Otvori Polica 1").assertIsDisplayed()
+        val card = compose.onNodeWithContentDescription("Otvori Polica 1").assertIsDisplayed().fetchSemanticsNode()
+        assertTrue("Kompaktna polica mora biti niža od 132 dp.", card.boundsInRoot.height <= 132f * compose.density.density)
         compose.onNodeWithText("Polica 1").performTouchInput { click() }
         compose.runOnIdle { assertTrue("Dodir kartice mora otvoriti sadržaj police.", opened) }
         compose.onNodeWithContentDescription("Dodatne radnje police").assertIsDisplayed().performClick()
@@ -64,6 +65,7 @@ class ShelfCardTest {
         compose.onNodeWithText("Preimenuj").performClick()
         compose.onNodeWithText("Skeniraj").performClick()
         compose.onNodeWithText("Dodaj").performClick()
+        compose.onNodeWithContentDescription("Dodatne radnje police").performClick()
         compose.onNodeWithText("Premjesti ovamo").performClick()
         compose.runOnIdle { assertTrue("Kontekstne akcije police moraju biti povezane.", scanned && added && movedHere) }
     }
@@ -89,16 +91,18 @@ class ShelfCardTest {
             }
         }
 
-        listOf("Skeniraj", "Dodaj", "Premjesti ovamo").forEach { label ->
+        listOf("Skeniraj", "Dodaj").forEach { label ->
             val bounds = compose.onNodeWithText(label).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
             assertTrue("Dodirna površina za $label mora biti najmanje 48 dp.", bounds.height >= 48f * compose.density.density)
         }
-        listOf("Pomakni gore", "Pomakni dolje", "Dodatne radnje police").forEach { label ->
+        listOf("Dodatne radnje police").forEach { label ->
             val bounds = compose.onNodeWithContentDescription(label).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
             assertTrue("Dodirna površina za $label mora biti najmanje 48 dp.", bounds.width >= 48f * compose.density.density && bounds.height >= 48f * compose.density.density)
         }
         compose.onNodeWithContentDescription("Dodatne radnje police").performClick()
         compose.onNodeWithText("Preimenuj").assertIsDisplayed()
         compose.onNodeWithText("Premjesti sve").assertIsDisplayed()
+        compose.onNodeWithText("Pomakni gore").assertIsDisplayed()
+        compose.onNodeWithText("Pomakni dolje").assertIsDisplayed()
     }
 }

@@ -23,8 +23,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun ShelfEmblem() {
     val colors = MaterialTheme.colorScheme
-    Box(Modifier.size(64.dp).background(colors.primaryContainer, RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
-        Canvas(Modifier.size(50.dp)) {
+    Box(Modifier.size(48.dp).background(colors.primaryContainer, RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.size(38.dp)) {
             scale(size.width / 64f, size.height / 64f, pivot = Offset.Zero) {
                 drawRoundRect(colors.primary.copy(alpha = .7f), Offset(5f, 49f), Size(54f, 4f), CornerRadius(2f))
                 drawRoundRect(colors.primary.copy(alpha = .4f), Offset(9f, 53f), Size(3f, 6f), CornerRadius(1f))

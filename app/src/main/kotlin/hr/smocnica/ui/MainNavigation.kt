@@ -48,9 +48,9 @@ private val bottomDestinations = listOf(
 
 internal fun bottomNavigationOptions(startDestinationId: Int): NavOptions =
     NavOptions.Builder()
-        .setPopUpTo(startDestinationId, inclusive = false, saveState = true)
+        .setPopUpTo(startDestinationId, inclusive = false, saveState = false)
         .setLaunchSingleTop(true)
-        .setRestoreState(true)
+        .setRestoreState(false)
         .build()
 
 @Composable
@@ -94,7 +94,7 @@ fun MainNavigation(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface) {
                 bottomDestinations.forEach { destination ->
                     NavigationBarItem(
                         selected = current?.destination?.route == destination.route,

@@ -1,5 +1,7 @@
 package hr.smocnica.ui
 
+import androidx.compose.ui.draw.clip
+
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -384,7 +386,7 @@ internal fun SharedBarcodeScannerContent(
                 )
             }
         } else {
-            Box(Modifier.fillMaxWidth().weight(1f)) {
+            Box(Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(24.dp))) {
                 BarcodeCamera(
                     modifier = Modifier.fillMaxSize(),
                     onCamera = {

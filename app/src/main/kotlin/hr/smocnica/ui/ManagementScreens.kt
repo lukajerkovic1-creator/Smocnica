@@ -1,6 +1,8 @@
 package hr.smocnica.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -187,78 +189,31 @@ internal fun ShelfCard(
             .fillMaxWidth()
             .semantics { contentDescription = "Otvori ${shelf.name}" },
     ) {
-        BoxWithConstraints {
-            val compact = maxWidth < 400.dp || LocalDensity.current.fontScale >= 1.5f
-            Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable(onClick = onOpen)
-                        .padding(bottom = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    ShelfEmblem()
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                      Text(shelf.name, style = MaterialTheme.typography.titleMedium, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                      Text(
-                        "$count komada",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                      )
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ShelfEmblem()
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(shelf.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("$count komada", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1)
+                }
+                Box {
+                    IconButton({ menuExpanded = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje police" }) { Icon(Icons.Outlined.MoreVert, null) }
+                    DropdownMenu(menuExpanded, { menuExpanded = false }) {
+                        DropdownMenuItem({ Text("Premjesti ovamo") }, { menuExpanded = false; onMoveHere() }, leadingIcon = { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) })
+                        DropdownMenuItem({ Text("Pomakni gore") }, { menuExpanded = false; onMoveUp() }, enabled = canMoveUp, leadingIcon = { Icon(Icons.Outlined.ArrowUpward, null) })
+                        DropdownMenuItem({ Text("Pomakni dolje") }, { menuExpanded = false; onMoveDown() }, enabled = canMoveDown, leadingIcon = { Icon(Icons.Outlined.ArrowDownward, null) })
+                        DropdownMenuItem({ Text("Premjesti sve") }, { menuExpanded = false; onMoveStock() }, enabled = canMoveStock, leadingIcon = { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) })
+                        DropdownMenuItem({ Text("Preimenuj") }, { menuExpanded = false; onEdit() }, leadingIcon = { Icon(Icons.Outlined.Edit, null) })
+                        DropdownMenuItem({ Text(if (count == 0) "Obriši" else "Polica nije prazna") }, { menuExpanded = false; onDelete() }, enabled = count == 0, leadingIcon = { Icon(Icons.Outlined.DeleteOutline, null) })
                     }
                 }
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    FilledTonalButton(onScan, Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(14.dp)) {
-                        Icon(Icons.Outlined.QrCodeScanner, null, Modifier.size(20.dp)); Text("Skeniraj", Modifier.padding(start = 6.dp))
-                    }
-                    TextButton(onAdd, Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(14.dp)) {
-                        Icon(Icons.Outlined.Add, null, Modifier.size(20.dp)); Text("Dodaj", Modifier.padding(start = 6.dp))
-                    }
-                    TextButton(onMoveHere, Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(14.dp)) {
-                        Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null, Modifier.size(20.dp)); Text("Premjesti ovamo", Modifier.padding(start = 6.dp))
-                    }
+            }
+            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onScan, Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(14.dp)) {
+                    Icon(Icons.Outlined.QrCodeScanner, null, Modifier.size(18.dp)); Text("Skeniraj", Modifier.padding(start = 6.dp))
                 }
-                HorizontalDivider(Modifier.padding(top = 10.dp, bottom = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .4f))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("Redoslijed", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    IconButton(onMoveUp, Modifier.size(48.dp).semantics { contentDescription = "Pomakni gore" }, enabled = canMoveUp) { Icon(Icons.Outlined.ArrowUpward, null) }
-                    IconButton(onMoveDown, Modifier.size(48.dp).semantics { contentDescription = "Pomakni dolje" }, enabled = canMoveDown) { Icon(Icons.Outlined.ArrowDownward, null) }
-                    if (!compact) {
-                        IconButton(onMoveStock, Modifier.size(48.dp).semantics { contentDescription = "Premjesti sve" }, enabled = canMoveStock) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) }
-                        IconButton(onEdit, Modifier.size(48.dp).semantics { contentDescription = "Preimenuj" }) { Icon(Icons.Outlined.Edit, null) }
-                        IconButton(onDelete, Modifier.size(48.dp).semantics { contentDescription = if (count == 0) "Obriši" else "Polica nije prazna" }, enabled = count == 0) { Icon(Icons.Outlined.DeleteOutline, null) }
-                    } else {
-                        IconButton({ menuExpanded = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje police" }) { Icon(Icons.Outlined.MoreVert, null) }
-                        DropdownMenu(menuExpanded, { menuExpanded = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Premjesti sve") },
-                                onClick = { menuExpanded = false; onMoveStock() },
-                                enabled = canMoveStock,
-                                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Preimenuj") },
-                                onClick = { menuExpanded = false; onEdit() },
-                                leadingIcon = { Icon(Icons.Outlined.Edit, null) },
-                            )
-                            DropdownMenuItem(
-                                text = { Text(if (count == 0) "Obriši" else "Polica nije prazna") },
-                                onClick = { menuExpanded = false; onDelete() },
-                                enabled = count == 0,
-                                leadingIcon = { Icon(Icons.Outlined.DeleteOutline, null) },
-                            )
-                        }
-                    }
+                TextButton(onAdd, Modifier.heightIn(min = 48.dp)) {
+                    Icon(Icons.Outlined.Add, null, Modifier.size(18.dp)); Text("Dodaj", Modifier.padding(start = 6.dp))
                 }
             }
         }
@@ -402,7 +357,7 @@ fun MenuScreen(
             }
         }
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Izgled", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ThemeMode.entries.forEach { mode ->
@@ -526,12 +481,11 @@ fun ConflictsScreen(viewModel: MainViewModel, padding: PaddingValues, onBack: ()
 
 @Composable
 private fun MenuEntry(label: String, icon: ImageVector, click: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = click).padding(vertical = 17.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = Purple)
+    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp)).clickable(onClick = click).padding(horizontal = 12.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
         Text(label, Modifier.weight(1f).padding(start = 14.dp), fontWeight = FontWeight.Medium)
-        Icon(Icons.AutoMirrored.Outlined.ArrowForwardIos, null)
+        Icon(Icons.AutoMirrored.Outlined.ArrowForwardIos, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    HorizontalDivider()
 }
 
 @Composable
