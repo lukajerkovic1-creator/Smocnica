@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -166,8 +167,10 @@ class MainViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            pantries.collect { list ->
-                if (_backendReadiness.value !is BackendReadiness.Ready) return@collect
+            // A cached pantry may arrive before the handshake and never change after refresh.
+            // Observe readiness too, so that every successful handshake restores reception.
+            combine(pantries, backendReadiness) { list, readiness -> list to readiness }.collect { (list, readiness) ->
+                if (readiness !is BackendReadiness.Ready) return@collect
                 val selected = selectedPantryId.value
                 when {
                     list.isEmpty() && selected != null -> {
@@ -175,6 +178,7 @@ class MainViewModel @Inject constructor(
                         selectedPantryId.value = null
                     }
                     list.isNotEmpty() && list.none { it.id == selected } -> selectPantry(list.first().id)
+                    selected != null -> sync.startRealtime(selected)
                 }
             }
         }

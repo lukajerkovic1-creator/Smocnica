@@ -26,6 +26,8 @@ Room je autoritativni izvor za UI i trajni offline cache. Svaka korisnička muta
 
 Nakon prijave callable `listMyPantries` obnavlja aktivna članstva i pokreće realtime slušatelje, pa se cloud podaci vraćaju i nakon ponovne instalacije. Odjava je dopuštena tek nakon pražnjenja outboxa, deaktivira FCM token i zatim briše sve Room tablice i privatni cache fotografija kako drugi račun na istom uređaju ne bi vidio prethodne podatke.
 
+Pokretanje realtime slušatelja promatra i lokalni popis smočnica i rezultat provjere kompatibilnosti poslužitelja. Prijelaz u spremno stanje pokreće primanje čak i kad je smočnica već u Roomu i osvježavanje ne promijeni njezine podatke. Ponovljena uspješna provjera ponovno osigurava slušatelje za već odabranu smočnicu; blokirana provjera ih ne pokreće.
+
 ### Konflikti
 
 - Količinske promjene su komutativni delta događaji; poslužitelj odbija samo rezultat ispod nule.
