@@ -110,6 +110,8 @@ Svaki dodir donje navigacije otvara početni prikaz odabrane sekcije i uklanja n
 
 ## 5. Police
 
+Pri unosu novog artikla podaci njegove prve varijante spremaju se zajedno s artiklom u jednoj lokalnoj transakciji i jednom outbox zapisu. Ne stvara se dodatna prazna varijanta. U prikazu se izostavlja samo prepoznatljiv stari automatski početni zapis bez podataka o pakiranju, kupnji, minimumu i zalihi, ako postoji stvarna varijanta; izvorni zapis ostaje sačuvan u bazi i izvozu. Stvarne varijante s količinom nula ostaju dostupne.
+
 Kartice polica i proizvoda slijede referentni dizajn: zaobljeni rubovi, diskretni obrubi i sjene, ljubičasti naglasci te odvojeni nazivi, količine i radnje. Kartice su kompaktne: polica ima ilustraciju od 48 dp, naziv, broj komada i gumbe „Skeniraj” / „Dodaj”; redoslijed, premještanje, preimenovanje i brisanje dostupni su u izborniku s tri točkice. Proizvod ima fotografiju od 52 dp, podatke o pakiranju i grupirane tipke − / količina / +. Na širini ispod 600 dp i pri povećanom tekstu proizvod ima radnje u zasebnom retku. Dodirne površine ostaju najmanje 48 dp, uz podršku svijetloj i tamnoj temi. Svi ekrani dijele usklađene boje površina, tipografiju i zaobljenja obrazaca i dijaloga; visina sadržaja raste kad korisnik poveća slova.
 
 - Početno koristiti numerirane police.
