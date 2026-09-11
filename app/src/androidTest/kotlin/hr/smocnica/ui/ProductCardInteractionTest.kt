@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -93,11 +94,11 @@ class ProductCardInteractionTest {
         val anchor = compose.onNodeWithContentDescription("Dodatne radnje").fetchSemanticsNode()
         compose.onNodeWithContentDescription("Dodatne radnje").performClick()
         val editItem = compose.onNodeWithText("Uredi").assertIsDisplayed().fetchSemanticsNode()
-        // Popup and card have different roots; compare their window coordinates.
+        // Android popups have separate windows; compare physical screen coordinates.
         assertEquals(
             "Izbornik mora biti poravnat uz desni rub gumba s tri točkice.",
-            anchor.positionInWindow.x + anchor.size.width,
-            editItem.positionInWindow.x + editItem.size.width,
+            anchor.layoutInfo.coordinates.localToScreen(Offset.Zero).x + anchor.size.width,
+            editItem.layoutInfo.coordinates.localToScreen(Offset.Zero).x + editItem.size.width,
             8f * compose.density.density,
         )
         compose.onNodeWithText("Uredi").performClick()
