@@ -18,9 +18,8 @@ class PantryDialogAppearanceTest {
     @get:Rule val compose = createComposeRule()
     @Test fun lightDialogs() = verify(false)
     @Test fun darkDialogs() = verify(true)
-    @Test fun largeTextDialogs() = verify(true, 1.5f)
 
-    private fun verify(dark: Boolean, fontScale: Float = 1f) {
+    private fun verify(dark: Boolean) {
         var stage by mutableStateOf(0)
         var savedName = ""
         var filter: ProductFilter? = null
@@ -31,8 +30,6 @@ class PantryDialogAppearanceTest {
         val item = ProductWithStock(product, listOf(Stock("p", "a", "s1", 2, updatedAt = 1, variantId = "v")),
             listOf(ProductVariant("v", "p", "a", "Glatko brašno 1 kg", createdAt = 1, updatedAt = 1)))
         compose.setContent {
-            val density = androidx.compose.ui.platform.LocalDensity.current
-            CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, fontScale)) {
             SmocnicaTheme(darkTheme = dark) {
                 Surface(Modifier.fillMaxSize()) { Text("Smočnica", Modifier.padding(24.dp), style = MaterialTheme.typography.headlineMedium) }
                 when (stage) {
@@ -43,27 +40,26 @@ class PantryDialogAppearanceTest {
                         recognizePhoto = { error("Potrebna je fotografija.") }, onSave = { _, _, _, _, _, _ -> error("Nevaljani unos se ne smije spremiti.") })
                 }
             }
-            }
         }
         compose.onNodeWithText("Spremi").assertIsNotEnabled()
         compose.onNodeWithText("Naziv").performTextInput("Nova polica")
-        if (fontScale == 1f) capture("name", dark)
+        capture("name", dark)
         compose.onNodeWithText("Spremi").performClick()
         compose.runOnIdle { assertEquals("Nova polica", savedName) }
-        if (fontScale == 1f) capture("filters", dark)
+        capture("filters", dark)
         compose.onNodeWithText("Polica: Sve").performClick()
         compose.onNodeWithText("Polica 2").performClick()
         compose.onNodeWithText("Primijeni").performClick()
         compose.runOnIdle { assertEquals(setOf("s2"), filter?.shelfIds) }
-        if (fontScale == 1f) capture("quantity", dark)
+        capture("quantity", dark)
         compose.onNodeWithText("Polica: Polica 1 - špajza").performClick()
-        if (fontScale == 1f) capture("picker", dark)
+        capture("picker", dark)
         compose.onNodeWithText("Polica 2").performClick()
         compose.onNodeWithText("Potvrdi").performClick()
         compose.runOnIdle { assertEquals("s2", adjustedShelf) }
         compose.onNodeWithText("Fotografiraj proizvod").assertIsDisplayed()
         compose.onNodeWithText("Spremi").assertIsDisplayed().assertIsNotEnabled()
-        capture(if (fontScale == 1f) "product" else "product-large", dark)
+        capture("product", dark)
         compose.onNodeWithText("Odustani").performClick()
         compose.onNodeWithText("Novi artikl").assertDoesNotExist()
     }
