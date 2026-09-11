@@ -8,6 +8,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -60,7 +61,7 @@ class ProductCardInteractionTest {
     }
 
     @Test
-    fun narrowCardKeepsQuantityActionsVisibleAndDisablesInvalidRemoval() {
+    fun narrowCardHidesPermanentQuantityButtonsAndRetainsAccessibleActions() {
         var added = 0
         var edited = false
         compose.setContent {
@@ -87,8 +88,11 @@ class ProductCardInteractionTest {
             }
         }
 
-        compose.onNodeWithContentDescription("Dodaj jedan").assertIsDisplayed().performClick()
-        compose.onNodeWithContentDescription("Izvadi jedan").assertIsDisplayed().assertIsNotEnabled()
+        compose.onNodeWithContentDescription("Dodaj jedan").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Izvadi jedan").assertDoesNotExist()
+        val actions = compose.onNodeWithText("Jabuka").fetchSemanticsNode().config[SemanticsActions.CustomActions]
+        assertEquals(listOf("Dodaj jedno pakiranje"), actions.map { it.label })
+        compose.runOnIdle { actions.single().action() }
         compose.onNodeWithContentDescription("Dodatne radnje").assertIsDisplayed()
         assertEquals(1, added)
         val anchor = compose.onNodeWithContentDescription("Dodatne radnje").fetchSemanticsNode()
@@ -199,7 +203,7 @@ class ProductCardInteractionTest {
 
         compose.onNodeWithText("Vrlo dugačak naziv proizvoda").assertIsDisplayed()
         compose.onNodeWithText("Pakiranje i opis koji se ne smiju odrezati").assertIsDisplayed()
-        listOf("Dodaj jedan", "Izvadi jedan", "Dodatne radnje").forEach { label ->
+        listOf("Dodatne radnje").forEach { label ->
             val bounds = compose.onNodeWithContentDescription(label).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
             assertTrue("Dodirna površina za $label mora biti najmanje 48 dp.", bounds.width >= 48f * compose.density.density && bounds.height >= 48f * compose.density.density)
         }

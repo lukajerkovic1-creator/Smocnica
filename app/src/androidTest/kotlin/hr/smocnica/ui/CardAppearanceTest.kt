@@ -43,7 +43,9 @@ class CardAppearanceTest {
         compose.onNodeWithText("Glatko brašno").assertIsDisplayed()
         val productBounds = compose.onNodeWithText("Glatko brašno").fetchSemanticsNode().boundsInRoot
         assertTrue("Kartica s pakiranjem i upozorenjem treba ostati kompaktna.", productBounds.height <= 180f * compose.density.density)
-        compose.onNodeWithContentDescription("Dodaj jedan").assertIsDisplayed().assertIsEnabled()
+        compose.onNodeWithContentDescription("Dodaj jedan").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Izvadi jedan").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Dodatne radnje").assertIsDisplayed()
         compose.onNodeWithText("Ispod minimalne zalihe").assertIsDisplayed()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         java.io.File(context.cacheDir, if (dark) "cards-dark.png" else "cards-light.png").outputStream().use {

@@ -83,6 +83,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -518,38 +520,26 @@ internal fun ProductCard(
           colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface),
           border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f)),
           elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-          modifier = Modifier.fillMaxWidth().combinedClickable(onClick = open, onLongClick = select),
+          modifier = Modifier.fillMaxWidth().combinedClickable(onClick = open, onLongClick = select).semantics {
+              if (!selectionMode) customActions = buildList {
+                  add(CustomAccessibilityAction("Dodaj jedno pakiranje") { increment(); true })
+                  if (available > 0) add(CustomAccessibilityAction("Izvadi jedno pakiranje") { decrement(); true })
+              }
+          },
       ) {
         BoxWithConstraints {
             val compact = maxWidth < 600.dp || LocalDensity.current.fontScale >= 1.5f
-            if (compact) {
-                Column(Modifier.fillMaxWidth().padding(10.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        ProductCardLeading(item, selectionMode, selected, select)
-                        ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(start = 10.dp))
-                    }
-                    if (!selectionMode) {
-                        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            ProductQuantityButtons(available, increment, decrement)
-                            Box {
-                                IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
-                                ProductCardMenu(menu, { menu = false }, item, shelves, move, edit, delete)
-                            }
-                        }
-                    }
-                }
-            } else {
-                Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    ProductCardLeading(item, selectionMode, selected, select)
-                    ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(horizontal = 10.dp))
-                    if (!selectionMode) {
-                        ProductQuantityButtons(available, increment, decrement)
+            Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                ProductCardLeading(item, selectionMode, selected, select)
+                ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(horizontal = 10.dp))
+                if (!selectionMode) {
+                    if (!compact) {
                         IconButton(move, Modifier.size(48.dp).semantics { contentDescription = "Premjesti" }, enabled = item.totalQuantity > 0 && shelves.size > 1) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) }
                         IconButton(edit, Modifier.size(48.dp).semantics { contentDescription = "Uredi" }) { Icon(Icons.Outlined.Edit, null) }
-                        Box {
-                            IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
-                            ProductCardMenu(menu, { menu = false }, item, shelves, move, edit, delete)
-                        }
+                    }
+                    Box {
+                        IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
+                        ProductCardMenu(menu, { menu = false }, item, shelves, move, edit, delete)
                     }
                 }
             }
