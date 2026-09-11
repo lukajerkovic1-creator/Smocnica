@@ -123,7 +123,7 @@ fun StocksScreen(
     initialShelfId: String = "",
     initialAction: String = "",
     initialFilter: String = "",
-    scan: () -> Unit,
+    scan: (String) -> Unit,
     openProduct: (String) -> Unit,
     lookup: ScannerLookupViewModel = hiltViewModel(),
 ) {
@@ -146,6 +146,11 @@ fun StocksScreen(
     var showFilters by remember { mutableStateOf(false) }
     var showEditor by remember { mutableStateOf<ProductWithStock?>(null) }
     var creating by rememberSaveable(initialAction) { mutableStateOf(initialAction == "new") }
+    var showAddChoice by rememberSaveable { mutableStateOf(false) }
+    var startWithPhoto by rememberSaveable { mutableStateOf(false) }
+    var orderName by rememberSaveable { mutableStateOf(InventoryOrder.NAME.name) }
+    val order = InventoryOrder.valueOf(orderName)
+    val orderedProducts = remember(products, shelves, order) { orderInventory(products, shelves, order) }
     var movingProduct by remember { mutableStateOf<ProductWithStock?>(null) }
     var moveDestinationId by remember { mutableStateOf("") }
     var chooseMoveProduct by remember { mutableStateOf(initialAction == "move") }
@@ -161,7 +166,9 @@ fun StocksScreen(
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
-    val selectedShelf = shelves.firstOrNull { it.id == initialShelfId }
+    val selectedShelfId = activeFilter.shelfIds.singleOrNull().orEmpty()
+    val selectedShelf = shelves.firstOrNull { it.id == selectedShelfId }
+    val scanSelected = { scan(selectedShelfId) }
 
     LaunchedEffect(initialShelfId, initialFilter) { viewModel.updateFilter(activeFilter) }
     DisposableEffect(Unit) { onDispose { viewModel.updateFilter(ProductFilter()) } }
@@ -170,41 +177,31 @@ fun StocksScreen(
 
     Scaffold(
         modifier = Modifier.padding(padding),
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                text = { Text("Skeniraj") },
-                icon = { Icon(Icons.Outlined.QrCodeScanner, null) },
-                onClick = scan,
-            )
+            InventoryAddButton { showAddChoice = true }
         },
     ) { inner ->
         LazyColumn(
             Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = inner.calculateTopPadding() + 12.dp, bottom = 100.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(top = inner.calculateTopPadding(), bottom = inner.calculateBottomPadding() + 96.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp),
         ) {
-            item { ScreenTitle(selectedShelf?.name ?: "Sve zalihe", if (selectedShelf != null) "Artikli i količine na ovoj polici" else "Pretražite i uredite artikle") }
-            item { OperationSyncState(sync) }
+            if (!sync.isFullySynced) item { Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) { OperationSyncState(sync) } }
             item {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(scan) { Icon(Icons.Outlined.QrCodeScanner, null); Text("Skeniraj artikl", Modifier.padding(start = 6.dp)) }
-                    OutlinedButton({ creating = true }) { Icon(Icons.Outlined.Add, null); Text("Dodaj ručno", Modifier.padding(start = 6.dp)) }
-                    if (selectedShelf != null) OutlinedButton({ chooseMoveProduct = true }) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null); Text("Premjesti ovamo", Modifier.padding(start = 6.dp)) }
-                    OutlinedButton({ selecting = !selecting; if (!selecting) selectedIds = emptySet() }) { Text(if (selecting) "Završi odabir" else "Odaberi više") }
+                InventorySearchField(activeFilter.query) {
+                    activeFilter = activeFilter.copy(query = it); viewModel.updateFilter(activeFilter)
                 }
             }
-            item {
-                OutlinedTextField(
-                    activeFilter.query,
-                    { activeFilter = activeFilter.copy(query = it); viewModel.updateFilter(activeFilter) },
-                    leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                    label = { Text("Pretraži naziv") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                )
-            }
-            item { AssistChip({ showFilters = true }, { Text("Filtri") }, leadingIcon = { Icon(Icons.Outlined.FilterList, null) }) }
+            item { Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                InventoryListControls(shelves, selectedShelfId, order, { shelfId ->
+                    activeFilter = activeFilter.copy(shelfIds = shelfId?.let(::setOf) ?: emptySet())
+                    lastQuickShelfId = shelfId.orEmpty()
+                    viewModel.updateFilter(activeFilter)
+                }, { orderName = it.name }, { showFilters = true })
+            } }
             if (selectedIds.isNotEmpty()) item {
                 BulkActionBar(
                     selectedIds.size,
@@ -215,11 +212,11 @@ fun StocksScreen(
                     { selectedIds = emptySet(); selecting = false },
                 )
             }
-            items(products, key = { it.product.id }) { item ->
+            items(orderedProducts, key = { it.product.id }) { item ->
                 ProductCard(
                     item,
                     shelves,
-                    initialShelfId.takeIf(String::isNotBlank),
+                    selectedShelfId.takeIf(String::isNotBlank),
                     item.product.id in selectedIds,
                     selecting,
                     { if (!selecting) openProduct(item.product.id) else selectedIds = selectedIds.toggle(item.product.id) },
@@ -231,16 +228,21 @@ fun StocksScreen(
                     { deletingProduct = item.product },
                 )
             }
-            if (products.isEmpty()) item { ContextEmptyState("Nema artikala za odabrane filtre.", scan, { creating = true }, if (selectedShelf != null) ({ chooseMoveProduct = true }) else null) }
+            if (products.isEmpty()) item { ContextEmptyState("Nema artikala za odabrane filtre.", scanSelected, { startWithPhoto = false; creating = true }, if (selectedShelf != null) ({ chooseMoveProduct = true }) else null) }
         }
     }
+    if (showAddChoice) AddArticleChoice({ showAddChoice = false },
+        { showAddChoice = false; startWithPhoto = false; creating = true },
+        { showAddChoice = false; startWithPhoto = true; creating = true },
+    )
     if (creating) ProductEditor(
         current = null,
+        capturePhotoInitially = startWithPhoto,
         recognizePhoto = viewModel::recognizePhoto,
         shelves = shelves,
         categories = categories,
         onDismiss = { creating = false },
-        initialShelfId = initialShelfId,
+        initialShelfId = selectedShelfId,
         activeProducts = allProducts,
         deletedProducts = deletedProducts,
         synonymRules = viewModel.synonymRules.collectAsStateWithLifecycle().value,
@@ -516,10 +518,10 @@ internal fun ProductCard(
     var menu by remember { mutableStateOf(false) }
     SwipeQuantityActions(!selectionMode, available, increment, decrement) {
       Card(
-          shape = RoundedCornerShape(20.dp),
+          shape = androidx.compose.ui.graphics.RectangleShape,
           colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface),
-          border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f)),
-          elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+          border = null,
+          elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
           modifier = Modifier.fillMaxWidth().combinedClickable(onClick = open, onLongClick = select).semantics {
               if (!selectionMode) customActions = buildList {
                   add(CustomAccessibilityAction("Dodaj jedno pakiranje") { increment(); true })
@@ -529,9 +531,10 @@ internal fun ProductCard(
       ) {
         BoxWithConstraints {
             val compact = maxWidth < 600.dp || LocalDensity.current.fontScale >= 1.5f
-            Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 12.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 ProductCardLeading(item, selectionMode, selected, select)
                 ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(horizontal = 10.dp))
+                Text("$available kom", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                 if (!selectionMode) {
                     if (!compact) {
                         IconButton(move, Modifier.size(48.dp).semantics { contentDescription = "Premjesti" }, enabled = item.totalQuantity > 0 && shelves.size > 1) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) }
@@ -544,6 +547,7 @@ internal fun ProductCard(
                 }
             }
         }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .55f), thickness = .5.dp)
       }
     }
 }
@@ -553,9 +557,9 @@ private fun ProductCardLeading(item: ProductWithStock, selectionMode: Boolean, s
     val photo = productCardPhoto(item)
     if (selectionMode) Checkbox(selected, { select() })
     else if (photo != null) {
-        ProductPhoto(photo.photoUri, photo.updatedAt, "Fotografija: ${photo.displayName}", Modifier.size(52.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.primaryContainer))
+        ProductPhoto(photo.photoUri, photo.updatedAt, "Fotografija: ${photo.displayName}", Modifier.size(width = 44.dp, height = 56.dp).clip(RoundedCornerShape(6.dp)), contentScale = androidx.compose.ui.layout.ContentScale.Fit)
     }
-    else Box(Modifier.size(52.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
+    else Box(Modifier.size(width = 44.dp, height = 56.dp).background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
         Icon(Icons.Outlined.ShoppingCart, null, Modifier.size(26.dp), tint = MaterialTheme.colorScheme.primary)
     }
 }
@@ -564,23 +568,14 @@ private fun ProductCardLeading(item: ProductWithStock, selectionMode: Boolean, s
 private fun ProductCardSummary(item: ProductWithStock, shelves: List<Shelf>, selectedShelfId: String?, modifier: Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(item.product.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        val variantSummary = item.representativeVariant?.let { variant ->
-            listOf(
-                variant.manufacturer.takeIf(String::isNotBlank),
-                variant.displayName.takeUnless {
-                    GenericNamePolicy.normalize(it) == GenericNamePolicy.normalize(item.product.name)
-                },
-                variant.packageLabel.takeIf(String::isNotBlank),
-                variant.description.takeIf(String::isNotBlank),
-            ).filterNotNull().distinct().joinToString(" · ")
-        }.orEmpty().ifBlank { item.product.description }
-        if (variantSummary.isNotBlank()) {
-            Text(variantSummary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(10.dp), modifier = Modifier) {
-            Text(productQuantityText(item, shelves, selectedShelfId), Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.SemiBold)
-        }
+        val packageLabels = item.variants.map { it.packageLabel }.distinct()
+        val packageLabel = if (packageLabels.size > 1) "Više pakiranja" else item.representativeVariant?.packageLabel.orEmpty()
+        val shelfLabel = selectedShelfId?.let { id -> shelves.firstOrNull { it.id == id }?.name }
+            ?: shelves.filter { shelf -> item.stocks.any { it.shelfId == shelf.id && it.quantity > 0 } }
+                .joinToString(", ") { it.name }
+        val metadata = listOf(packageLabel, shelfLabel.orEmpty()).filter(String::isNotBlank).joinToString(" · ")
+        if (metadata.isNotBlank()) Text(metadata, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         if (item.isBelowMinimum) Text("Ispod minimalne zalihe", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
     }
 }
@@ -665,6 +660,7 @@ internal fun variantDisplayText(variant: ProductVariant): String = listOfNotNull
 @Composable
 fun ProductEditor(
     current: Product?,
+    capturePhotoInitially: Boolean = false,
     recognizePhoto: (suspend (String) -> hr.smocnica.core.domain.PhotoProductSuggestion)? = null,
     currentVariant: ProductVariant? = null,
     currentItem: ProductWithStock? = null,
@@ -844,6 +840,15 @@ fun ProductEditor(
         cameraPermissionGranted = granted
         cameraPermissionDenied = !granted
         if (granted) launchCameraCapture() else photoError = "Kamera nije dopuštena. Omogućite je u postavkama aplikacije."
+    }
+    var initialCaptureHandled by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(capturePhotoInitially) {
+        if (capturePhotoInitially && !initialCaptureHandled) {
+            initialCaptureHandled = true
+            if (cameraPermissionGranted) runCatching { launchCameraCapture() }
+                .onFailure { photoError = "Kamera nije dostupna. Možete unijeti artikl ručno ili odabrati fotografiju." }
+            else cameraPermission.launch(Manifest.permission.CAMERA)
+        }
     }
     LaunchedEffect(cameraPermissionGranted) {
         if (cameraPermissionGranted) {

@@ -42,7 +42,7 @@ internal fun SwipeQuantityActions(
     LaunchedEffect(enabled, revealWidth) {
         targetOffset = if (enabled) targetOffset.coerceIn(-revealWidth, 0f) else 0f
     }
-    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))) {
+    Box(Modifier.fillMaxWidth().clip(androidx.compose.ui.graphics.RectangleShape)) {
         if (enabled && offset < -0.5f) {
             Box(Modifier.matchParentSize()) {
                 Row(Modifier.align(Alignment.CenterEnd).width(144.dp).fillMaxHeight()) {

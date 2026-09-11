@@ -41,6 +41,32 @@ import org.junit.Test
 class ProductEditorTest {
     @get:Rule val compose = createComposeRule()
 
+    @Test fun photoEntryStartsCameraFlowOnceAndCancellationKeepsManualForm() {
+        var launches = 0
+        val registry = object : androidx.activity.result.ActivityResultRegistry() {
+            override fun <I, O> onLaunch(requestCode: Int, contract: androidx.activity.result.contract.ActivityResultContract<I, O>, input: I, options: androidx.core.app.ActivityOptionsCompat?) {
+                launches++
+                dispatchResult(requestCode, false)
+            }
+        }
+        val owner = object : androidx.activity.result.ActivityResultRegistryOwner {
+            override val activityResultRegistry = registry
+        }
+        compose.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(androidx.activity.compose.LocalActivityResultRegistryOwner provides owner) {
+                SmocnicaTheme {
+                    ProductEditor(current = null, capturePhotoInitially = true, shelves = shelves, categories = categories,
+                        onDismiss = {}, onSave = { _, _, _, _, _, _ -> error("Unos se ne smije automatski spremiti.") })
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(1, launches) }
+        compose.onNodeWithText("Naziv *").performTextInput("Riža")
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(1, launches) }
+    }
+
     private val shelves = listOf(
         Shelf("s1", "p1", "Polica 1", 0, createdAt = 1, updatedAt = 1),
         Shelf("s2", "p1", "Polica 2", 1, createdAt = 1, updatedAt = 1),

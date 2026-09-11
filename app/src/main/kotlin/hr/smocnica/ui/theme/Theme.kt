@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-val Purple = Color(0xFF6B2FC6)
+val Purple = Color(0xFF632BE8)
 val PurpleDark = Color(0xFF4E1B9A)
 val PurpleSoft = Color(0xFFF3ECFF)
 val Rose = Color(0xFFD81B52)
@@ -36,7 +36,7 @@ private val LightColors = lightColorScheme(
     background = Color(0xFFF8F6FB),
     surface = Color.White,
     surfaceContainerLowest = Color.White,
-    surfaceContainerLow = Color(0xFFFCFAFF),
+    surfaceContainerLow = Color(0xFFF5F5F7),
     surfaceContainer = Color(0xFFF5F0FA),
     surfaceContainerHigh = Color(0xFFF1EBF7),
     surfaceContainerHighest = Color(0xFFF0EBF5),
