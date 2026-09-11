@@ -573,8 +573,10 @@ internal fun ProductCard(
                     if (!selectionMode) {
                         Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             ProductQuantityButtons(available, increment, decrement)
-                            IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
-                            ProductCardMenu(menu, { menu = false }, item, shelves, move, edit, delete)
+                            Box {
+                                IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
+                                ProductCardMenu(menu, { menu = false }, item, shelves, move, edit, delete)
+                            }
                         }
                     }
                 }
@@ -586,8 +588,10 @@ internal fun ProductCard(
                         ProductQuantityButtons(available, increment, decrement)
                         IconButton(move, Modifier.size(48.dp).semantics { contentDescription = "Premjesti" }, enabled = item.totalQuantity > 0 && shelves.size > 1) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) }
                         IconButton(edit, Modifier.size(48.dp).semantics { contentDescription = "Uredi" }) { Icon(Icons.Outlined.Edit, null) }
-                        IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
-                        ProductCardMenu(menu, { menu = false }, item, shelves, move, edit, delete)
+                        Box {
+                            IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
+                            ProductCardMenu(menu, { menu = false }, item, shelves, move, edit, delete)
+                        }
                     }
                 }
             }

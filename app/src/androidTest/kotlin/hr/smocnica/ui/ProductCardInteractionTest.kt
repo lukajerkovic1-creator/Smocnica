@@ -61,6 +61,7 @@ class ProductCardInteractionTest {
     @Test
     fun narrowCardKeepsQuantityActionsVisibleAndDisablesInvalidRemoval() {
         var added = 0
+        var edited = false
         compose.setContent {
             SmocnicaTheme {
                 Box(Modifier.width(360.dp)) {
@@ -78,7 +79,7 @@ class ProductCardInteractionTest {
                         increment = { added++ },
                         decrement = {},
                         move = {},
-                        edit = {},
+                        edit = { edited = true },
                         delete = {},
                     )
                 }
@@ -89,6 +90,18 @@ class ProductCardInteractionTest {
         compose.onNodeWithContentDescription("Izvadi jedan").assertIsDisplayed().assertIsNotEnabled()
         compose.onNodeWithContentDescription("Dodatne radnje").assertIsDisplayed()
         assertEquals(1, added)
+        val anchor = compose.onNodeWithContentDescription("Dodatne radnje").fetchSemanticsNode()
+        compose.onNodeWithContentDescription("Dodatne radnje").performClick()
+        val editItem = compose.onNodeWithText("Uredi").assertIsDisplayed().fetchSemanticsNode()
+        // Popup and card have different roots; compare their window coordinates.
+        assertEquals(
+            "Izbornik mora biti poravnat uz desni rub gumba s tri točkice.",
+            anchor.positionInWindow.x + anchor.size.width,
+            editItem.positionInWindow.x + editItem.size.width,
+            8f * compose.density.density,
+        )
+        compose.onNodeWithText("Uredi").performClick()
+        compose.runOnIdle { assertTrue("Izbornik mora pokrenuti uređivanje.", edited) }
     }
 
     @Test
