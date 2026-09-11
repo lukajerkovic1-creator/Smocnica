@@ -9,6 +9,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -44,6 +45,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -79,6 +82,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -89,6 +93,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.core.content.FileProvider
@@ -527,7 +532,11 @@ internal fun ProductCard(
         backgroundContent = {
             val adding = swipeState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
             Box(
-                Modifier.fillMaxSize().background(if (adding) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(18.dp)).padding(horizontal = 14.dp),
+                Modifier.fillMaxSize().background(
+                    if (swipeState.dismissDirection == SwipeToDismissBoxValue.Settled) Color.Transparent
+                    else if (adding) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+                    RoundedCornerShape(24.dp),
+                ).padding(horizontal = 14.dp),
                 contentAlignment = if (adding) Alignment.CenterStart else Alignment.CenterEnd,
             ) {
                 if (adding) Text("+1", fontWeight = FontWeight.Bold)
@@ -547,33 +556,34 @@ internal fun ProductCard(
         },
     ) {
       Card(
-          shape = RoundedCornerShape(18.dp),
+          shape = RoundedCornerShape(24.dp),
+          colors = CardDefaults.cardColors(containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface),
+          border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f)),
+          elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
           modifier = Modifier.fillMaxWidth().combinedClickable(onClick = open, onLongClick = select),
       ) {
         BoxWithConstraints {
-            val compact = maxWidth < 400.dp || LocalDensity.current.fontScale >= 1.5f
+            val compact = maxWidth < 600.dp || LocalDensity.current.fontScale >= 1.5f
             if (compact) {
-                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                Column(Modifier.fillMaxWidth().padding(16.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         ProductCardLeading(item, selectionMode, selected, select)
-                        ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(start = 10.dp))
+                        ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(start = 14.dp))
                     }
                     if (!selectionMode) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            IconButton(increment, Modifier.size(48.dp).semantics { contentDescription = "Dodaj jedan" }) { Icon(Icons.Outlined.Add, null) }
-                            IconButton(decrement, Modifier.size(48.dp).semantics { contentDescription = "Izvadi jedan" }, enabled = available > 0) { Icon(Icons.Outlined.Remove, null) }
+                        Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            ProductQuantityButtons(available, increment, decrement)
                             IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
                             ProductCardMenu(menu, { menu = false }, item, shelves, move, edit, delete)
                         }
                     }
                 }
             } else {
-                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     ProductCardLeading(item, selectionMode, selected, select)
                     ProductCardSummary(item, shelves, selectedShelfId, Modifier.weight(1f).padding(horizontal = 10.dp))
                     if (!selectionMode) {
-                        IconButton(increment, Modifier.size(48.dp).semantics { contentDescription = "Dodaj jedan" }) { Icon(Icons.Outlined.Add, null) }
-                        IconButton(decrement, Modifier.size(48.dp).semantics { contentDescription = "Izvadi jedan" }, enabled = available > 0) { Icon(Icons.Outlined.Remove, null) }
+                        ProductQuantityButtons(available, increment, decrement)
                         IconButton(move, Modifier.size(48.dp).semantics { contentDescription = "Premjesti" }, enabled = item.totalQuantity > 0 && shelves.size > 1) { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) }
                         IconButton(edit, Modifier.size(48.dp).semantics { contentDescription = "Uredi" }) { Icon(Icons.Outlined.Edit, null) }
                         IconButton({ menu = true }, Modifier.size(48.dp).semantics { contentDescription = "Dodatne radnje" }) { Icon(Icons.Outlined.MoreVert, null) }
@@ -591,17 +601,21 @@ private fun ProductCardLeading(item: ProductWithStock, selectionMode: Boolean, s
     val photo = productCardPhoto(item)
     if (selectionMode) Checkbox(selected, { select() })
     else if (photo != null) {
-        ProductPhoto(photo.photoUri, photo.updatedAt, "Fotografija: ${photo.displayName}", Modifier.size(54.dp))
+        ProductPhoto(photo.photoUri, photo.updatedAt, "Fotografija: ${photo.displayName}", Modifier.size(76.dp).clip(RoundedCornerShape(20.dp)).background(MaterialTheme.colorScheme.primaryContainer))
     }
-    else Icon(Icons.Outlined.ShoppingCart, null, Modifier.size(42.dp), tint = MaterialTheme.colorScheme.primary)
+    else Box(Modifier.size(76.dp).background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(20.dp)), contentAlignment = Alignment.Center) {
+        Icon(Icons.Outlined.ShoppingCart, null, Modifier.size(34.dp), tint = MaterialTheme.colorScheme.primary)
+    }
 }
 
 @Composable
 private fun ProductCardSummary(item: ProductWithStock, shelves: List<Shelf>, selectedShelfId: String?, modifier: Modifier) {
-    Column(modifier) {
-        Text(item.product.name, fontWeight = FontWeight.Bold)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(item.product.category, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+        Text(item.product.name, style = MaterialTheme.typography.titleMedium, fontSize = 20.sp, fontWeight = FontWeight.Bold)
         val variantSummary = item.representativeVariant?.let { variant ->
             listOf(
+                variant.manufacturer.takeIf(String::isNotBlank),
                 variant.displayName.takeUnless {
                     GenericNamePolicy.normalize(it) == GenericNamePolicy.normalize(item.product.name)
                 },
@@ -610,11 +624,13 @@ private fun ProductCardSummary(item: ProductWithStock, shelves: List<Shelf>, sel
             ).filterNotNull().distinct().joinToString(" · ")
         }.orEmpty().ifBlank { item.product.description }
         if (variantSummary.isNotBlank()) {
-            Text(variantSummary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(variantSummary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text(item.product.category, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(productQuantityText(item, shelves, selectedShelfId), style = MaterialTheme.typography.bodySmall)
-        if (item.isBelowMinimum) Text("Ispod minimalne zalihe", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+        Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(10.dp), modifier = Modifier.padding(top = 4.dp)) {
+            Text(productQuantityText(item, shelves, selectedShelfId), Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.SemiBold)
+        }
+        if (item.isBelowMinimum) Text("Ispod minimalne zalihe", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
     }
 }
 

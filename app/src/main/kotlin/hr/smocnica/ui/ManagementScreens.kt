@@ -1,6 +1,7 @@
 package hr.smocnica.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +46,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -71,6 +74,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import hr.smocnica.MainViewModel
 import hr.smocnica.core.data.messaging.NotificationPrivacyMode
@@ -175,7 +179,10 @@ internal fun ShelfCard(
     var menuExpanded by remember { mutableStateOf(false) }
     Card(
         onClick = onOpen,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier
             .fillMaxWidth()
             .semantics { contentDescription = "Otvori ${shelf.name}" },
@@ -183,33 +190,47 @@ internal fun ShelfCard(
         BoxWithConstraints {
             val compact = maxWidth < 400.dp || LocalDensity.current.fontScale >= 1.5f
             Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                Column(
+                Row(
                     Modifier
                         .fillMaxWidth()
                         .clickable(onClick = onOpen)
-                        .padding(bottom = 6.dp),
+                        .padding(bottom = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    Text(shelf.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(
+                    ShelfEmblem()
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                      Text(shelf.name, style = MaterialTheme.typography.titleMedium, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                      Text(
                         "$count komada",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
-                    )
+                      )
+                    }
                 }
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    AssistChip(onScan, { Text("Skeniraj") }, Modifier.heightIn(min = 48.dp), leadingIcon = { Icon(Icons.Outlined.QrCodeScanner, null) })
-                    AssistChip(onAdd, { Text("Dodaj") }, Modifier.heightIn(min = 48.dp), leadingIcon = { Icon(Icons.Outlined.Add, null) })
-                    AssistChip(onMoveHere, { Text("Premjesti ovamo") }, Modifier.heightIn(min = 48.dp), leadingIcon = { Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null) })
+                    FilledTonalButton(onScan, Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(14.dp)) {
+                        Icon(Icons.Outlined.QrCodeScanner, null, Modifier.size(20.dp)); Text("Skeniraj", Modifier.padding(start = 6.dp))
+                    }
+                    TextButton(onAdd, Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(14.dp)) {
+                        Icon(Icons.Outlined.Add, null, Modifier.size(20.dp)); Text("Dodaj", Modifier.padding(start = 6.dp))
+                    }
+                    TextButton(onMoveHere, Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(14.dp)) {
+                        Icon(Icons.AutoMirrored.Outlined.DriveFileMove, null, Modifier.size(20.dp)); Text("Premjesti ovamo", Modifier.padding(start = 6.dp))
+                    }
                 }
+                HorizontalDivider(Modifier.padding(top = 10.dp, bottom = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .4f))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    Text("Redoslijed", Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     IconButton(onMoveUp, Modifier.size(48.dp).semantics { contentDescription = "Pomakni gore" }, enabled = canMoveUp) { Icon(Icons.Outlined.ArrowUpward, null) }
                     IconButton(onMoveDown, Modifier.size(48.dp).semantics { contentDescription = "Pomakni dolje" }, enabled = canMoveDown) { Icon(Icons.Outlined.ArrowDownward, null) }
                     if (!compact) {

@@ -108,6 +108,8 @@ Početni ekran mora sadržavati:
 
 ## 5. Police
 
+Kartice polica i proizvoda slijede referentni dizajn: zaobljeni rubovi, diskretni obrubi i sjene, ljubičasti naglasci te odvojeni nazivi, količine i radnje. Polica ima ilustraciju i istaknut broj komada; proizvod veću fotografiju, podatke o pakiranju i grupirane tipke − / količina / +. Na širini ispod 600 dp i pri povećanom tekstu proizvod ima radnje u zasebnom retku. Dodirne površine ostaju najmanje 48 dp, uz podršku svijetloj i tamnoj temi.
+
 - Početno koristiti numerirane police.
 - Korisnik može:
   - dodati policu
