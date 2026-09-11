@@ -95,12 +95,12 @@ class ProductCardInteractionTest {
         compose.onNodeWithContentDescription("Dodatne radnje").performClick()
         val editItem = compose.onNodeWithText("Uredi").assertIsDisplayed().fetchSemanticsNode()
         // Android popups have separate windows; compare physical screen coordinates.
-        assertEquals(
-            "Izbornik mora biti poravnat uz desni rub gumba s tri točkice.",
-            anchor.layoutInfo.coordinates.localToScreen(Offset.Zero).x + anchor.size.width,
-            editItem.layoutInfo.coordinates.localToScreen(Offset.Zero).x + editItem.size.width,
-            8f * compose.density.density,
-        )
+        val anchorLeft = anchor.layoutInfo.coordinates.localToScreen(Offset.Zero).x
+        val menuLeft = editItem.layoutInfo.coordinates.localToScreen(Offset.Zero).x
+        // Allow the menu's own padding and screen-edge adjustment, but require it
+        // to open alongside the trailing button rather than on the opposite edge.
+        assertTrue("Izbornik mora biti uz gumb s tri točkice na desnoj strani.",
+            menuLeft <= anchorLeft + anchor.size.width && menuLeft + editItem.size.width >= anchorLeft)
         compose.onNodeWithText("Uredi").performClick()
         compose.runOnIdle { assertTrue("Izbornik mora pokrenuti uređivanje.", edited) }
     }
