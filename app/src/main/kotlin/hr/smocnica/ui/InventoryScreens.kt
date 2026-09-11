@@ -150,7 +150,6 @@ fun StocksScreen(
     var startWithPhoto by rememberSaveable { mutableStateOf(false) }
     var orderName by rememberSaveable { mutableStateOf(InventoryOrder.NAME.name) }
     val order = InventoryOrder.valueOf(orderName)
-    val orderedProducts = remember(products, shelves, order) { orderInventory(products, shelves, order) }
     var movingProduct by remember { mutableStateOf<ProductWithStock?>(null) }
     var moveDestinationId by remember { mutableStateOf("") }
     var chooseMoveProduct by remember { mutableStateOf(initialAction == "move") }
@@ -212,7 +211,7 @@ fun StocksScreen(
                     { selectedIds = emptySet(); selecting = false },
                 )
             }
-            items(orderedProducts, key = { it.product.id }) { item ->
+            inventoryRows(products, shelves, order, activeFilter.shelfIds) { item ->
                 ProductCard(
                     item,
                     shelves,
