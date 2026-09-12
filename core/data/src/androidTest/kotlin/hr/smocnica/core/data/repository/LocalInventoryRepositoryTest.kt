@@ -36,6 +36,9 @@ import hr.smocnica.core.data.remote.ApplyResult
 import hr.smocnica.core.data.remote.ApplyStatus
 import hr.smocnica.core.data.remote.OperationGateway
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -667,6 +670,65 @@ class LocalInventoryRepositoryTest {
         assertEquals(OperationState.PENDING, rebased.state)
         val payload = json.decodeFromString(OperationPayload.serializer(), rebased.payloadJson) as OperationPayload.ReorderShelves
         assertEquals(listOf("s1", "s2"), payload.orderedShelfIds)
+    }
+
+    @Test fun unresolvedConflictBlocksDependentOperationsAcrossSyncAttempts() = runTest {
+        repository.renameShelf(database.shelfDao().get("s1")!!.model(), "Novo ime", "u1", "Test")
+        repository.deleteShelf(database.shelfDao().get("s1")!!.model(), "u1", "Test")
+        val sent = mutableListOf<String>()
+        var conflict = true
+        val gateway = object : OperationGateway {
+            override suspend fun apply(operation: hr.smocnica.core.data.local.PendingOperationEntity): ApplyResult {
+                sent += operation.operationId
+                return ApplyResult(if (conflict) ApplyStatus.CONFLICT else ApplyStatus.APPLIED, 7)
+            }
+        }
+        val access = testAccessCoordinator()
+        val sync = OutboxSyncRepository(database, gateway, RealtimePantrySynchronizer(context, database, access), json, PrivacySafeCrashReporter(context), access)
+        sync.synchronize()
+        sync.synchronize()
+        assertEquals(listOf("id-1"), sent)
+        assertTrue(database.operationDao().next().isEmpty())
+        conflict = false
+        sync.resolveConflict("id-1", true)
+        sync.synchronize()
+        assertEquals(listOf("id-1", "id-1", "id-2"), sent)
+        assertEquals(0, database.operationDao().countUnsynced())
+    }
+
+    @Test fun permanentFailureBlocksOnlyItsOwnPantry() = runTest {
+        repository.renameShelf(database.shelfDao().get("s1")!!.model(), "Novo ime", "u1", "Test")
+        repository.deleteShelf(database.shelfDao().get("s1")!!.model(), "u1", "Test")
+        database.operationDao().setState("id-1", OperationState.PERMANENT_FAILURE)
+        database.pantryDao().upsert(PantryEntity("p2", "Other", "u1", 0, 1, 1, null, null, SyncState.SYNCED))
+        val other = database.operationDao().get("id-2")!!.copy(operationId = "other", pantryId = "p2")
+        database.operationDao().insert(other)
+        assertEquals(listOf("other"), database.operationDao().next().map { it.operationId })
+    }
+
+    @Test fun concurrentSyncAttemptsDoNotSendTheSameOperationTwice() = runTest {
+        repository.renameShelf(database.shelfDao().get("s1")!!.model(), "Novo ime", "u1", "Test")
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        var calls = 0
+        val gateway = object : OperationGateway {
+            override suspend fun apply(operation: hr.smocnica.core.data.local.PendingOperationEntity): ApplyResult {
+                calls++
+                entered.complete(Unit)
+                release.await()
+                return ApplyResult(ApplyStatus.APPLIED, 1)
+            }
+        }
+        val access = testAccessCoordinator()
+        val sync = OutboxSyncRepository(database, gateway, RealtimePantrySynchronizer(context, database, access), json, PrivacySafeCrashReporter(context), access)
+        val first = async { sync.synchronize() }
+        entered.await()
+        val second = async(start = CoroutineStart.UNDISPATCHED) { sync.synchronize() }
+        release.complete(Unit)
+        first.await()
+        second.await()
+        assertEquals(1, calls)
+        assertEquals(0, database.operationDao().countUnsynced())
     }
 
     private fun testAccessCoordinator() = PantryAccessCoordinator(

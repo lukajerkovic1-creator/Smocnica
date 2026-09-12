@@ -14,6 +14,9 @@ import hr.smocnica.core.domain.SyncConflict
 import hr.smocnica.core.model.AggregateType
 import hr.smocnica.core.model.OperationPayload
 import hr.smocnica.core.model.OperationState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -29,6 +32,8 @@ class OutboxSyncRepository @Inject constructor(
     private val crashReporter: PrivacySafeCrashReporter,
     private val accessCoordinator: PantryAccessCoordinator,
 ) : SyncRepository {
+    private val syncMutex = Mutex()
+
     override fun startRealtime(pantryId: String) = realtime.start(pantryId)
     override fun stopRealtime() = realtime.stop()
     override fun observeConflicts(pantryId: String): Flow<List<SyncConflict>> =
@@ -37,7 +42,7 @@ class OutboxSyncRepository @Inject constructor(
             SyncConflict(operation.operationId, operation.aggregateType, operation.aggregateId, payload?.let(::payloadLabel) ?: "Lokalna promjena", operation.createdAt, operation.state == OperationState.CONFLICT, operation.errorCode)
         } }
 
-    override suspend fun synchronize(): SyncResult {
+    override suspend fun synchronize(): SyncResult = syncMutex.withLock {
         val accessRefreshFailed = !accessCoordinator.reconcileQuarantinedAccess()
         var applied = 0
         var conflicts = 0
@@ -49,12 +54,11 @@ class OutboxSyncRepository @Inject constructor(
                 val result = gateway.apply(operation)
                 when (result.status) {
                     ApplyStatus.APPLIED, ApplyStatus.ALREADY_APPLIED -> {
-                        val refresh = database.withTransaction {
-                            val requiresRefresh = markAggregateSynced(operation, result.revision)
+                        database.withTransaction {
+                            markAggregateSynced(operation, result.revision)
                             database.operationDao().delete(operation.operationId)
-                            requiresRefresh
                         }
-                        if (refresh) refreshPantries += operation.pantryId
+                        refreshPantries += operation.pantryId
                         applied++
                     }
                     ApplyStatus.CONFLICT -> {
@@ -64,6 +68,7 @@ class OutboxSyncRepository @Inject constructor(
                     }
                 }
             } catch (error: Exception) {
+                if (error is CancellationException) throw error
                 if ((error as? FirebaseFunctionsException)?.code == FirebaseFunctionsException.Code.ABORTED) {
                     crashReporter.record(TechnicalErrorCode.SYNC_CONFLICT, error)
                     val remoteRevision = Regex("REVISION_CONFLICT:(\\d+)").find(error.message.orEmpty())?.groupValues?.get(1)
@@ -105,10 +110,10 @@ class OutboxSyncRepository @Inject constructor(
             }
         }
         refreshPantries.forEach(realtime::refresh)
-        return SyncResult(applied, conflicts, failed)
+        SyncResult(applied, conflicts, failed)
     }
 
-    override suspend fun resolveConflict(operationId: String, keepLocal: Boolean) {
+    override suspend fun resolveConflict(operationId: String, keepLocal: Boolean) = syncMutex.withLock {
         val operation = database.operationDao().get(operationId) ?: error("Konflikt više ne postoji.")
         require(operation.state in setOf(OperationState.CONFLICT, OperationState.PERMANENT_FAILURE)) { "Operacija nema problem za rješavanje." }
         if (keepLocal) {

@@ -28,6 +28,14 @@ Nakon prijave callable `listMyPantries` obnavlja aktivna članstva i pokreće re
 
 Pokretanje realtime slušatelja promatra i lokalni popis smočnica i rezultat provjere kompatibilnosti poslužitelja. Prijelaz u spremno stanje pokreće primanje čak i kad je smočnica već u Roomu i osvježavanje ne promijeni njezine podatke. Ponovljena uspješna provjera ponovno osigurava slušatelje za već odabranu smočnicu; blokirana provjera ih ne pokreće.
 
+### Redoslijed primanja i životni ciklus sinkronizacije
+
+Realtime snapshotovi prolaze jedan FIFO red. Provjera lokalnog stanja, outboxa i zapis cijelog snapshota izvode se u jednoj Room transakciji, tako da lokalna mutacija ne može upasti između provjere i prepisivanja. Starija revizija nikada ne zamjenjuje noviju. Dok smočnica ima nepotvrđene operacije, sadržaj ostaje lokalno zaštićen; potvrđene operacije pokreću ponovno dohvaćanje, uključujući metapodatke polica i varijanti.
+
+Svaka registracija slušatelja nosi generaciju sesije. Zaustavljanje odmah poništava generaciju: zakašnjeli callbackovi se odbacuju, a transakcija u tijeku pri poništavanju vraća promjene unatrag. Room serijalizira eventualno već dovršeni zapis prije čišćenja baze pri odjavi. Osvježavanje ne može ponovno pokrenuti već zaustavljenu sesiju.
+
+Slanje outboxa i rješavanje konflikata dijele mutex. Neriješeni konflikt ili trajna pogreška blokiraju slanje svih daljnjih operacija iste smočnice, uključujući nove pokušaje sinkronizacije. Druge dostupne smočnice nisu blokirane.
+
 ### Konflikti
 
 - Količinske promjene su komutativni delta događaji; poslužitelj odbija samo rezultat ispod nule.
