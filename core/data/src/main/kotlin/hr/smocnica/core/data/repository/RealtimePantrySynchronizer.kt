@@ -20,11 +20,10 @@ import hr.smocnica.core.data.local.SmocnicaDatabase
 import hr.smocnica.core.data.local.StockEntity
 import hr.smocnica.core.data.local.SynonymRuleEntity
 import hr.smocnica.core.data.local.searchKey
+import hr.smocnica.core.domain.RemoteRevisionPolicy
 import hr.smocnica.core.model.SyncState
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import hr.smocnica.core.data.PrivacySafeCrashReporter
+import hr.smocnica.core.data.TechnicalErrorCode
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,7 +33,9 @@ class RealtimePantrySynchronizer @Inject constructor(
     private val database: SmocnicaDatabase,
     private val accessCoordinator: PantryAccessCoordinator,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val writes = RealtimeWriteQueue(database) { error ->
+        PrivacySafeCrashReporter(context).record(TechnicalErrorCode.SYNC_TRANSPORT, error)
+    }
     private val registrations = mutableListOf<ListenerRegistration>()
     private var activePantryId: String? = null
 
@@ -44,24 +45,25 @@ class RealtimePantrySynchronizer @Inject constructor(
         stop()
         if (FirebaseApp.getApps(context).isEmpty()) return
         activePantryId = pantryId
+        val generation = writes.generation()
         val pantry = FirebaseFirestore.getInstance().collection("pantries").document(pantryId)
         registrations += pantry.addSnapshotListener { snapshot, error ->
-            if (handleListenerError(pantryId, error)) return@addSnapshotListener
-            if (error == null && snapshot?.exists() == true) scope.launch { cachePantry(snapshot) }
+            if (generation != writes.generation() || handleListenerError(pantryId, error)) return@addSnapshotListener
+            if (error == null && snapshot?.exists() == true) writes.submit(generation, pantryId, protectPending = false) { cachePantry(snapshot) }
         }
         registrations += pantry.collection("members").addSnapshotListener { snapshot, error ->
-            if (handleListenerError(pantryId, error)) return@addSnapshotListener
-            if (error == null && snapshot != null) scope.launch {
+            if (generation != writes.generation() || handleListenerError(pantryId, error)) return@addSnapshotListener
+            if (error == null && snapshot != null) writes.submit(generation, pantryId, protectPending = false) {
                 database.memberDao().upsertAll(snapshot.documents.map { it.member(pantryId) })
             }
         }
         registrations += pantry.collection("shelves").addSnapshotListener { snapshot, error ->
-            if (handleListenerError(pantryId, error)) return@addSnapshotListener
-            if (error == null && snapshot != null) scope.launch {
+            if (generation != writes.generation() || handleListenerError(pantryId, error)) return@addSnapshotListener
+            if (error == null && snapshot != null) writes.submit(generation, pantryId) {
                 snapshot.documents.forEach { document ->
                     val remote = document.shelf(pantryId)
                     val local = database.shelfDao().get(remote.id)
-                    if (local == null || local.syncState == SyncState.SYNCED) database.shelfDao().upsert(remote)
+                    if (RemoteRevisionPolicy.accepts(local?.syncState, local?.revision ?: 0, remote.revision)) database.shelfDao().upsert(remote)
                 }
                 if (!snapshot.metadata.isFromCache) {
                     val remoteIds = snapshot.documents.map { it.id }.toSet()
@@ -71,12 +73,12 @@ class RealtimePantrySynchronizer @Inject constructor(
             }
         }
         registrations += pantry.collection("categories").addSnapshotListener { snapshot, error ->
-            if (handleListenerError(pantryId, error)) return@addSnapshotListener
-            if (error == null && snapshot != null) scope.launch {
+            if (generation != writes.generation() || handleListenerError(pantryId, error)) return@addSnapshotListener
+            if (error == null && snapshot != null) writes.submit(generation, pantryId) {
                 snapshot.documents.forEach { document ->
                     val remote = document.category(pantryId)
                     val local = database.categoryDao().get(remote.id)
-                    if (local == null || local.syncState == SyncState.SYNCED) database.categoryDao().upsert(remote)
+                    if (RemoteRevisionPolicy.accepts(local?.syncState, local?.revision ?: 0, remote.revision)) database.categoryDao().upsert(remote)
                 }
                 if (!snapshot.metadata.isFromCache) {
                     val remoteIds = snapshot.documents.map { it.id }.toSet()
@@ -86,12 +88,12 @@ class RealtimePantrySynchronizer @Inject constructor(
             }
         }
         registrations += pantry.collection("products").addSnapshotListener { snapshot, error ->
-            if (handleListenerError(pantryId, error)) return@addSnapshotListener
-            if (error == null && snapshot != null) scope.launch {
+            if (generation != writes.generation() || handleListenerError(pantryId, error)) return@addSnapshotListener
+            if (error == null && snapshot != null) writes.submit(generation, pantryId) {
                 snapshot.documents.forEach { document ->
                     val remote = document.product(pantryId)
                     val local = database.productDao().get(remote.id)
-                    if (local == null || local.syncState == SyncState.SYNCED) database.productDao().upsert(remote)
+                    if (RemoteRevisionPolicy.accepts(local?.syncState, local?.revision ?: 0, remote.revision)) database.productDao().upsert(remote)
                 }
                 if (!snapshot.metadata.isFromCache) {
                     val remoteIds = snapshot.documents.map { it.id }.toSet()
@@ -101,12 +103,12 @@ class RealtimePantrySynchronizer @Inject constructor(
             }
         }
         registrations += pantry.collection("variants").addSnapshotListener { snapshot, error ->
-            if (handleListenerError(pantryId, error)) return@addSnapshotListener
-            if (error == null && snapshot != null) scope.launch {
+            if (generation != writes.generation() || handleListenerError(pantryId, error)) return@addSnapshotListener
+            if (error == null && snapshot != null) writes.submit(generation, pantryId) {
                 snapshot.documents.forEach { document ->
                     val remote = document.variant(pantryId)
                     val local = database.productVariantDao().get(remote.id)
-                    if (local == null || local.syncState == SyncState.SYNCED) database.productVariantDao().upsert(remote)
+                    if (RemoteRevisionPolicy.accepts(local?.syncState, local?.revision ?: 0, remote.revision)) database.productVariantDao().upsert(remote)
                 }
                 if (!snapshot.metadata.isFromCache && (database.pantryDao().get(pantryId)?.contentSchemaVersion ?: 1) >= 2) {
                     val remoteIds = snapshot.documents.map { it.id }.toSet()
@@ -116,22 +118,22 @@ class RealtimePantrySynchronizer @Inject constructor(
             }
         }
         registrations += pantry.collection("synonymRules").addSnapshotListener { snapshot, error ->
-            if (handleListenerError(pantryId, error)) return@addSnapshotListener
-            if (error == null && snapshot != null) scope.launch {
+            if (generation != writes.generation() || handleListenerError(pantryId, error)) return@addSnapshotListener
+            if (error == null && snapshot != null) writes.submit(generation, pantryId) {
                 snapshot.documents.forEach { document ->
                     val remote = document.synonymRule(pantryId)
                     val local = database.synonymRuleDao().get(remote.id)
-                    if (local == null || local.syncState == SyncState.SYNCED) database.synonymRuleDao().upsert(remote)
+                    if (RemoteRevisionPolicy.accepts(local?.syncState, local?.revision ?: 0, remote.revision)) database.synonymRuleDao().upsert(remote)
                 }
             }
         }
         registrations += pantry.collection("stocks").addSnapshotListener { snapshot, error ->
-            if (handleListenerError(pantryId, error)) return@addSnapshotListener
-            if (error == null && snapshot != null) scope.launch {
+            if (generation != writes.generation() || handleListenerError(pantryId, error)) return@addSnapshotListener
+            if (error == null && snapshot != null) writes.submit(generation, pantryId) {
                 snapshot.documents.forEach { document ->
                     val remote = document.stock(pantryId)
                     val local = database.stockDao().getVariant(remote.variantId, remote.shelfId)
-                    if (local == null || local.syncState == SyncState.SYNCED) database.stockDao().upsert(remote)
+                    if (RemoteRevisionPolicy.accepts(local?.syncState, local?.revision ?: 0, remote.revision)) database.stockDao().upsert(remote)
                 }
                 if (!snapshot.metadata.isFromCache) {
                     val remoteIds = snapshot.documents.map { it.id }.toSet()
@@ -143,12 +145,12 @@ class RealtimePantrySynchronizer @Inject constructor(
             }
         }
         registrations += pantry.collection("shoppingItems").addSnapshotListener { snapshot, error ->
-            if (handleListenerError(pantryId, error)) return@addSnapshotListener
-            if (error == null && snapshot != null) scope.launch {
+            if (generation != writes.generation() || handleListenerError(pantryId, error)) return@addSnapshotListener
+            if (error == null && snapshot != null) writes.submit(generation, pantryId) {
                 snapshot.documents.forEach { document ->
                     val remote = document.shopping(pantryId)
                     val local = database.shoppingDao().get(remote.id)
-                    if (local == null || local.syncState == SyncState.SYNCED) database.shoppingDao().upsert(remote)
+                    if (RemoteRevisionPolicy.accepts(local?.syncState, local?.revision ?: 0, remote.revision)) database.shoppingDao().upsert(remote)
                 }
                 if (!snapshot.metadata.isFromCache) {
                     val remoteIds = snapshot.documents.map { it.id }.toSet()
@@ -158,8 +160,8 @@ class RealtimePantrySynchronizer @Inject constructor(
             }
         }
         registrations += pantry.collection("activities").addSnapshotListener { snapshot, error ->
-            if (handleListenerError(pantryId, error)) return@addSnapshotListener
-            if (error == null && snapshot != null) scope.launch {
+            if (generation != writes.generation() || handleListenerError(pantryId, error)) return@addSnapshotListener
+            if (error == null && snapshot != null) writes.submit(generation, pantryId) {
                 database.activityDao().insertAll(snapshot.documents.map { it.activity(pantryId) })
             }
         }
@@ -167,12 +169,15 @@ class RealtimePantrySynchronizer @Inject constructor(
 
     @Synchronized
     fun stop() {
+        writes.invalidate()
         registrations.forEach(ListenerRegistration::remove)
         registrations.clear()
         activePantryId = null
     }
 
+    @Synchronized
     fun refresh(pantryId: String) {
+        if (activePantryId != pantryId) return
         stop()
         start(pantryId)
     }
@@ -206,7 +211,7 @@ class RealtimePantrySynchronizer @Inject constructor(
             groupingReviewCompletedAt = document.epochOrNull("groupingReviewCompletedAt"),
         )
         val local = database.pantryDao().get(remote.id)
-        if (local == null || local.syncState == SyncState.SYNCED) database.pantryDao().upsert(remote)
+        if (RemoteRevisionPolicy.accepts(local?.syncState, local?.revision ?: 0, remote.revision)) database.pantryDao().upsert(remote)
     }
 
     private fun DocumentSnapshot.member(pantryId: String) = MemberEntity(

@@ -458,6 +458,11 @@ interface OperationDao {
         WHERE pending_operations.state IN ('PENDING', 'IN_FLIGHT')
           AND pantries.deletedAt IS NULL
           AND pantries.accessRevokedAt IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM pending_operations blocker
+            WHERE blocker.pantryId = pending_operations.pantryId
+              AND blocker.state IN ('CONFLICT', 'PERMANENT_FAILURE')
+          )
         ORDER BY pending_operations.createdAt, pending_operations.rowid LIMIT :limit
     """)
     suspend fun next(limit: Int = 50): List<PendingOperationEntity>
@@ -488,6 +493,9 @@ interface OperationDao {
 
     @Query("SELECT state, COUNT(*) AS count FROM pending_operations WHERE pantryId = :pantryId GROUP BY state")
     fun observeCounts(pantryId: String): Flow<List<OperationStateCount>>
+
+    @Query("SELECT COUNT(*) FROM pending_operations WHERE pantryId = :pantryId")
+    suspend fun countForPantry(pantryId: String): Int
 
     @Query("SELECT COUNT(*) FROM pending_operations")
     suspend fun countUnsynced(): Int
