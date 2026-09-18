@@ -31,6 +31,7 @@ import { ShelfManager } from "./Management";
 import IconPicker from "./IconPicker";
 import { iconPhoto, suggestIcon } from "./product-icons";
 import RecentProducts from "./RecentProducts";
+import PhotoCamera from "./PhotoCamera";
 import { mergePhotoSuggestion, photoBase64 } from "./quick-entry";
 import { saveVariantEdit } from "./variant-edit";
 export default function Inventory() {
@@ -279,11 +280,11 @@ export default function Inventory() {
           );
         })}
       </div>
-      <label className="fab photo-fab">
-        <Plus size={30} aria-hidden="true" />
-        <input aria-label="Dodaj artikl" type="file" accept="image/*" capture="environment"
-          onChange={e => { const file = e.target.files[0]; e.target.value = ""; if (file) open("Dodaj artikl", <ProductEditor initialShelf={shelf} initialPhoto={file} />); }} />
-      </label>
+      <button className="fab" aria-label="Dodaj artikl" onClick={() => open("Fotografiraj proizvod", <PhotoCamera
+        onPhoto={photo => open("Dodaj artikl", <ProductEditor initialShelf={shelf} initialPhoto={photo} />)}
+        cancel={() => open("Dodaj artikl", <ProductEditor initialShelf={shelf} />)} />)}>
+        <Plus size={30} />
+      </button>
       <button className="manual-entry" onClick={() => open("Dodaj artikl", <ProductEditor initialShelf={shelf} />)}>Unesi ručno</button>
     </>
   );
@@ -681,6 +682,7 @@ export function ProductEditor({ product, initial = {}, initialShelf = "", initia
     [recognizing, setRecognizing] = useState(false),
     [visual, setVisual] = useState("photo"),
     [group, setGroup] = useState("");
+  const [cameraMode, setCameraMode] = useState(null);
   const [additionalPhoto, setAdditionalPhoto] = useState(null), [preview, setPreview] = useState(""),
     [processing, setProcessing] = useState(!!initialPhoto), [retry, setRetry] = useState(0);
   const draft = useRef({ name, manufacturer, amount, unit });
@@ -734,6 +736,9 @@ export function ProductEditor({ product, initial = {}, initialShelf = "", initia
     stock: false,
   });
   const matches = groupingMatches(name, data.products, data.synonymRules);
+  if (cameraMode) return <PhotoCamera additional={cameraMode === "back"}
+    onPhoto={async file => { await selectPhoto(file, cameraMode === "back"); setCameraMode(null); }}
+    cancel={() => setCameraMode(null)} />;
   return (
     <Form
       cancel={close}
@@ -824,15 +829,9 @@ export function ProductEditor({ product, initial = {}, initialShelf = "", initia
         {preview && <img className="entry-preview" src={preview} alt="Fotografija artikla" />}
         {(recognizing || processing) && <p role="status">{processing ? "Pripremam fotografiju…" : "Prepoznajem proizvod…"}</p>}
         {photoError && <p role="status">{photoError}</p>}
-        {photo && !amount && <label className="capture-button">Snimi drugu stranu
-          <input type="file" accept="image/*" capture="environment" disabled={recognizing || processing}
-            onChange={e => { selectPhoto(e.target.files[0], true); e.target.value = ""; }} />
-        </label>}
+        {photo && !amount && <button type="button" disabled={recognizing || processing} onClick={() => setCameraMode("back")}>Snimi drugu stranu</button>}
         {additionalPhoto && <p className="muted small">Druga snimka dopunjuje podatke. Prva ostaje slika artikla.</p>}
-        {!photo && <label className="capture-button">Fotografiraj proizvod
-          <input type="file" accept="image/*" capture="environment" disabled={recognizing || processing}
-            onChange={e => { selectPhoto(e.target.files[0]); e.target.value = ""; }} />
-        </label>}
+        {!photo && <button type="button" disabled={recognizing || processing} onClick={() => setCameraMode("front")}>Fotografiraj proizvod</button>}
         {photo && !recognizing && photoError.startsWith("Prepoznavanje nije") && <button type="button" onClick={() => setRetry(n => n + 1)}>Ponovi prepoznavanje</button>}
         {!photo && <p className="muted small">Fotografija se šalje Google Geminiju radi prepoznavanja i sprema uz artikl nakon potvrde.</p>}
       </div>}
@@ -906,10 +905,7 @@ export function ProductEditor({ product, initial = {}, initialShelf = "", initia
       <details open={!!product}>
         <summary>Više podataka</summary>
         {!product && <>
-          <label className="capture-button">Ponovno snimi proizvod
-            <input type="file" accept="image/*" capture="environment" disabled={recognizing || processing}
-              onChange={e => { selectPhoto(e.target.files[0]); e.target.value = ""; }} />
-          </label>
+          <button type="button" disabled={recognizing || processing} onClick={() => setCameraMode("front")}>Ponovno snimi proizvod</button>
           <Field
             label="Proizvođač"
             value={manufacturer}

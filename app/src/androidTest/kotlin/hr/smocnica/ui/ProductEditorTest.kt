@@ -75,7 +75,7 @@ class ProductEditorTest {
         compose.setContent {
             androidx.compose.runtime.CompositionLocalProvider(androidx.activity.compose.LocalActivityResultRegistryOwner provides owner) {
                 SmocnicaTheme {
-                    ProductEditor(current = null, capturePhotoInitially = true, shelves = shelves, categories = categories,
+                    ProductEditor(current = null, capturePhotoInitially = true, launchPhotoCameraOverride = { launches++ }, shelves = shelves, categories = categories,
                         onDismiss = {}, onSave = { _, _, _, _, _, _ -> error("Unos se ne smije automatski spremiti.") })
                 }
             }

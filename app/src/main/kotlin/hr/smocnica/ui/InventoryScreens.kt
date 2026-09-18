@@ -672,6 +672,7 @@ internal fun variantDisplayText(variant: ProductVariant): String = listOfNotNull
 fun ProductEditor(
     current: Product?,
     capturePhotoInitially: Boolean = false,
+    launchPhotoCameraOverride: (() -> Unit)? = null,
     recognizePhoto: (suspend (String, String?) -> hr.smocnica.core.domain.PhotoProductSuggestion)? = null,
     currentVariant: ProductVariant? = null,
     currentItem: ProductWithStock? = null,
@@ -771,6 +772,7 @@ fun ProductEditor(
     var saveSelectedPhoto by rememberSaveable(current?.id) { mutableStateOf(true) }
     val selectedSource = selectedSourceName?.let(PhotoSource::valueOf)
     var photoError by rememberSaveable { mutableStateOf<String?>(null) }
+    var photoCameraVisible by rememberSaveable { mutableStateOf(false) }
     var pendingCameraPath by rememberSaveable(current?.id) { mutableStateOf<String?>(null) }
     val parsedMinimum = parseProductQuantity(minimum)
     val parsedMinimumBase: Long? = when (MinimumMode.valueOf(minimumMode)) {
@@ -859,11 +861,14 @@ fun ProductEditor(
             pendingCameraPath = null
         }
     }
-    fun launchCameraCapture() {
+    fun launchSystemCameraCapture() {
         deleteTemporaryProductPhoto(context.cacheDir, pendingCameraPath)
         val capture = createProductPhotoCaptureFile(context.cacheDir)
         pendingCameraPath = capture.absolutePath
         camera.launch(FileProvider.getUriForFile(context, "${context.packageName}.files", capture))
+    }
+    fun launchCameraCapture() {
+        if (launchPhotoCameraOverride != null) launchPhotoCameraOverride() else photoCameraVisible = true
     }
     var cameraPermissionGranted by rememberCameraPermissionState {
         ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -1311,6 +1316,22 @@ fun ProductEditor(
         dismissButton = { TextButton(::dismissEditor, enabled = !submitting) { Text("Odustani") } },
     )
 
+    if (photoCameraVisible) ProductCameraDialog(
+        additional = capturingAdditional,
+        dismiss = { photoCameraVisible = false },
+        fallback = { photoCameraVisible = false; launchSystemCameraCapture() },
+        captured = { path ->
+            photoCameraVisible = false
+            processingPhoto = true
+            scope.launch {
+                runCatching { resizeJpegToTempFile(context, Uri.fromFile(File(path))) }
+                    .onSuccess { replaceSelectedPhoto(it.absolutePath, PhotoSource.CAMERA) }
+                    .onFailure { photoError = "Fotografiju nije moguće obraditi. Pokušajte ponovno." }
+                deleteTemporaryProductPhoto(context.cacheDir, path)
+                processingPhoto = false
+            }
+        },
+    )
     if (showBarcodeScanner) {
         val scanner = barcodeScanner
         if (scanner == null) SharedBarcodeScannerDialog("Skeniraj barkod artikla", { showBarcodeScanner = false }, ::acceptScannedBarcode)
