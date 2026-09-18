@@ -1,6 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { recentEntries, entryShelf, mergePhotoSuggestion, stockDelta } from "../src/quick-entry.js";
+import { recentEntries, entryShelf, mergePhotoSuggestion, stockDelta, photoRecognitionError } from "../src/quick-entry.js";
+
+test("recognition errors distinguish timeout and quota without disclosing provider details", () => {
+  assert.match(photoRecognitionError({code:"functions/deadline-exceeded"}), /traje predugo/);
+  assert.match(photoRecognitionError({code:"functions/resource-exhausted"}), /privremeno ograničeno/);
+  assert.match(photoRecognitionError({code:"functions/unavailable"}), /trenutačno nije dostupna/);
+  for (const code of ["internal", "functions/deadline-exceeded", "functions/permission-denied", undefined]) {
+    const message = photoRecognitionError({code, message:"secret provider data"});
+    assert.match(message, /Fotografija je sačuvana/);
+    assert.doesNotMatch(message, /secret provider data/);
+  }
+});
 
 test("recent packages keep exact variant identity, include zero stock, exclude trash", () => {
   const rows = recentEntries({ products: [{id:"p"}, {id:"trash",deletedAt:1}],

@@ -22,6 +22,8 @@ Firebase Web aplikacija pripada istom projektu kao Android. Authentication mora 
 
 `test/fixture.html` je izolirani prikaz za testiranje UI-ja s lokalnim izmišljenim podacima i izričito ograničenim adapterom. Nije dio produkcijskog builda i ne spaja se na stvarne korisničke podatke. Testovi domene i outboxa pokreću se kroz `npm test`; sigurnosni i transakcijski testovi kroz korijenski `functions` Emulator Suite.
 
+Uz pokrenut razvojni poslužitelj, `node test/recognition-timeout.e2e.mjs` u instaliranom Edgeu provjerava poruku isteka vremena, ponavljanje te očuvanje slike i ručnog naziva. `SMOCNICA_TEST_ORIGIN` može promijeniti zadani origin `http://127.0.0.1:5173`. Test koristi lažnu kameru i izolirani adapter; stvarna AI usluga provjerava se odvojeno.
+
 ## Objavljivanje
 
 Workflow `.github/workflows/pages.yml` na izmjene u `web/` i `public/` provodi instalaciju, testove, build i objavu. Putanja `/Smocnica/` mora ostati usklađena u Vite konfiguraciji, manifestu i ikoni. Service worker obrađuje obavijesti i ne sprema privatne podatke u cache. Nova se verzija dobiva ponovnim otvaranjem/učitavanjem aplikacije.

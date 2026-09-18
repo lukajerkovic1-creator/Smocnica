@@ -1,5 +1,18 @@
 import { active, timestamp } from "./domain.js";
 
+export function photoRecognitionError(error) {
+  const code = String(error?.code || "").replace(/^functions\//, "");
+  const messages = {
+    "deadline-exceeded": "Prepoznavanje traje predugo. Pokušajte ponovno.",
+    "resource-exhausted": "Prepoznavanje je privremeno ograničeno. Pokušajte kasnije.",
+    "unavailable": "Usluga prepoznavanja trenutačno nije dostupna. Pokušajte ponovno.",
+    "failed-precondition": "Usluga prepoznavanja još nije postavljena.",
+    "unauthenticated": "Prijava je istekla. Ponovno se prijavite.",
+    "permission-denied": "Nemate dopuštenje za prepoznavanje u ovoj smočnici.",
+  };
+  return `${messages[code] || "Prepoznavanje nije uspjelo. Pokušajte ponovno."} Fotografija je sačuvana; podatke možete unijeti ručno.`;
+}
+
 export function recentEntries(data) {
   const products = new Map(active(data.products).map(p => [p.id, p]));
   return active(data.variants).filter(v => products.has(v.productId)).map(variant => ({

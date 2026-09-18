@@ -32,7 +32,7 @@ import IconPicker from "./IconPicker";
 import { iconPhoto, suggestIcon } from "./product-icons";
 import RecentProducts from "./RecentProducts";
 import PhotoCamera from "./PhotoCamera";
-import { mergePhotoSuggestion, photoBase64 } from "./quick-entry";
+import { mergePhotoSuggestion, photoBase64, photoRecognitionError } from "./quick-entry";
 import { saveVariantEdit } from "./variant-edit";
 export default function Inventory() {
   const { data, open, close } = useApp();
@@ -679,6 +679,7 @@ export function ProductEditor({ product, initial = {}, initialShelf = "", initia
     [unit, setUnit] = useState("UNKNOWN"),
     [photo, setPhoto] = useState(null),
     [photoError, setPhotoError] = useState(""),
+    [recognitionFailed, setRecognitionFailed] = useState(false),
     [recognizing, setRecognizing] = useState(false),
     [visual, setVisual] = useState("photo"),
     [group, setGroup] = useState("");
@@ -710,7 +711,7 @@ export function ProductEditor({ product, initial = {}, initialShelf = "", initia
     if (!photo || product) return;
     let live = true;
     const starting = { ...draft.current };
-    setRecognizing(true); setPhotoError("");
+    setRecognizing(true); setPhotoError(""); setRecognitionFailed(false);
     (async () => {
       try {
         const remaining = Math.max(0, lastRequest.current + 6500 - Date.now());
@@ -724,7 +725,7 @@ export function ProductEditor({ product, initial = {}, initialShelf = "", initia
         const merged = mergePhotoSuggestion(draft.current, starting, suggestion, !!additionalPhoto);
         setName(merged.name); setManufacturer(merged.manufacturer); setAmount(merged.amount); setUnit(merged.unit);
         setPhotoError(merged.amount ? "Provjerite podatke i dodirnite Dodaj." : "Fotografirajte stranu s gramažom ili volumenom.");
-      } catch (e) { if (live) setPhotoError("Prepoznavanje nije uspjelo. Fotografija je sačuvana; pokušajte ponovno ili unesite podatke ručno."); }
+      } catch (e) { if (live) { setPhotoError(photoRecognitionError(e)); setRecognitionFailed(true); } }
       finally { if (live) setRecognizing(false); }
     })();
     return () => { live = false; };
@@ -832,7 +833,7 @@ export function ProductEditor({ product, initial = {}, initialShelf = "", initia
         {photo && !amount && <button type="button" disabled={recognizing || processing} onClick={() => setCameraMode("back")}>Snimi drugu stranu</button>}
         {additionalPhoto && <p className="muted small">Druga snimka dopunjuje podatke. Prva ostaje slika artikla.</p>}
         {!photo && <button type="button" disabled={recognizing || processing} onClick={() => setCameraMode("front")}>Fotografiraj proizvod</button>}
-        {photo && !recognizing && photoError.startsWith("Prepoznavanje nije") && <button type="button" onClick={() => setRetry(n => n + 1)}>Ponovi prepoznavanje</button>}
+        {photo && !recognizing && recognitionFailed && <button type="button" onClick={() => setRetry(n => n + 1)}>Ponovi prepoznavanje</button>}
         {!photo && <p className="muted small">Fotografija se šalje Google Geminiju radi prepoznavanja i sprema uz artikl nakon potvrde.</p>}
       </div>}
       <Field

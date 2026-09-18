@@ -87,6 +87,9 @@ const api = {
     if (name === "recognizeProductPhoto") {
       // Deterministic local fixture; never calls an AI provider or a real pantry.
       await new Promise(resolve => setTimeout(resolve, 150));
+      if (new URLSearchParams(location.search).has("recognition-timeout")) {
+        throw Object.assign(new Error("Private provider details"), { code: "functions/deadline-exceeded" });
+      }
       const sizeVisible = payload.additionalPhotoBase64 || new URLSearchParams(location.search).has("known-size");
       return { name: "Testna zobena kaša", manufacturer: "Test", packageAmount: sizeVisible ? "500" : "", packageUnit: sizeVisible ? "G" : "UNKNOWN" };
     }

@@ -2,11 +2,36 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { parsePhotoSuggestion, recognizeWithGemini, reservePhotoRequest, validatePhoto } from "../src/photo-recognition";
 import { db } from "../src/firebase";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 const product = { name: "Glatko brašno", manufacturer: "Čakovečki mlinovi", packageAmount: "1", packageUnit: "KG" };
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64");
 
 describe("photo recognition", () => {
+  it("accepts image inference taking more than fifteen seconds but bounds a stalled request", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException("private details", "TimeoutError")), ms);
+      return controller.signal;
+    });
+    const fetch = vi.fn().mockImplementation((_url, options) => new Promise((resolve, reject) => {
+      options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+      setTimeout(() => resolve(new Response(JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(product) }] } }] }))), 20_000);
+    }));
+    vi.stubGlobal("fetch", fetch);
+    const result = recognizeWithGemini(jpeg, "test-only-key");
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(await result).toEqual(product);
+    fetch.mockImplementation((_url, options) => new Promise((_resolve, reject) => {
+      options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+    }));
+    const stalled = expect(recognizeWithGemini(jpeg, "test-only-key")).rejects.toMatchObject({
+      code: "deadline-exceeded", message: expect.stringContaining("traje predugo"),
+    });
+    await vi.advanceTimersByTimeAsync(50_000);
+    await stalled;
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
   it("combines both bounded package photographs in one provider request", async () => {
     const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(product) }] } }] })));
     vi.stubGlobal("fetch", fetch);
@@ -50,6 +75,7 @@ describe("photo recognition", () => {
     expect(await recognizeWithGemini(jpeg, "test-only-key")).toEqual(product);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(fetch.mock.calls[1][0]).toBe(fetch.mock.calls[0][0]);
+    expect(fetch.mock.calls[1][1].signal).toBe(fetch.mock.calls[0][1].signal);
   });
   it("bounds overload retries and returns a useful private-data-free error", async () => {
     const fetch = vi.fn().mockImplementation(async () => new Response("private provider body", { status: 503 }));
