@@ -1,5 +1,13 @@
 import { active, timestamp } from "./domain.js";
 
+export function packageFields(label) {
+  // Only unambiguous single-package quantities; multipacks need confirmation.
+  const match = String(label || "").trim().match(/^(\d+(?:[.,]\d{1,3})?)\s*(kg|g|ml|l)$/i);
+  if (!match || Number(match[1].replace(",", ".")) <= 0 || Number(match[1].replace(",", ".")) > 1_000_000)
+    return { amount: "", unit: "UNKNOWN" };
+  return { amount: match[1].replace(",", "."), unit: match[2].toUpperCase() };
+}
+
 export function photoRecognitionError(error) {
   const code = String(error?.code || "").replace(/^functions\//, "");
   const messages = {

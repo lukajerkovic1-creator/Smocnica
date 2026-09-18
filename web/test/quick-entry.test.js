@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { recentEntries, entryShelf, mergePhotoSuggestion, stockDelta, photoRecognitionError } from "../src/quick-entry.js";
+import { recentEntries, entryShelf, mergePhotoSuggestion, stockDelta, photoRecognitionError, packageFields } from "../src/quick-entry.js";
+
+test("barcode catalogue quantities populate editable package amount and unit", () => {
+  assert.deepEqual(packageFields("200 g"), {amount:"200",unit:"G"});
+  assert.deepEqual(packageFields("1,5 L"), {amount:"1.5",unit:"L"});
+  assert.deepEqual(packageFields(" 0.250 kg "), {amount:"0.250",unit:"KG"});
+  assert.deepEqual(packageFields("330ml"), {amount:"330",unit:"ML"});
+  for (const ambiguous of [null, "", "6 x 330 ml", "200 g (16 pieces)", "-1 g", "0 g", "Infinity g", "1000001 g", "1.2345 kg", "1 oz"])
+    assert.deepEqual(packageFields(ambiguous), {amount:"",unit:"UNKNOWN"});
+});
 
 test("recognition errors distinguish timeout and quota without disclosing provider details", () => {
   assert.match(photoRecognitionError({code:"functions/deadline-exceeded"}), /traje predugo/);

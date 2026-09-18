@@ -32,7 +32,7 @@ import IconPicker from "./IconPicker";
 import { iconPhoto, suggestIcon } from "./product-icons";
 import RecentProducts from "./RecentProducts";
 import PhotoCamera from "./PhotoCamera";
-import { mergePhotoSuggestion, photoBase64, photoRecognitionError } from "./quick-entry";
+import { mergePhotoSuggestion, photoBase64, photoRecognitionError, packageFields } from "./quick-entry";
 import { saveVariantEdit } from "./variant-edit";
 export default function Inventory() {
   const { data, open, close } = useApp();
@@ -673,10 +673,11 @@ export function ProductEditor({ product, initial = {}, initialShelf = "", initia
   const { data, api, close, open, pantry, owner } = useApp();
   const categories = sorted(active(data.categories)),
     shelves = sorted(active(data.shelves));
+  const initialPackage = packageFields(initial.packageLabel);
   const [name, setName] = useState(product?.name || initial.name || ""),
     [manufacturer, setManufacturer] = useState(initial.manufacturer || ""),
-    [amount, setAmount] = useState(""),
-    [unit, setUnit] = useState("UNKNOWN"),
+    [amount, setAmount] = useState(initialPackage.amount),
+    [unit, setUnit] = useState(initialPackage.unit),
     [photo, setPhoto] = useState(null),
     [photoError, setPhotoError] = useState(""),
     [recognitionFailed, setRecognitionFailed] = useState(false),

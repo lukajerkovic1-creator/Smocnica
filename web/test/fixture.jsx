@@ -124,7 +124,7 @@ const api = {
       if (p) Object.assign(p, payload.product);
       else {
         data.products.push({ ...payload.product, revision: 1 });
-        data.variants.push({ ...payload.initialVariant, revision: 1 });
+        data.variants.push({ ...payload.initialVariant, photoUrl: payload.initialVariant.photoUri, revision: 1 });
       }
     } else if (type === "upsert_variant") {
       const variant = data.variants.find((v) => v.id === id);

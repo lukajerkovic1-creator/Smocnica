@@ -185,6 +185,7 @@ Nakon očitanja:
 
 - Open Food Facts je primarni javni izvor.
 - Podaci moraju biti tretirani kao prijedlog i korisnik ih može ispraviti.
+- Web iz jednoznačne kataloške oznake (npr. `200 g` ili `1,5 l`) popunjava glavna polja veličine i jedinice pakiranja. Višestruka pakiranja i nepoznate jedinice ostaju za ručnu potvrdu; iz oznake se ne nagađa količina.
 - Ako nema rezultata, otvoriti brzi unos s fotografiranjem prednje strane ambalaže. Google Gemini predlaže generički naziv na hrvatskom, proizvođača i veličinu pakiranja. Prijedlog nije potvrđena identifikacija: korisnik može ispraviti podatke prije spremanja. Nepoznati proizvođač i veličina ostaju prazni.
 - Brzi unos prikazuje naziv, opcionalnog proizvođača, veličinu pakiranja, policu i broj pakiranja (zadano 1). Polica je obvezna; kontekstualna polica ima prednost, inače se pamti zadnja uspješno korištena polica te smočnice na uređaju. Obrisana polica se ne koristi.
 - Kategorija ima valjanu zadanu vrijednost. Naziv varijante, barkod, opis, minimumi i automatska kupnja dostupni su u dodatnim postavkama; prazni barkod može se skenirati u brzom unosu. Postojeća podudaranja generičkog artikla nude kratku, izričitu potvrdu grupiranja.
