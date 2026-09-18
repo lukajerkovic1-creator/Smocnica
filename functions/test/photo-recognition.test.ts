@@ -32,6 +32,21 @@ describe("photo recognition", () => {
     await expect(recognizeWithGemini(jpeg, "test-only-key")).rejects.toMatchObject({ code: "resource-exhausted" });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+  it("retries temporary overload once and returns the successful proposal", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response("private provider body", { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(product) }] } }] })));
+    vi.stubGlobal("fetch", fetch);
+    expect(await recognizeWithGemini(jpeg, "test-only-key")).toEqual(product);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1][0]).toBe(fetch.mock.calls[0][0]);
+  });
+  it("bounds overload retries and returns a useful private-data-free error", async () => {
+    const fetch = vi.fn().mockImplementation(async () => new Response("private provider body", { status: 503 }));
+    vi.stubGlobal("fetch", fetch);
+    await expect(recognizeWithGemini(jpeg, "test-only-key")).rejects.toMatchObject({ code: "unavailable", message: expect.stringContaining("preopterećen") });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
   it("never forwards raw provider errors or malformed suggestions", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("secret private product")));
     await expect(recognizeWithGemini(jpeg, "test-only-key")).rejects.toMatchObject({ code: "unavailable" });
