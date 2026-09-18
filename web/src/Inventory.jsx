@@ -30,6 +30,7 @@ import { ScanFlow, compressPhoto } from "./Scanner";
 import { ShelfManager } from "./Management";
 import IconPicker from "./IconPicker";
 import { iconPhoto, suggestIcon } from "./product-icons";
+import { saveVariantEdit } from "./variant-edit";
 export default function Inventory() {
   const { data, open, close } = useApp();
   const [search, setSearch] = useState(""),
@@ -1009,6 +1010,14 @@ export function VariantEditor({ variant, productId }) {
           photoUri: variant?.photoUrl || null,
           photoSource: variant?.photoSource || "NONE",
         };
+        const image = photo || visual !== "photo"
+          ? visual === "photo" ? photo : await iconPhoto(visual === "auto" ? suggestIcon(`${productName} ${name}`) : visual)
+          : null;
+        if (variant) {
+          await saveVariantEdit(api, v, variant.revision || 0, image);
+          close();
+          return;
+        }
         await api.mutate(
           "upsert_variant",
           id,
@@ -1016,8 +1025,7 @@ export function VariantEditor({ variant, productId }) {
           variant?.revision || 0,
           "VARIANT",
         );
-        if (photo || visual !== "photo") {
-          const image = visual === "photo" ? photo : await iconPhoto(visual === "auto" ? suggestIcon(`${productName} ${name}`) : visual);
+        if (image) {
           const uri = await api.upload(id, image);
           const latest = await api.record("variants", id);
           await api.mutate(

@@ -107,6 +107,8 @@ export class Outbox {
 }
 export function errorText(e) {
   const code = e?.code || "";
+  if (code === "storage/unauthorized")
+    return "Sliku nije moguće spremiti. Provjerite pristup smočnici i pokušajte ponovno.";
   if (code.includes("popup-closed-by-user"))
     return "Prijava je zatvorena. Pokušajte ponovno.";
   if (code.includes("popup-blocked"))

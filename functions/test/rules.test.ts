@@ -34,6 +34,8 @@ describe.skipIf(!emulatorAvailable)("Firestore and Storage security rules", () =
       await setDoc(doc(firestore, "pantries/p2/members/other"), { role: "OWNER", active: true });
       await setDoc(doc(firestore, "pantries/p1/products/a"), { name: "Riža" });
       await setDoc(doc(firestore, "pantries/p1/products/deleted"), { name: "Staro", deletedAt: new Date() });
+      await setDoc(doc(firestore, "pantries/p1/variants/v"), { productId: "a", deletedAt: null });
+      await setDoc(doc(firestore, "pantries/p1/variants/deleted"), { productId: "deleted", deletedAt: new Date() });
     });
   });
 
@@ -76,5 +78,27 @@ describe.skipIf(!emulatorAvailable)("Firestore and Storage security rules", () =
     await assertFails(uploadBytes(ref(memberStorage, "pantries/p1/products/a/main.jpg"), new Uint8Array([1]), { contentType: "text/plain", customMetadata: { productId: "a" } }));
     await assertFails(uploadBytes(ref(memberStorage, "pantries/p1/products/missing/main.jpg"), new Uint8Array([0xff, 0xd8]), { contentType: "image/jpeg", customMetadata: { productId: "missing" } }));
     await assertFails(uploadBytes(ref(memberStorage, "pantries/p1/products/deleted/main.jpg"), new Uint8Array([0xff, 0xd8]), { contentType: "image/jpeg", customMetadata: { productId: "deleted" } }));
+  });
+  it("allows replacing a variant photo with an illustration but rejects outsiders and invalid targets", async () => {
+    const path = "pantries/p1/variants/v/main.jpg";
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
+    const metadata = { contentType: "image/jpeg", customMetadata: { variantId: "v" } };
+    const storage = environment.authenticatedContext("member").storage();
+    await assertSucceeds(uploadBytes(ref(storage, path), bytes, metadata));
+    await assertSucceeds(uploadBytes(ref(storage, path), bytes, metadata));
+    await assertSucceeds(getBytes(ref(storage, path)));
+    for (const context of [environment.unauthenticatedContext(), environment.authenticatedContext("intruder"), environment.authenticatedContext("removed")]) {
+      await assertFails(uploadBytes(ref(context.storage(), path), bytes, metadata));
+      await assertFails(getBytes(ref(context.storage(), path)));
+    }
+    await assertFails(uploadBytes(ref(storage, path), bytes, { ...metadata, customMetadata: { variantId: "wrong" } }));
+    await assertFails(uploadBytes(ref(storage, path), bytes, { ...metadata, contentType: "text/plain" }));
+    for (const id of ["missing", "deleted"]) await assertFails(uploadBytes(ref(storage, `pantries/p1/variants/${id}/main.jpg`), bytes, { ...metadata, customMetadata: { variantId: id } }));
+    await assertFails(deleteObject(ref(storage, path)));
+    await environment.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), "pantries/p1"), { deletedAt: new Date() }, { merge: true });
+    });
+    await assertFails(getBytes(ref(storage, path)));
+    await assertFails(uploadBytes(ref(storage, path), bytes, metadata));
   });
 });
