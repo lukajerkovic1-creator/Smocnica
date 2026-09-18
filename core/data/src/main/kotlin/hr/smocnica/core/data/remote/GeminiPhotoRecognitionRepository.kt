@@ -9,13 +9,17 @@ import javax.inject.Inject
 class GeminiPhotoRecognitionRepository @Inject constructor(
     private val callable: FirebaseCallableClient,
 ) : PhotoRecognitionRepository {
-    override suspend fun recognize(pantryId: String, jpeg: ByteArray): PhotoProductSuggestion {
+    override suspend fun recognize(pantryId: String, jpeg: ByteArray, additionalJpeg: ByteArray?): PhotoProductSuggestion {
         require(pantryId.isNotBlank())
         require(jpeg.size in 4..5 * 1024 * 1024)
-        val result = callable.call("recognizeProductPhoto", mapOf(
+        require(additionalJpeg == null || additionalJpeg.size in 4..5 * 1024 * 1024)
+        val result = callable.call("recognizeProductPhoto", buildMap {
+            putAll(mapOf(
             "pantryId" to pantryId,
             "photoBase64" to Base64.getEncoder().encodeToString(jpeg),
-        ))
+            ))
+            additionalJpeg?.let { put("additionalPhotoBase64", Base64.getEncoder().encodeToString(it)) }
+        })
         return PhotoProductSuggestion(
             name = result["name"] as? String ?: error("Neispravan prijedlog proizvoda."),
             manufacturer = result["manufacturer"] as? String ?: "",

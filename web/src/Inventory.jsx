@@ -26,10 +26,12 @@ import {
   belowMinimum,
   groupingMatches,
 } from "./domain";
-import { ScanFlow, compressPhoto } from "./Scanner";
+import { compressPhoto } from "./Scanner";
 import { ShelfManager } from "./Management";
 import IconPicker from "./IconPicker";
 import { iconPhoto, suggestIcon } from "./product-icons";
+import RecentProducts from "./RecentProducts";
+import { mergePhotoSuggestion, photoBase64 } from "./quick-entry";
 import { saveVariantEdit } from "./variant-edit";
 export default function Inventory() {
   const { data, open, close } = useApp();
@@ -222,6 +224,7 @@ export default function Inventory() {
             : "Još nema artikala. Dodajte prvi skeniranjem barkoda."}
         </Empty>
       )}
+      {!selecting && !search && <RecentProducts shelf={shelf} />}
       <div className="product-list">
         {list.map((p, index) => {
           const vs = variants.filter((v) => v.productId === p.id),
@@ -276,13 +279,12 @@ export default function Inventory() {
           );
         })}
       </div>
-      <button
-        className="fab"
-        aria-label="Dodaj artikl"
-        onClick={() => open("Dodaj artikl", <ScanFlow initialShelf={shelf} />)}
-      >
-        <Plus size={30} />
-      </button>
+      <label className="fab photo-fab">
+        <Plus size={30} aria-hidden="true" />
+        <input aria-label="Dodaj artikl" type="file" accept="image/*" capture="environment"
+          onChange={e => { const file = e.target.files[0]; e.target.value = ""; if (file) open("Dodaj artikl", <ProductEditor initialShelf={shelf} initialPhoto={file} />); }} />
+      </label>
+      <button className="manual-entry" onClick={() => open("Dodaj artikl", <ProductEditor initialShelf={shelf} />)}>Unesi ručno</button>
     </>
   );
 }
@@ -666,7 +668,7 @@ export function StockForm({
     </Form>
   );
 }
-export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
+export function ProductEditor({ product, initial = {}, initialShelf = "", initialPhoto = null }) {
   const { data, api, close, open, pantry, owner } = useApp();
   const categories = sorted(active(data.categories)),
     shelves = sorted(active(data.shelves));
@@ -677,8 +679,54 @@ export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
     [photo, setPhoto] = useState(null),
     [photoError, setPhotoError] = useState(""),
     [recognizing, setRecognizing] = useState(false),
-    [visual, setVisual] = useState("auto"),
+    [visual, setVisual] = useState("photo"),
     [group, setGroup] = useState("");
+  const [additionalPhoto, setAdditionalPhoto] = useState(null), [preview, setPreview] = useState(""),
+    [processing, setProcessing] = useState(!!initialPhoto), [retry, setRetry] = useState(0);
+  const draft = useRef({ name, manufacturer, amount, unit });
+  draft.current = { name, manufacturer, amount, unit };
+  const captureVersion = useRef(0), lastRequest = useRef(0);
+  async function selectPhoto(file, additional = false) {
+    if (!file) return;
+    const version = ++captureVersion.current;
+    setProcessing(true); setPhotoError("");
+    try {
+      const compressed = await compressPhoto(file);
+      if (version !== captureVersion.current) return;
+      if (additional) setAdditionalPhoto(compressed);
+      else { setPhoto(compressed); setAdditionalPhoto(null); setVisual("photo"); }
+    } catch (e) { if (version === captureVersion.current) setPhotoError(e.message); }
+    finally { if (version === captureVersion.current) setProcessing(false); }
+  }
+  useEffect(() => { if (initialPhoto) selectPhoto(initialPhoto); return () => { captureVersion.current++; }; }, [initialPhoto]);
+  useEffect(() => {
+    if (!photo) return;
+    const url = URL.createObjectURL(photo); setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [photo]);
+  useEffect(() => {
+    if (!photo || product) return;
+    let live = true;
+    const starting = { ...draft.current };
+    setRecognizing(true); setPhotoError("");
+    (async () => {
+      try {
+        const remaining = Math.max(0, lastRequest.current + 6500 - Date.now());
+        if (remaining) await new Promise(resolve => setTimeout(resolve, remaining));
+        if (!live) return;
+        const [front, back] = await Promise.all([photoBase64(photo), additionalPhoto ? photoBase64(additionalPhoto) : null]);
+        if (!live) return;
+        lastRequest.current = Date.now();
+        const suggestion = await api.call("recognizeProductPhoto", { pantryId: pantry.id, photoBase64: front, ...(back ? { additionalPhotoBase64: back } : {}) });
+        if (!live) return;
+        const merged = mergePhotoSuggestion(draft.current, starting, suggestion, !!additionalPhoto);
+        setName(merged.name); setManufacturer(merged.manufacturer); setAmount(merged.amount); setUnit(merged.unit);
+        setPhotoError(merged.amount ? "Provjerite podatke i dodirnite Dodaj." : "Fotografirajte stranu s gramažom ili volumenom.");
+      } catch (e) { if (live) setPhotoError("Prepoznavanje nije uspjelo. Fotografija je sačuvana; pokušajte ponovno ili unesite podatke ručno."); }
+      finally { if (live) setRecognizing(false); }
+    })();
+    return () => { live = false; };
+  }, [photo, additionalPhoto, retry]);
   const stage = useRef({
     id: product?.id || crypto.randomUUID(),
     variantId: crypto.randomUUID(),
@@ -689,6 +737,8 @@ export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
   return (
     <Form
       cancel={close}
+      submit={product ? "Spremi" : "Dodaj"}
+      submitDisabled={recognizing || processing}
       onSubmit={async (f) => {
         const s = stage.current;
         const categoryId = String(f.get("categoryId"));
@@ -768,9 +818,24 @@ export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
           );
         }
         close();
-        open(name, <ProductDetail productId={group || s.id} />);
       }}
     >
+      {!product && <div className="photo-entry">
+        {preview && <img className="entry-preview" src={preview} alt="Fotografija artikla" />}
+        {(recognizing || processing) && <p role="status">{processing ? "Pripremam fotografiju…" : "Prepoznajem proizvod…"}</p>}
+        {photoError && <p role="status">{photoError}</p>}
+        {photo && !amount && <label className="capture-button">Snimi drugu stranu
+          <input type="file" accept="image/*" capture="environment" disabled={recognizing || processing}
+            onChange={e => { selectPhoto(e.target.files[0], true); e.target.value = ""; }} />
+        </label>}
+        {additionalPhoto && <p className="muted small">Druga snimka dopunjuje podatke. Prva ostaje slika artikla.</p>}
+        {!photo && <label className="capture-button">Fotografiraj proizvod
+          <input type="file" accept="image/*" capture="environment" disabled={recognizing || processing}
+            onChange={e => { selectPhoto(e.target.files[0]); e.target.value = ""; }} />
+        </label>}
+        {photo && !recognizing && photoError.startsWith("Prepoznavanje nije") && <button type="button" onClick={() => setRetry(n => n + 1)}>Ponovi prepoznavanje</button>}
+        {!photo && <p className="muted small">Fotografija se šalje Google Geminiju radi prepoznavanja i sprema uz artikl nakon potvrde.</p>}
+      </div>}
       <Field
         label="Naziv artikla"
         value={name}
@@ -780,13 +845,6 @@ export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
       />
       {!product && (
         <>
-          <IconPicker name={name} value={visual} onChange={setVisual} />
-          <Field
-            label="Proizvođač"
-            value={manufacturer}
-            onChange={(e) => setManufacturer(e.target.value)}
-            maxLength={100}
-          />
           <div className="row">
             <Field
               label="Veličina pakiranja"
@@ -804,6 +862,7 @@ export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
               rows={unitRows}
             />
           </div>
+          <div className="row">
           <Select
             label="Polica"
             name="shelf"
@@ -827,62 +886,7 @@ export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
             defaultValue="1"
             required
           />
-          <label className="photo-upload">
-            <Camera />
-            <span>Dodaj fotografiju</span>
-            <small>Snimi ili odaberi iz galerije</small>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={async (e) => {
-                try {
-                  if (e.target.files[0])
-                    setPhoto(await compressPhoto(e.target.files[0]));
-                  setPhotoError("");
-                } catch (err) {
-                  setPhotoError(err.message);
-                }
-              }}
-            />
-          </label>
-          {photo && (
-            <>
-              <button
-                type="button"
-                disabled={recognizing}
-                onClick={async () => {
-                  setRecognizing(true);
-                  try {
-                    const base64 = await new Promise((resolve, reject) => {
-                      const r = new FileReader();
-                      r.onload = () => resolve(r.result.split(",")[1]);
-                      r.onerror = reject;
-                      r.readAsDataURL(photo);
-                    });
-                    const suggestion = await api.call("recognizeProductPhoto", {
-                      pantryId: pantry.id,
-                      photoBase64: base64,
-                    });
-                    setName(suggestion.name);
-                    setManufacturer(suggestion.manufacturer);
-                    setAmount(suggestion.packageAmount);
-                    setUnit(suggestion.packageUnit || "UNKNOWN");
-                    setPhotoError(
-                      "Prijedlog je spreman. Provjerite podatke prije spremanja.",
-                    );
-                  } catch (e) {
-                    setPhotoError(e.message);
-                  } finally {
-                    setRecognizing(false);
-                  }
-                }}
-              >
-                {recognizing ? "Prepoznajem…" : "Prepoznaj s fotografije"}
-              </button>
-              <p className="muted small">Za prepoznavanje se fotografija šalje Google Geminiju. Provjerite prijedlog prije spremanja.</p>
-            </>
-          )}
-          {photoError && <p role="status">{photoError}</p>}
+          </div>
           {matches.length > 0 && (
             <Select
               label="Grupiranje (samo uz vaš odabir)"
@@ -900,7 +904,20 @@ export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
         </>
       )}
       <details open={!!product}>
-        <summary>Dodatne postavke</summary>
+        <summary>Više podataka</summary>
+        {!product && <>
+          <label className="capture-button">Ponovno snimi proizvod
+            <input type="file" accept="image/*" capture="environment" disabled={recognizing || processing}
+              onChange={e => { selectPhoto(e.target.files[0]); e.target.value = ""; }} />
+          </label>
+          <Field
+            label="Proizvođač"
+            value={manufacturer}
+            onChange={(e) => setManufacturer(e.target.value)}
+            maxLength={100}
+          />
+          <IconPicker name={name} value={visual} onChange={setVisual} />
+        </>}
         <Select
           label="Kategorija"
           name="categoryId"
@@ -960,12 +977,7 @@ export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
           </>
         )}
       </details>
-      <p className="muted small">
-        Promjene se prikazuju nakon potvrde poslužitelja.
-        {!product
-          ? " Artikl, početna zaliha i fotografija spremaju se redom. Ako korak ne uspije, dovršite ga prije zatvaranja obrasca."
-          : ""}
-      </p>
+
     </Form>
   );
 }

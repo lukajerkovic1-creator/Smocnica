@@ -54,6 +54,8 @@ data class ProductEditorSubmission(
     val variant: ProductVariant,
     /** Existing generic article chosen by the user after reviewing the grouping suggestion. */
     val targetProductId: String? = null,
+    /** Stable for every retry from the same editor. */
+    val requestId: String = java.util.UUID.randomUUID().toString(),
 )
 
 sealed interface BarcodeInventoryMatch {

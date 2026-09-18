@@ -52,7 +52,7 @@ class PantryDialogAppearanceTest {
                     1 -> ProductFilterDialog(ProductFilter(), shelves, emptyList(), { stage = 2 }, { filter = it; stage = 2 })
                     2 -> VariantQuickActionDialog(item, shelves, "s1", 1, { stage = 3 }, { _, shelf -> adjustedShelf = shelf; stage = 3 })
                     3 -> ProductEditor(current = null, shelves = shelves, categories = emptyList(), onDismiss = { stage = 4 },
-                        recognizePhoto = { error("Potrebna je fotografija.") }, onSave = { _, _, _, _, _, _ -> error("Nevaljani unos se ne smije spremiti.") })
+                        recognizePhoto = { _, _ -> error("Potrebna je fotografija.") }, onSave = { _, _, _, _, _, _ -> error("Nevaljani unos se ne smije spremiti.") })
                 }
             }
         }

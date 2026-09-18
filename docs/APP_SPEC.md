@@ -4,7 +4,7 @@
 
 ### Web-verzija za iPhone (18. rujna 2026.)
 
-Novi artikli zadano koriste ilustriranu ikonicu prema nazivu (106 vrsta, uključujući boce pitke i mineralne vode te kutiju čokoladnih keksa za napolitanke). Nakon Gemini prepoznavanja prijedlog ikonice osvježava se iz prepoznatog naziva. Korisnik prije spremanja vidi ilustraciju i može odabrati drugu ili fotografiju. Slikovna zbirka omogućuje pretraživanje hrvatskih naziva, sinonima i skupina namirnica, bez obzira na dijakritičke znakove. U načinu ikonice izvorna fotografija služi samo za prepoznavanje i ne sprema se uz artikl. Ilustracija se rasterizira u JPEG i sprema postojećim zaštićenim tokom za slike varijante, pa je vide svi članovi i postojeći Android klijent. Postojeće fotografije ne zamjenjuju se bez korisnikova uređivanja varijante; artikli bez slike prikazuju automatsku ilustraciju. Neprepoznati nazivi koriste neutralnu kutiju.
+Novi artikli na Androidu i iPhoneu zadano počinju fotografiranjem pakiranja. Prepoznavanje automatski predlaže naziv i veličinu; prva fotografija ostaje slika artikla bez dodatnog izbora ikonice. Ako veličina nije čitljiva, korisnik snima drugu stranu. Obje se slike šalju zajedno, a dopuna ne prepisuje poznati naziv ni ručne ispravke. Ilustracije ostaju neobavezan izbor u dodatnim podacima web-klijenta.
 
 Uz Android postoji web-klijent naziva „Smočnica” na GitHub Pagesu. Otvara se u Safariju i dodaje na početni zaslon kao PWA. Koristi isti Google/Firebase račun, smočnice, članstvo i poslovne funkcije kao Android. Izgled zadržava pregledan popis i ljubičaste naglaske, uz obrasce prilagođene iPhoneu (`docs/design/iphone-web-reference.png`). Korisnik nije zatražio offline rad web-klijenta: pregled i promjene trebaju mrežu. Nepotvrđene mutacije i nacrt inventure ipak se trajno čuvaju u IndexedDB-u, radi oporavka prekida zahtjeva. Androidova Room strategija ostaje nepromijenjena.
 
@@ -89,7 +89,9 @@ Na vrhu su naslov „Smočnica”, tri crtice za bočni izbornik, pretraga te ne
 
 Donje navigacije nema. Bočni izbornik sadrži „Svi artikli”, „Popis za kupnju”, „Skeniraj barkod”, „Inventura”, „Povijest”, „Koš” i „Postavke”. Odabir sekcije zatvara izbornik i otvara njezin početni prikaz bez obnavljanja prethodnih podstranica.
 
-U donjem desnom kutu je ljubičasti gumb samo s ikonicom plus (pristupačni naziv „Dodaj artikl”). Odmah otvara skener barkoda uz očuvanje odabrane police; nema izbornika ručnog unosa i fotografiranja. Skeniranje je glavni način dodavanja. Nakon provjere lokalne baze i kataloga, nepoznati proizvod otvara obrazac u kojem korisnik može fotografirati ambalažu radi prepoznavanja podataka ili nastaviti ručno. Skenirani barkod ostaje sačuvan u obrascu. Ni jedan put ne sprema artikl bez potvrde korisnika; odabir police ostaje obvezan.
+U donjem desnom kutu je ljubičasti plus „Dodaj artikl”, koji izravno pokreće fotografiranje proizvoda. Jedna snimka automatski pokreće prepoznavanje; korisnik pregleda/ispravi naziv i veličinu te potvrđuje spremanje jednog pakiranja. Polica se preuzima iz konteksta, zadnje valjane police te smočnice ili prve aktivne police. Broj i polica ostaju promjenjivi; proizvođač, barkod, minimumi i drugi podaci su dodatni. Barkod ostaje dostupan iz izbornika i dodatnih podataka Android obrasca. Odbijena/otkazana kamera ne blokira ručni unos.
+
+Početni zaslon nudi do osam nedavnih aktivnih varijanti s fotografijom i veličinom pakiranja, prema posljednjoj promjeni njihove zalihe ili nastanku varijante. Uključene su i varijante sa zalihom nula. Dodir odmah dodaje jedno pakiranje točne varijante na kontekstualnu/zadnju valjanu policu. „Poništi” šalje suprotan delta događaj istoj varijanti i istoj polici, a ne vraća stari ukupni broj. Negativna zaliha ostaje zabranjena. Ponovljeni dodir tijekom spremanja je blokiran.
 
 Zadržani su svijetli/tamni način, dodirne zone od najmanje 48 dp, upozorenja sinkronizacije, pristupačne radnje količine i višestruki odabir dugim pritiskom.
 
@@ -99,7 +101,7 @@ Dijalozi za unos, filtre, količinu, premještanje i potvrde koriste zajednički
 
 ## 5. Police
 
-Upravljanje policama dostupno je iz „Svi artikli”, prema odobrenoj referenci `docs/design/inventory-shelf-management-reference.png`. Odabir „Sve police” prikazuje i prazne police, broj različitih artikala s pozitivnom zalihom (ne zbroj pakiranja) te tri točkice za preimenovanje i brisanje. Broj se računa iz svih aktivnih artikala, ne trenutačne pretrage. Na dnu je „Dodaj policu”. Obojene trake u redoslijedu „Po policama” nude iste radnje. Zasebna stavka „Police” uklonjena je iz bočnog izbornika. Plus i dalje otvara skener s odabranom policom.
+Upravljanje policama dostupno je iz „Svi artikli”, prema odobrenoj referenci `docs/design/inventory-shelf-management-reference.png`. Odabir „Sve police” prikazuje i prazne police, broj različitih artikala s pozitivnom zalihom (ne zbroj pakiranja) te tri točkice za preimenovanje i brisanje. Broj se računa iz svih aktivnih artikala, ne trenutačne pretrage. Na dnu je „Dodaj policu”. Obojene trake u redoslijedu „Po policama” nude iste radnje. Zasebna stavka „Police” uklonjena je iz bočnog izbornika. Plus otvara fotografiranje s odabranom policom.
 
 Brisanje traži potvrdu. Ako postoje artikli, nudi premještanje na drugu policu postojećom transakcijskom radnjom; nakon premještanja korisnik ponovno potvrđuje brisanje prazne police. Bez druge police premještanje je onemogućeno i prikazana je uputa za dodavanje police. Poslužiteljska i lokalna provjera prazne police i dalje vrijede. Brisanje odabrane police uklanja je iz trenutačnog filtra.
 

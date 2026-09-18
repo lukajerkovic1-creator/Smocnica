@@ -114,7 +114,7 @@ Nacrti inventure ostaju u Roomu dok ih korisnik ne primijeni ili odbaci. Potvrđ
 
 ### Prijedlog proizvoda iz fotografije
 
-`PhotoRecognitionRepository` je domenski port; implementacija u `core:data` šalje komprimirani JPEG autentificiranoj callable funkciji `recognizeProductPhoto`. Funkcija provjerava App Check, aktivno članstvo i aktivnu smočnicu, veličinu/tip slike te transakcijski ograničava zahtjeve na 50 dnevno po smočnici i razmak 6 sekundi. Brojač u nedostupnoj klijentskoj kolekciji `photoRecognitionLimits` sadrži samo hash smočnice, dan, broj i vrijeme zahtjeva. To su zaštitni limiti aplikacije, ne zajamčena Gemini kvota.
+`PhotoRecognitionRepository` je domenski port; implementacija u `core:data` šalje komprimirani JPEG autentificiranoj callable funkciji `recognizeProductPhoto`. Poziv aditivno prihvaća opcionalni `additionalPhotoBase64` za drugu stranu istog pakiranja; obje JPEG slike zasebno prolaze istu validaciju do 5 MiB. Gemini dobiva obje slike u jednom zahtjevu. Prva fotografija ostaje slika varijante, druga služi samo dopuni. Klijenti serijaliziraju prepoznavanje i poštuju razmak zahtjeva; zastarjeli rezultati ne prepisuju ručne ispravke. Funkcija provjerava App Check, aktivno članstvo i aktivnu smočnicu, veličinu/tip slike te transakcijski ograničava zahtjeve na 50 dnevno po smočnici i razmak 6 sekundi. Brojač u nedostupnoj klijentskoj kolekciji `photoRecognitionLimits` sadrži samo hash smočnice, dan, broj i vrijeme zahtjeva. To su zaštitni limiti aplikacije, ne zajamčena Gemini kvota.
 
 Gemini 3.6 Flash prima sliku i strogu JSON shemu. API ključ `GEMINI_API_KEY` ostaje u Secret Manageru poslužitelja, nikada u APK-u, Gitu ili zapisima pogrešaka. Koristi se zaseban Google projekt s isključenim billingom; postojeći Firebase projekt može imati vlastitu naplatu i to ne znači da je Gemini ključ besplatan. Nema retryja ni zamjenskog plaćenog modela nakon greške kvote. Udaljeni odgovor i tekst iz slike su nepouzdani podaci: validiraju se polja, ne prihvaćaju se upute sa slike ni proizvoljni URL-ovi. Fotografija za prepoznavanje ne sprema se u Firestore; spremanje slike uz artikl slijedi postojeći postupak tek nakon korisnikove potvrde.
 
@@ -141,3 +141,7 @@ Prijedlog se čuva u nacrtu editora. Otkazivanje ili promjena slike otkazuje če
 ## Ažuriranja
 
 GitHub release sadrži potpisani APK i `release-manifest.json`. Manifest sadrži `versionCode`, `versionName`, `minSupportedVersionCode`, `forceUpdate`, `sha256`, `apkUrl` i `releaseNotes`. Aplikacija koristi javni HTTPS API, ograničava hostove, provjerava hash, zatim certifikat APK-a naspram fingerprinta ugrađenog tijekom release builda prije standardnog `ACTION_VIEW` Package Installer tijeka preko `FileProvider`a.
+
+### Oporavak unosa fotografijom
+
+Android editor ima stabilan requestId. ViewModel tijekom života editora pamti dovršene korake stvaranja artikla, varijante i početne zalihe, pa ponavljanje nakon neuspjelog prijenosa fotografije ne ponavlja delta promjenu. Stvarne mutacije i dalje prvo prolaze Room/outbox. Web zadržava isti postojeći postupak s identifikatorima i dovršenim koracima u nacrtu. Ovo nije novi trajni nacrt unosa: zatvaranje aplikacije ne obnavlja nedovršen obrazac fotografije.

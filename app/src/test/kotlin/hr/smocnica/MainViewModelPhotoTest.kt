@@ -106,4 +106,22 @@ class MainViewModelPhotoTest {
         assertTrue(failed)
         coVerify(exactly = 0) { photos.uploadJpeg(any(), any(), any()) }
     }
+
+    @Test fun retryAfterPhotoFailureDoesNotCreateOrAddStockTwice() = runTest(dispatcher) {
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { viewModel.selectedPantry.collect {} }
+        runCurrent()
+        val submission = ProductEditorSubmission(product.copy(id = ""), variant.copy(id = ""))
+        coEvery { inventory.upsertProduct(any(), any(), any(), any()) } returns product.copy(preferredVariantId = "first")
+        coEvery { photos.uploadJpeg("pantry", "first", "selected.jpg") } throws IllegalStateException("Upload failed")
+        var completed = false
+        viewModel.createProductAndStock(submission, "shelf", 1, "selected.jpg", PhotoSource.CAMERA, onCreated = { completed = true })
+        runCurrent()
+        assertFalse(completed)
+        coEvery { photos.uploadJpeg("pantry", "first", "selected.jpg") } returns "gs://test/variants/first/main.jpg"
+        viewModel.createProductAndStock(submission, "shelf", 1, "selected.jpg", PhotoSource.CAMERA, onCreated = { completed = true })
+        runCurrent()
+        assertTrue(completed)
+        coVerify(exactly = 1) { inventory.upsertProduct(any(), any(), any(), any()) }
+        coVerify(exactly = 1) { inventory.adjustVariantStock("first", "shelf", 1, "user", "Test device") }
+    }
 }

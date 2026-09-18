@@ -183,7 +183,7 @@ fun StocksScreen(
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
-            InventoryAddButton(scanSelected)
+            InventoryAddButton { creating = true }
         },
     ) { inner ->
         LazyColumn(
@@ -204,6 +204,9 @@ fun StocksScreen(
                     viewModel.updateFilter(activeFilter)
                 }, { orderName = it.name }, { showFilters = true }, allProducts, shelfActions)
             } }
+            if (!selecting && activeFilter.query.isBlank()) item {
+                RecentProductStrip(allProducts, shelves, selectedShelfId, viewModel, snackbar)
+            }
             if (selectedIds.isNotEmpty()) item {
                 BulkActionBar(
                     selectedIds.size,
@@ -245,6 +248,7 @@ fun StocksScreen(
     }, { target -> viewModel.moveAllStock(shelf.id, target, allProducts); deleteShelf = null }) }
     if (creating) ProductEditor(
         current = null,
+        capturePhotoInitially = true,
         recognizePhoto = viewModel::recognizePhoto,
         shelves = shelves,
         categories = categories,
@@ -668,7 +672,7 @@ internal fun variantDisplayText(variant: ProductVariant): String = listOfNotNull
 fun ProductEditor(
     current: Product?,
     capturePhotoInitially: Boolean = false,
-    recognizePhoto: (suspend (String) -> hr.smocnica.core.domain.PhotoProductSuggestion)? = null,
+    recognizePhoto: (suspend (String, String?) -> hr.smocnica.core.domain.PhotoProductSuggestion)? = null,
     currentVariant: ProductVariant? = null,
     currentItem: ProductWithStock? = null,
     shelves: List<Shelf>,
@@ -690,8 +694,12 @@ fun ProductEditor(
     onSave: (ProductEditorSubmission, String, Int, String?, PhotoSource?, (Boolean) -> Unit) -> Unit,
 ) {
     val isNew = current == null || current.id.isBlank()
+    val entryRequestId = rememberSaveable(current?.id) { java.util.UUID.randomUUID().toString() }
+    val entryTimestamp = rememberSaveable(current?.id) { System.currentTimeMillis() }
     var detailsExpanded by rememberSaveable(current?.id) { mutableStateOf(!isNew) }
     var recognizing by remember { mutableStateOf(false) }
+    var processingPhoto by remember { mutableStateOf(false) }
+    var recognitionFailed by remember { mutableStateOf(false) }
     var recognitionAttempt by remember { mutableStateOf(0) }
     var recognitionMessage by remember { mutableStateOf<String?>(null) }
     var name by rememberSaveable(current?.id) { mutableStateOf(current?.name.orEmpty()) }
@@ -756,6 +764,9 @@ fun ProductEditor(
     val requestNotificationPermission = requestNotificationPermissionOverride
         ?: { notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS) }
     var selectedPhotoPath by rememberProductPhotoDraftPath(current?.id)
+    var additionalPhotoPath by rememberSaveable(current?.id) { mutableStateOf<String?>(null) }
+    var capturingAdditional by rememberSaveable { mutableStateOf(false) }
+    var lastRecognitionAt by remember { mutableStateOf(0L) }
     var selectedSourceName by rememberSaveable { mutableStateOf<String?>(null) }
     var saveSelectedPhoto by rememberSaveable(current?.id) { mutableStateOf(true) }
     val selectedSource = selectedSourceName?.let(PhotoSource::valueOf)
@@ -793,6 +804,15 @@ fun ProductEditor(
     }
     LaunchedEffect(name, variantName) { targetProductId = ""; groupingConfirmed = false }
     fun replaceSelectedPhoto(path: String, source: PhotoSource) {
+        if (capturingAdditional && selectedPhotoPath != null) {
+            deleteTemporaryProductPhoto(context.cacheDir, additionalPhotoPath)
+            additionalPhotoPath = path
+            capturingAdditional = false
+            photoError = null
+            return
+        }
+        deleteTemporaryProductPhoto(context.cacheDir, additionalPhotoPath)
+        additionalPhotoPath = null
         deleteTemporaryProductPhoto(context.cacheDir, selectedPhotoPath)
         selectedPhotoPath = path
         selectedSourceName = source.name
@@ -802,6 +822,8 @@ fun ProductEditor(
     }
 
     fun finishEditor() {
+        deleteTemporaryProductPhoto(context.cacheDir, additionalPhotoPath)
+        additionalPhotoPath = null
         deleteTemporaryProductPhoto(context.cacheDir, selectedPhotoPath)
         deleteTemporaryProductPhoto(context.cacheDir, pendingCameraPath)
         selectedPhotoPath = null
@@ -815,19 +837,23 @@ fun ProductEditor(
 
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) scope.launch {
+            processingPhoto = true
             runCatching { resizeJpegToTempFile(context, uri) }
                 .onSuccess { replaceSelectedPhoto(it.absolutePath, PhotoSource.GALLERY) }
                 .onFailure { photoError = it.message }
+            processingPhoto = false
         }
     }
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         val capturePath = pendingCameraPath
         if (success && capturePath != null) scope.launch {
+            processingPhoto = true
             runCatching { resizeJpegToTempFile(context, Uri.fromFile(File(capturePath))) }
                 .onSuccess { replaceSelectedPhoto(it.absolutePath, PhotoSource.CAMERA) }
                 .onFailure { photoError = it.message }
             deleteTemporaryProductPhoto(context.cacheDir, capturePath)
             pendingCameraPath = null
+            processingPhoto = false
         } else {
             deleteTemporaryProductPhoto(context.cacheDir, capturePath)
             pendingCameraPath = null
@@ -863,28 +889,35 @@ fun ProductEditor(
             if (photoError == "Kamera nije dopuštena. Omogućite je u postavkama aplikacije.") photoError = null
         }
     }
-    LaunchedEffect(selectedPhotoPath, recognitionAttempt) {
+    LaunchedEffect(selectedPhotoPath, additionalPhotoPath, recognitionAttempt) {
         val path = selectedPhotoPath
         val recognize = recognizePhoto
         if (isNew && path != null && recognize != null) {
             recognizing = true
+            recognitionFailed = false
             recognitionMessage = null
             val startingName = name
             val startingManufacturer = manufacturer
             val startingAmount = packageAmount
             val startingUnit = packageUnit
             try {
-                val suggestion = recognize(path)
-                if (name == startingName) { name = suggestion.name; variantName = suggestion.name }
-                if (manufacturer == startingManufacturer) manufacturer = suggestion.manufacturer
-                if (packageAmount == startingAmount && packageUnit == startingUnit) {
-                    packageAmount = suggestion.packageAmount
-                    packageUnit = suggestion.packageUnit.name
-                }
-                recognitionMessage = "Provjerite prepoznate podatke prije spremanja."
+                val wait = (lastRecognitionAt + 6500 - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(0)
+                if (lastRecognitionAt > 0) kotlinx.coroutines.delay(wait)
+                lastRecognitionAt = android.os.SystemClock.elapsedRealtime()
+                val suggestion = recognize(path, additionalPhotoPath)
+                val currentFields = hr.smocnica.core.domain.PhotoEntryFields(name, manufacturer, packageAmount, PackageUnit.valueOf(packageUnit))
+                val startingFields = hr.smocnica.core.domain.PhotoEntryFields(startingName, startingManufacturer, startingAmount, PackageUnit.valueOf(startingUnit))
+                val merged = currentFields.merge(startingFields, suggestion, additionalPhotoPath != null)
+                if (name != merged.name) variantName = merged.name
+                name = merged.name
+                manufacturer = merged.manufacturer
+                packageAmount = merged.amount
+                packageUnit = merged.unit.name
+                recognitionMessage = if (packageAmount.isBlank()) "Fotografirajte stranu s gramažom ili volumenom." else "Provjerite podatke i dodirnite Spremi."
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
+                recognitionFailed = true
                 recognitionMessage = when ((failure as? com.google.firebase.functions.FirebaseFunctionsException)?.code) {
                     com.google.firebase.functions.FirebaseFunctionsException.Code.RESOURCE_EXHAUSTED -> "Dosegnuto je ograničenje prepoznavanja. Pokušajte kasnije ili unesite naziv ručno."
                     com.google.firebase.functions.FirebaseFunctionsException.Code.FAILED_PRECONDITION,
@@ -967,26 +1000,32 @@ fun ProductEditor(
                                 "Nova fotografija artikla",
                                 Modifier.fillMaxWidth().height(120.dp),
                             )
-                            ProductPhotoSaveOption(saveSelectedPhoto) { saveSelectedPhoto = it }
-                            Text(if (saveSelectedPhoto) "Fotografija će se spremiti uz proizvod kada dodirnete Spremi."
-                                else "Ova fotografija služi samo za prepoznavanje i neće se spremiti uz proizvod.")
+                            if (detailsExpanded) ProductPhotoSaveOption(saveSelectedPhoto) { saveSelectedPhoto = it }
                         }
-                        if (isNew && recognizePhoto != null) Text("Fotografirajte ambalažu za prijedlog podataka. Fotografija se šalje Google Geminiju.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (isNew && recognizePhoto != null && (selectedPhotoPath == null || detailsExpanded)) Text("Fotografirajte ambalažu za prijedlog podataka. Fotografija se šalje Google Geminiju.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (processingPhoto) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Pripremam fotografiju…") }
                         if (recognizing) { LinearProgressIndicator(Modifier.fillMaxWidth()); Text("Prepoznajem proizvod…") }
                         recognitionMessage?.let { Text(it) }
                         if (selectedPhotoPath != null && recognizePhoto != null && !recognizing && isNew) {
-                            TextButton({ recognitionAttempt += 1 }) { Text("Ponovi prepoznavanje") }
+                            if (packageAmount.isBlank() || detailsExpanded) OutlinedButton({
+                                capturingAdditional = true
+                                if (cameraPermissionGranted) launchCameraCapture()
+                                else cameraPermission.launch(Manifest.permission.CAMERA)
+                            }, enabled = !submitting) { Text("Snimi drugu stranu") }
+                            if (additionalPhotoPath != null) Text("Druga snimka dopunjuje podatke. Prva ostaje slika artikla.")
+                            if (recognitionFailed || detailsExpanded) TextButton({ recognitionAttempt += 1 }) { Text("Ponovi prepoznavanje") }
                         }
                         photoError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         if (cameraPermissionDenied) OutlinedButton({
                             context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, "package:${context.packageName}".toUri()))
                         }) { Text("Otvori postavke aplikacije") }
-                        AdaptiveFormRow { fieldModifier ->
+                        if (selectedPhotoPath == null || detailsExpanded) AdaptiveFormRow { fieldModifier ->
                             OutlinedButton({
+                                capturingAdditional = false
                                 if (cameraPermissionGranted) launchCameraCapture()
                                 else cameraPermission.launch(Manifest.permission.CAMERA)
-                            }, fieldModifier, shape = RoundedCornerShape(12.dp)) { Text(if (isNew && recognizePhoto != null) "Fotografiraj proizvod" else "Snimi") }
-                            OutlinedButton({ gallery.launch("image/*") }, fieldModifier, shape = RoundedCornerShape(12.dp)) { Text("Odaberi fotografiju") }
+                            }, fieldModifier, enabled = !recognizing && !submitting, shape = RoundedCornerShape(12.dp)) { Text(if (isNew && recognizePhoto != null) "Fotografiraj proizvod" else "Snimi") }
+                            OutlinedButton({ capturingAdditional = false; gallery.launch("image/*") }, fieldModifier, enabled = !recognizing && !submitting, shape = RoundedCornerShape(12.dp)) { Text("Odaberi fotografiju") }
                         }
                     }
                 }
@@ -1004,8 +1043,8 @@ fun ProductEditor(
                     )
                 }
                 if (detailsExpanded) item { OutlinedTextField(variantName, { variantName = it.take(100) }, label = { Text("Naziv varijante *") }, modifier = Modifier.fillMaxWidth()) }
-                item { OutlinedTextField(manufacturer, { manufacturer = it.take(100) }, label = { Text("Proizvođač (opcionalno)") }, modifier = Modifier.fillMaxWidth()) }
-                if (detailsExpanded || barcode.isBlank()) item {
+                if (detailsExpanded) item { OutlinedTextField(manufacturer, { manufacturer = it.take(100) }, label = { Text("Proizvođač (opcionalno)") }, modifier = Modifier.fillMaxWidth()) }
+                if (detailsExpanded) item {
                     OutlinedTextField(
                         barcode,
                         {
@@ -1211,7 +1250,7 @@ fun ProductEditor(
                     }
                     operationError = null
                     submitting = true
-                    val now = System.currentTimeMillis()
+                    val now = entryTimestamp
                     onSave(
                         ProductEditorSubmission(
                         product = (current ?: Product("", "", name, createdAt = now, updatedAt = now)).copy(
@@ -1249,6 +1288,7 @@ fun ProductEditor(
                             updatedAt = now,
                         ),
                         targetProductId = targetProductId.ifBlank { null },
+                        requestId = entryRequestId,
                         ),
                         shelfId,
                         requireNotNull(parsedInitialQuantity),
@@ -1259,7 +1299,7 @@ fun ProductEditor(
                         if (success) { shelfPreferences.edit().putString(pantryKey, shelfId).apply(); finishEditor() } else operationError = "Spremanje nije uspjelo. Pokušajte ponovno."
                     }
                 },
-                enabled = !submitting && !recognizing && !catalogLookup.isLoading && name.trim().length in 1..100 && variantName.trim().length in 1..100 &&
+                enabled = !submitting && !recognizing && !processingPhoto && !catalogLookup.isLoading && name.trim().length in 1..100 && variantName.trim().length in 1..100 &&
                     categories.any { it.id == categoryId && it.name == category } &&
                     parsedMinimumBase != null && (!isNew || parsedInitialQuantity != null) &&
                     (variantMinimum.isBlank() || parsedVariantMinimum != null) &&

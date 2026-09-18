@@ -2,7 +2,7 @@
 
 Javna aplikacija: https://lukajerkovic1-creator.github.io/Smocnica/
 
-Otvoriti u Safariju, odabrati **Dijeljenje → Dodaj na početni zaslon**, otvoriti ikonu Smočnica i prijaviti se postojećim Google računom. Obavijesti uključiti u **Postavke → Obavijesti**. Kamera se traži tek nakon dodira gumba za uključivanje kamere. Ručni unos ostaje dostupan.
+Otvoriti u Safariju, odabrati **Dijeljenje → Dodaj na početni zaslon**, otvoriti ikonu Smočnica i prijaviti se postojećim Google računom. Obavijesti uključiti u **Postavke → Obavijesti**. Plus „Dodaj artikl” otvara fotografiranje; snimka automatski pokreće prepoznavanje naziva i veličine pakiranja. Ako veličina nije vidljiva, „Snimi drugu stranu” dopunjuje podatke uz očuvanje prve fotografije. Nedavni artikli dodaju jedno pakiranje uz „Poništi”. Ručni unos ostaje dostupan.
 
 ## Razvoj i provjere
 
@@ -30,4 +30,4 @@ Podrška Web Pushu na serveru koristi Secret Manager `WEB_PUSH_VAPID` s JSON obj
 
 ## Granice provjere
 
-Povezivanje sa stvarnim Google računom, fizičko skeniranje, dopuštenja iPhonea i dostavu obavijesti zatvorenoj aplikaciji treba potvrditi na stvarnom iPhoneu. Izolirani UI testovi nisu dokaz takve provjere. Android APK nije mijenjan ni ponovno objavljivan ovim web-projektom.
+Povezivanje sa stvarnim Google računom, fizičko skeniranje, dopuštenja iPhonea i dostavu obavijesti zatvorenoj aplikaciji treba potvrditi na stvarnom iPhoneu. Izolirani UI testovi nisu dokaz takve provjere. Android i web dijele isti tijek fotografskog unosa; Android nadogradnje dolaze kroz potpisani GitHub Release.

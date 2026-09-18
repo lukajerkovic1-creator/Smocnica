@@ -83,7 +83,12 @@ const api = {
   outbox: { pending: async () => [], flush: async () => {} },
   photo: async (url) => url,
   upload: async (_id, blob) => URL.createObjectURL(blob),
-  call: async () => {
+  call: async (name, payload) => {
+    if (name === "recognizeProductPhoto") {
+      // Deterministic local fixture; never calls an AI provider or a real pantry.
+      await new Promise(resolve => setTimeout(resolve, 150));
+      return { name: "Testna zobena kaša", manufacturer: "Test", packageAmount: payload.additionalPhotoBase64 ? "500" : "", packageUnit: payload.additionalPhotoBase64 ? "G" : "UNKNOWN" };
+    }
     throw new Error("External operations are disabled in the UI fixture");
   },
   register: async () => {},

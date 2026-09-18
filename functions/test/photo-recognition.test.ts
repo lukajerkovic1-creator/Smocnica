@@ -7,6 +7,16 @@ const product = { name: "Glatko brašno", manufacturer: "Čakovečki mlinovi", p
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64");
 
 describe("photo recognition", () => {
+  it("combines both bounded package photographs in one provider request", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(product) }] } }] })));
+    vi.stubGlobal("fetch", fetch);
+    await recognizeWithGemini(validatePhoto(jpeg), "test-only-key", validatePhoto(jpeg));
+    const body = JSON.parse(fetch.mock.calls[0][1].body);
+    expect(body.contents[0].parts).toHaveLength(2);
+    expect(body.contents[0].parts[1].inlineData.data).toBe(jpeg);
+    expect(body.systemInstruction.parts[0].text).toContain("Neto količinu prihvati samo ako je jasno otisnuta");
+    expect(() => validatePhoto("invalid second image")).toThrow();
+  });
   it("accepts only bounded JPEG payloads", () => {
     expect(validatePhoto(jpeg)).toBe(jpeg);
     for (const input of [null, "garbage", "aGVsbG8=", "A".repeat(7_000_000)]) expect(() => validatePhoto(input)).toThrow();

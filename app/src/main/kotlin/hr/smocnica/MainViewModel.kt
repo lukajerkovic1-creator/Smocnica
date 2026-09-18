@@ -73,12 +73,14 @@ class MainViewModel @Inject constructor(
     private val backendCompatibilityChecker: BackendCompatibilityChecker,
     val deviceIdentity: DeviceIdentity,
 ) : ViewModel() {
-    suspend fun recognizePhoto(path: String): hr.smocnica.core.domain.PhotoProductSuggestion {
+    suspend fun recognizePhoto(path: String, additionalPath: String? = null): hr.smocnica.core.domain.PhotoProductSuggestion {
         val pantryId = selectedPantry.value?.id ?: error("Smočnica nije odabrana.")
         return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val file = java.io.File(path)
             require(file.length() in 4..5L * 1024 * 1024)
-            photoRecognition.recognize(pantryId, file.readBytes())
+            val additional = additionalPath?.let { java.io.File(it) }
+            require(additional == null || additional.length() in 4..5L * 1024 * 1024)
+            photoRecognition.recognize(pantryId, file.readBytes(), additional?.readBytes())
         }
     }
     val session = sessions.session.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -337,6 +339,16 @@ class MainViewModel @Inject constructor(
             saved
         } else saved
     }, { saved -> onSaved?.invoke(saved) }, { onFailure?.invoke() })
+    private data class EntryProgress(
+        val submission: ProductEditorSubmission,
+        val shelfId: String,
+        val quantity: Int,
+        var product: Product? = null,
+        var variant: hr.smocnica.core.model.ProductVariant? = null,
+        var stockAdded: Boolean = false,
+    )
+    private val entryProgress = mutableMapOf<String, EntryProgress>()
+
     fun createProductAndStock(
         submission: ProductEditorSubmission,
         shelfId: String,
@@ -346,27 +358,37 @@ class MainViewModel @Inject constructor(
         onCreated: ((Product) -> Unit)? = null,
         onFailure: (() -> Unit)? = null,
     ) = actorAction({ pantry, uid ->
+        val entryKey = "$uid:${pantry.id}:${submission.requestId}"
+        val progress = entryProgress[entryKey]?.takeIf { it.product != null }
+            ?: EntryProgress(submission, shelfId, quantity).also { entryProgress[entryKey] = it }
+        require(progress.submission == submission && progress.shelfId == shelfId && progress.quantity == quantity) {
+            "Dovršite prethodno spremanje bez promjene podataka. Artikl zatim možete urediti."
+        }
         val targetId = submission.targetProductId
         val newProduct = targetId == null && submission.product.id.isBlank()
-        val created = if (targetId == null) {
+        val created = progress.product ?: (if (targetId == null) {
             inventory.upsertProduct(submission.product.copy(pantryId = pantry.id), uid, deviceIdentity.displayName,
                 initialVariant = submission.variant.takeIf { newProduct })
         } else {
             allProducts.value.firstOrNull { it.product.id == targetId }?.product
                 ?: error("Odabrani generički artikl više nije dostupan.")
-        }
-        val variant = if (newProduct) submission.variant.copy(id = requireNotNull(created.preferredVariantId), pantryId = pantry.id, productId = created.id) else inventory.upsertVariant(
+        }).also { progress.product = it }
+        val variant = progress.variant ?: (if (newProduct) submission.variant.copy(id = requireNotNull(created.preferredVariantId), pantryId = pantry.id, productId = created.id) else inventory.upsertVariant(
             submission.variant.copy(pantryId = pantry.id, productId = created.id),
             uid,
             deviceIdentity.displayName,
-        )
-        if (quantity > 0) inventory.adjustVariantStock(variant.id, shelfId, quantity, uid, deviceIdentity.displayName)
+        )).also { progress.variant = it }
+        if (!progress.stockAdded) {
+            if (quantity > 0) inventory.adjustVariantStock(variant.id, shelfId, quantity, uid, deviceIdentity.displayName)
+            progress.stockAdded = true
+        }
         if (photoPath != null && source != null) {
             val initialSync = sync.synchronize()
             require(initialSync.failed == 0 && initialSync.conflicts == 0) { "Artikl mora biti sinkroniziran prije prijenosa fotografije." }
             val url = photos.uploadJpeg(pantry.id, variant.id, photoPath)
             inventory.upsertVariant(variant.copy(photoUri = url, photoSource = source), uid, deviceIdentity.displayName)
         }
+        entryProgress.remove(entryKey)
         created
     }, { created -> onCreated?.invoke(created) }, { onFailure?.invoke() })
     fun deleteProduct(product: Product) = withActor { _, uid -> inventory.deleteProduct(product, uid, deviceIdentity.displayName) }
