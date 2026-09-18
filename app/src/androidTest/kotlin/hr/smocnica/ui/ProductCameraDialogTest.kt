@@ -19,7 +19,9 @@ class ProductCameraDialogTest {
     @Test fun shutterReturnsJpegWithoutASecondConfirmation() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        instrumentation.uiAutomation.executeShellCommand("pm grant ${context.packageName} ${Manifest.permission.CAMERA}").close()
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(
+            instrumentation.uiAutomation.executeShellCommand("pm grant ${context.packageName} ${Manifest.permission.CAMERA}"),
+        ).use { it.readBytes() }
         val result = AtomicReference<String?>()
         val visible = mutableStateOf(true)
         compose.setContent {
