@@ -28,6 +28,8 @@ import {
 } from "./domain";
 import { ScanFlow, compressPhoto } from "./Scanner";
 import { ShelfManager } from "./Management";
+import IconPicker from "./IconPicker";
+import { iconPhoto, suggestIcon } from "./product-icons";
 export default function Inventory() {
   const { data, open, close } = useApp();
   const [search, setSearch] = useState(""),
@@ -352,7 +354,7 @@ function ProductRow({ p, photo, label, selecting, selected, toggle, select }) {
               : open(p.name, <ProductDetail productId={p.id} />)
           }
         >
-          <Photo variant={photo} />
+          <Photo variant={photo} name={p.name} />
           <span className="product-copy">
             <strong>{p.name}</strong>
             <small>{label}</small>
@@ -674,7 +676,7 @@ export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
     [photo, setPhoto] = useState(null),
     [photoError, setPhotoError] = useState(""),
     [recognizing, setRecognizing] = useState(false),
-    [keepPhoto, setKeepPhoto] = useState(true),
+    [visual, setVisual] = useState("auto"),
     [group, setGroup] = useState("");
   const stage = useRef({
     id: product?.id || crypto.randomUUID(),
@@ -715,8 +717,8 @@ export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
             f.get("variantMinimum") === ""
               ? null
               : integer(f.get("variantMinimum") || 0),
-          photoSource: initial.photoSource || "NONE",
-          photoUri: initial.photoUrl || null,
+          photoSource: visual === "photo" ? initial.photoSource || "NONE" : "NONE",
+          photoUri: visual === "photo" ? initial.photoUrl || null : null,
         };
         if (!s.saved) {
           if (group && !product) {
@@ -751,13 +753,15 @@ export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
             String(f.get("shelf")),
           );
         }
-        if (!product && photo && keepPhoto) {
-          const uri = await api.upload(v.id, photo);
+        if (!product && (visual !== "photo" || photo)) {
+          const illustration = visual !== "photo";
+          const image = illustration ? await iconPhoto(visual === "auto" ? suggestIcon(name) : visual) : photo;
+          const uri = await api.upload(v.id, image);
           const latest = await api.record("variants", v.id);
           await api.mutate(
             "upsert_variant",
             v.id,
-            { variant: { ...latest, photoUri: uri, photoSource: "CAMERA" } },
+            { variant: { ...latest, photoUri: uri, photoSource: illustration ? "GALLERY" : "CAMERA" } },
             latest.revision,
             "VARIANT",
           );
@@ -775,6 +779,7 @@ export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
       />
       {!product && (
         <>
+          <IconPicker name={name} value={visual} onChange={setVisual} />
           <Field
             label="Proizvođač"
             value={manufacturer}
@@ -841,14 +846,6 @@ export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
           </label>
           {photo && (
             <>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={keepPhoto}
-                  onChange={(e) => setKeepPhoto(e.target.checked)}
-                />
-                Prikaži fotografiju na kartici
-              </label>
               <button
                 type="button"
                 disabled={recognizing}
@@ -983,8 +980,12 @@ const unitRows = [
   ["CAPSULE", "kapsula"],
 ].map(([id, name]) => ({ id, name }));
 export function VariantEditor({ variant, productId }) {
-  const { api, close } = useApp();
+  const { api, close, data } = useApp();
   const [photo, setPhoto] = useState(null);
+  const [visual, setVisual] = useState(variant?.photoUrl ? "photo" : "auto");
+  const [name, setName] = useState(variant?.displayName || "");
+  const [photoError, setPhotoError] = useState("");
+  const productName = data.products.find((p) => p.id === (variant?.productId || productId))?.name || "";
   return (
     <Form
       cancel={close}
@@ -1015,8 +1016,9 @@ export function VariantEditor({ variant, productId }) {
           variant?.revision || 0,
           "VARIANT",
         );
-        if (photo) {
-          const uri = await api.upload(id, photo);
+        if (photo || visual !== "photo") {
+          const image = visual === "photo" ? photo : await iconPhoto(visual === "auto" ? suggestIcon(`${productName} ${name}`) : visual);
+          const uri = await api.upload(id, image);
           const latest = await api.record("variants", id);
           await api.mutate(
             "upsert_variant",
@@ -1032,7 +1034,8 @@ export function VariantEditor({ variant, productId }) {
       <Field
         label="Naziv varijante"
         name="name"
-        defaultValue={variant?.displayName || ""}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
         required
         maxLength={100}
       />
@@ -1088,10 +1091,14 @@ export function VariantEditor({ variant, productId }) {
         type="file"
         accept="image/*"
         onChange={async (e) => {
-          if (e.target.files[0])
-            setPhoto(await compressPhoto(e.target.files[0]));
+          try {
+            if (e.target.files[0]) setPhoto(await compressPhoto(e.target.files[0]));
+            setPhotoError("");
+          } catch (error) { setPhotoError(error.message); }
         }}
       />
+      <IconPicker name={`${productName} ${name}`} value={visual} onChange={setVisual} existing={!!variant?.photoUrl} />
+      {photoError && <p role="alert">{photoError}</p>}
     </Form>
   );
 }

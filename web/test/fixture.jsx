@@ -81,9 +81,8 @@ const api = {
     };
   },
   outbox: { pending: async () => [], flush: async () => {} },
-  photo: async () => {
-    throw new Error("No fixture photo");
-  },
+  photo: async (url) => url,
+  upload: async (_id, blob) => URL.createObjectURL(blob),
   call: async () => {
     throw new Error("External operations are disabled in the UI fixture");
   },
@@ -95,7 +94,11 @@ const api = {
         (s) =>
           s.variantId === payload.variantId && s.shelfId === payload.shelfId,
       );
-      if (!s) throw new Error("Missing fixture stock");
+      if (!s) {
+        data.stocks.push({ id: `${payload.variantId}_${payload.shelfId}`, variantId: payload.variantId, productId: payload.productId, shelfId: payload.shelfId, quantity: payload.delta, revision: 1 });
+        emit();
+        return { status: "APPLIED" };
+      }
       if (s.quantity + payload.delta < 0)
         throw new Error("Nema dovoljno zalihe.");
       s.quantity += payload.delta;
@@ -114,6 +117,11 @@ const api = {
         data.products.push({ ...payload.product, revision: 1 });
         data.variants.push({ ...payload.initialVariant, revision: 1 });
       }
+    } else if (type === "upsert_variant") {
+      const variant = data.variants.find((v) => v.id === id);
+      const value = { ...payload.variant, photoUrl: payload.variant.photoUri, revision: (variant?.revision || 0) + 1 };
+      if (variant) Object.assign(variant, value);
+      else data.variants.push(value);
     } else throw new Error(`Unsupported test operation: ${type}`);
     emit();
     return { status: "APPLIED" };

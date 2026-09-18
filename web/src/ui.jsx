@@ -7,6 +7,7 @@ import React, {
 } from "react";
 import { X, Package, Share, LoaderCircle } from "lucide-react";
 import { errorText } from "./outbox";
+import { iconDataUrl, suggestIcon } from "./product-icons";
 export const Context = createContext(null);
 export const useApp = () => useContext(Context);
 export function Field({ label, children, ...props }) {
@@ -138,7 +139,7 @@ export function InstallHelp() {
     </aside>
   );
 }
-export function Photo({ variant }) {
+export function Photo({ variant, name = "" }) {
   const { api } = useApp();
   const [src, setSrc] = useState(null);
   useEffect(() => {
@@ -167,9 +168,7 @@ export function Photo({ variant }) {
       onError={() => setSrc(null)}
     />
   ) : (
-    <div className="product-photo fallback">
-      <Package />
-    </div>
+    <img className="product-photo" src={iconDataUrl(suggestIcon(`${name} ${variant?.displayName || ""}`))} alt="" />
   );
 }
 export function download(name, body, type) {

@@ -775,3 +775,7 @@ article .row {
     transition: none !important;
   }
 }
+.icon-picker { margin: 12px 0 20px; }
+.icon-preview { display: flex; gap: 14px; align-items: center; padding: 12px; background: var(--surface, #f7f5fa); border-radius: 16px; }
+.icon-preview img { width: 76px; height: 76px; flex-shrink: 0; border-radius: 16px; }
+.icon-preview p { margin: 6px 0 0; font-size: 13px; line-height: 1.45; }
