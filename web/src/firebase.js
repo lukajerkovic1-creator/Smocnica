@@ -63,6 +63,8 @@ export const api = {
     if (!pantryId) throw new Error("Smočnica nije dostupna.");
     const base = collection(db, "pantries", pantryId, "activities");
     const cursor = afterId ? await getDoc(doc(base, afterId)) : null;
+    if (afterId && !cursor.exists())
+      throw new Error("Povijest se promijenila. Ponovno otvorite povijest ili pokrenite izvoz.");
     const result = await getDocs(
       query(
         base,

@@ -1,4 +1,4 @@
-import { active, hash, timestamp, validateSnapshot } from "./domain.js";
+import { active, hash, timestamp, validateSnapshot, packageBase } from "./domain.js";
 // Field order and defaults mirror Kotlin's PantrySnapshot serializer. This keeps
 // JSON checksums and exported files compatible with the Android application.
 const compact = (object) =>
@@ -188,11 +188,11 @@ export async function exportBackup(data, pantry, history) {
 export async function readBackup(text) {
   const envelope = JSON.parse(text.replace(/^\uFEFF/, ""));
   if (
-    ![2, 3].includes(envelope.schemaVersion) ||
+    ![1, 2, 3].includes(envelope.schemaVersion) ||
     !envelope.snapshot ||
     typeof envelope.checksumSha256 !== "string"
   )
-    throw new Error("Odaberite sigurnosnu kopiju Smočnice verzije 2 ili 3.");
+    throw new Error("Odaberite sigurnosnu kopiju Smočnice verzije 1, 2 ili 3.");
   if (
     (await hash(JSON.stringify(envelope.snapshot))) !==
     envelope.checksumSha256.toLowerCase()
@@ -201,6 +201,18 @@ export async function readBackup(text) {
       "Kontrolni sažetak nije ispravan. Datoteka je oštećena ili izmijenjena.",
     );
   const s = envelope.snapshot;
+  if (envelope.schemaVersion < 3 && !s.variants?.length) {
+    s.variants = s.products.map((p) => {
+      const match = (p.description || "").match(/(?:^|\s)(\d+(?:[.,]\d+)?)\s*(mg|kg|g|ml|l|kom(?:ad(?:a)?)?|rola|role|vrećica|vrećice|kapsula|kapsule)(?:\s|$)/iu);
+      const units = { mg: "MG", kg: "KG", g: "G", ml: "ML", l: "L", rola: "ROLL", role: "ROLL", vrećica: "BAG", vrećice: "BAG", kapsula: "CAPSULE", kapsule: "CAPSULE" };
+      const unit = match ? units[match[2].toLocaleLowerCase("hr")] || "PIECE" : "UNKNOWN";
+      return { ...p, productId: p.id, displayName: p.name, manufacturer: "", packageUnit: unit, packageAmountBase: match ? packageBase(match[1], unit) : null, packageLabel: match?.[0].trim() || "" };
+    });
+    s.products = s.products.map((p) => ({ ...p, barcode: null, description: "", photoUri: null, photoSource: "NONE", minimumMode: "PACKAGES", minimumAmountBase: p.minimumQuantity || 0, preferredVariantId: p.id }));
+    s.stocks = s.stocks.map((row) => ({ ...row, variantId: row.productId }));
+    s.shoppingItems = s.shoppingItems.map((row) => ({ ...row, preferredVariantId: row.productId || null }));
+    s.synonymRules ||= [];
+  }
   return validateSnapshot({
     schemaVersion: 2,
     ...s,

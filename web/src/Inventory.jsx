@@ -24,6 +24,7 @@ import {
   normalize,
   timestamp,
   belowMinimum,
+  groupingMatches,
 } from "./domain";
 import { ScanFlow, compressPhoto } from "./Scanner";
 import { ShelfManager } from "./Management";
@@ -681,9 +682,7 @@ export function ProductEditor({ product, initial = {}, initialShelf = "" }) {
     saved: false,
     stock: false,
   });
-  const matches = active(data.products).filter(
-    (p) => !p.doNotGroup && normalize(p.name) === normalize(name),
-  );
+  const matches = groupingMatches(name, data.products, data.synonymRules);
   return (
     <Form
       cancel={close}

@@ -1,6 +1,30 @@
 export const active = (rows) => rows.filter((row) => !row.deletedAt);
 export const normalize = (value) =>
   value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase("hr");
+export function groupingMatches(name, products, rules = []) {
+  const source = normalize(name);
+  if (!source) return [];
+  const rule = active(rules).find((r) => normalize(r.sourceNormalized) === source);
+  const synonyms = {
+    "pšenično brašno t-550": "Glatko brašno",
+    "pšenično brašno t 550": "Glatko brašno",
+    "brašno glatko": "Glatko brašno",
+    "mlijeko trajno": "Trajno mlijeko",
+    "paradajz pasiran": "Pasirana rajčica",
+    "šećer kristal": "Kristal šećer",
+    "ulje suncokretovo": "Suncokretovo ulje",
+  };
+  const target = normalize(rule?.genericName || synonyms[source] || source);
+  const eligible = active(products).filter((p) => !p.doNotGroup);
+  const exact = eligible.filter((p) => p.id === rule?.productId || normalize(p.name) === target);
+  if (exact.length || rule) return exact;
+  const words = new Set(source.replace(/\b\d+(?:[.,]\d+)?\s*(?:mg|g|kg|ml|l|kom|komada|rola|vrećica|kapsula)\b/gu, " ").split(/\s+/u).filter(Boolean));
+  return eligible.map((p) => {
+    const other = new Set(normalize(p.name).split(" "));
+    const score = [...words].filter((w) => other.has(w)).length / new Set([...words, ...other]).size;
+    return { p, score };
+  }).filter(({ score }) => score >= 0.75).sort((a, b) => b.score - a.score).slice(0, 1).map(({ p }) => p);
+}
 export const quantity = (stocks, id, field = "productId") =>
   stocks.filter((s) => s[field] === id).reduce((n, s) => n + s.quantity, 0);
 export const sorted = (rows) =>

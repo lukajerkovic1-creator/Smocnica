@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { canonicalSnapshot, exportBackup, readBackup } from "../src/backup.js";
+import { hash } from "../src/domain.js";
 const pantry = {
   id: "p",
   name: "Smočnica",
@@ -29,6 +30,17 @@ const data = {
   synonymRules: [],
   activities: [],
 };
+test("legacy backup preserves stock and barcode while creating variants", async () => {
+  const legacy = { ...data, pantry, products: [{ ...data.products[0], barcode: "3850123456789", description: "Pakiranje 1 kg", minimumQuantity: 2 }], stocks: [{ productId: "p1", shelfId: "s", quantity: 4 }] };
+  delete legacy.variants;
+  delete legacy.synonymRules;
+  const result = await readBackup(JSON.stringify({ schemaVersion: 2, snapshot: legacy, checksumSha256: await hash(JSON.stringify(legacy)) }));
+  assert.equal(result.variants[0].barcode, "3850123456789");
+  assert.equal(result.variants[0].packageAmountBase, 1000000);
+  assert.equal(result.stocks[0].variantId, "p1");
+  assert.equal(result.stocks[0].quantity, 4);
+  assert.equal(result.products[0].minimumAmountBase, 2);
+});
 test("backup uses Android envelope, defaults, field order and no nulls", async () => {
   const s = canonicalSnapshot(data, pantry);
   assert.deepEqual(Object.keys(s), [
