@@ -1,8 +1,10 @@
 // Fixed vector artwork: no user text or external URLs enter the SVG markup.
+import { extraFoodIcons } from "./food-icons.js";
 const cookie = '<circle cx="45" cy="59" r="15" fill="#dda75d"/><circle cx="62" cy="66" r="16" fill="#bc783d"/><g fill="#563023" stroke="none"><circle cx="40" cy="55" r="3"/><circle cx="49" cy="64" r="3"/><circle cx="61" cy="58" r="3"/><circle cx="69" cy="70" r="3"/><circle cx="56" cy="72" r="3"/></g>';
 const box = (color, detail) => `<path d="M22 25 70 18 80 30v55H22Z" fill="${color}"/><path d="m22 25 10 10h48M32 35v50" fill="none" opacity=".35"/>${detail}`;
 const bag = (color, detail) => `<path d="m29 20 42 0-3 13 8 52H24l8-52Z" fill="${color}"/><path d="M29 27h42M26 79h48" fill="none" opacity=".35"/>${detail}`;
 export const productIcons = [
+  ...extraFoodIcons,
   { id: "cookies", name: "Čokoladni keksi i napolitanke", pattern: /napolit|keks|cookie|wafer|vafl/, art: box("#b95547", cookie) },
   { id: "chocolate", name: "Čokolada", pattern: /cokolad|cocoa|kakao/, art: '<rect x="28" y="18" width="44" height="68" rx="5" fill="#79452f"/><path d="M42 20v40m15-40v40M29 34h42M29 48h42" fill="none"/><path d="m24 54 52 0-4 33H28Z" fill="#a890dc"/><path d="m24 54 20 9 32-9" fill="#eee5ff"/>' },
   { id: "milk", name: "Mlijeko", pattern: /mlijek|milk|napitak.*(zob|soj)/, art: '<path d="m30 31 10-16h24l9 16v55H30Z" fill="#fffdf4"/><path d="M30 43h43v33H30Z" fill="#92cce5"/><path d="m40 15 2 16h31M42 31v55" fill="none"/><path d="M54 48q-15 18 0 20 15-2 0-20" fill="white"/>' },
@@ -22,8 +24,22 @@ export const productIcons = [
   { id: "pantry", name: "Ostale namirnice", pattern: /./, art: box("#b6a4d7", '<rect x="39" y="45" width="31" height="23" rx="4" fill="#f5efff"/><path d="M46 56h17" stroke="#9a82bf" stroke-width="4"/>') },
 ];
 export function suggestIcon(name = "") {
-  const normalized = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const normalized = normalizeIconText(name);
+  if (/maslac.*kikirik|kikirik.*maslac|(?:cokolad|ljesnjak|kikiriki|badem).*namaz/.test(normalized)) return "nut-spread";
+  if (/napolit|keks|cookie|wafer|vafl/.test(normalized)) return "cookies";
+  if (/cokolad.*mlijek|mlijek.*cokolad/.test(normalized)) return "milk";
   return productIcons.find((icon) => icon.pattern.test(normalized))?.id || "pantry";
+}
+export function normalizeIconText(value = "") {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").toLowerCase().trim();
+}
+export function findIcons(query = "") {
+  const text = normalizeIconText(query);
+  if (!text) return productIcons;
+  const suggested = suggestIcon(text);
+  return productIcons.filter((icon) =>
+    normalizeIconText(`${icon.name} ${icon.category || ""}`).includes(text) ||
+    (icon.id !== "pantry" && (icon.pattern.test(text) || icon.id === suggested)));
 }
 export function iconDataUrl(id) {
   const icon = productIcons.find((item) => item.id === id) || productIcons.at(-1);
