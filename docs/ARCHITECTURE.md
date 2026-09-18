@@ -1,5 +1,13 @@
 # Arhitektura
 
+## Web-klijent
+
+`web/` je React/Vite PWA, objavljen statički na postojećem GitHub Pagesu pod `/Smocnica/`. Koristi Firebase Authentication (Google popup), Firestore realtime čitanja i postojeće callable poslovne funkcije u `europe-west1`. Web App Check koristi reCAPTCHA Enterprise; zaštita Android klijenta i pravila članstva nisu ublaženi. Firebase web-konfiguracija i javni identifikatori za App Check i Web Push ulaze u build iz GitHub secrets, bez lokalnih konfiguracija ili privatnih ključeva u Gitu.
+
+Operativne mutacije najprije se zapisuju u IndexedDB outbox s UID-om, operationId, deviceId/deviceName i baseRevision. Poslužitelj ostaje izvor prikazanih podataka; nema optimistične potvrde. Retry koristi isti zahtjev. Konflikt ili odbijanje zaustavlja red, odjava zahtijeva razrješenje reda, a zapis drugog računa ne može se poslati ni odbaciti. Nacrt inventure čuva snapshot hash i stvarno brojanje; potvrda koristi postojeću transakcijsku provjeru inventure. Privatne fotografije dohvaćaju se autoriziranim Storage SDK-om kao privremeni blob URL-ovi, bez bearer download URL-a. Service worker ne predmemorira privatne podatke.
+
+`registerDevice` aditivno prihvaća `platform: WEB` i `webPush` pretplatu, uz postojeći Android zadani način. Endpoint je ograničen na poznate HTTPS push hostove, bez proizvoljnih mrežnih adresa, portova i ugrađenih vjerodajnica. Privatni VAPID ključ čuva se isključivo u Secret Manageru (`WEB_PUSH_VAPID`); javni dio ulazi u web-build. `notifyLowStock` dodatno šalje šifrirani Web Push, uz isto pravilo privatnosti i privatniji izbor kod ponovljenog endpointa. Odjava uklanja i FCM token i web pretplatu. Androidova FCM dostava ostaje podržana.
+
 ## Moduli i ovisnosti
 
 ```text

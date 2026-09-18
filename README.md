@@ -1,5 +1,7 @@
 # Smočnica
 
+Web-verzija za iPhone/Safari: [Otvori Smočnicu](https://lukajerkovic1-creator.github.io/Smocnica/). U Safariju odaberite dijeljenje → **Dodaj na početni zaslon**, a zatim se prijavite istim Google računom kao na Androidu. Obavijesti se uključuju u Postavkama web-aplikacije otvorene s početnog zaslona. Izvor web-klijenta, testovi i upute za objavu nalaze se u [web/README.md](web/README.md).
+
 Javna [politika privatnosti](https://lukajerkovic1-creator.github.io/Smocnica/privacy-policy.html) i [postupak brisanja korisničkog računa](https://lukajerkovic1-creator.github.io/Smocnica/delete-account.html) dostupni su bez instalacije aplikacije. U aplikaciji se račun briše putem `Izbornik → Izbriši korisnički račun`.
 
 Nativna Android aplikacija za zajedničko, offline-first vođenje kućne smočnice. Kotlin/Compose klijent koristi Room kao lokalni izvor istine i sinkronizira idempotentni outbox preko Firebase callable funkcija. Produkcijski podaci nisu uključeni u repozitorij.

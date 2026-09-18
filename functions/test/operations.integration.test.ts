@@ -20,6 +20,19 @@ const invokeTransferOwnership = testEnvironment.wrap(transferOwnership);
 const invokeCreatePantry = testEnvironment.wrap(createPantry);
 
 describe.skipIf(!emulatorAvailable)("applyOperation transaction integration", () => {
+  it("registers web notifications only for the authenticated account and clears them on signout", async () => {
+    const webPush={endpoint:"https://web.push.apple.com/test-only",keys:{p256dh:Buffer.alloc(65,4).toString("base64url"),auth:Buffer.alloc(16,1).toString("base64url")}};
+    await invokeRegisterDevice(callable({deviceId:"web-test",deviceDisplayName:"iPhone",platform:"WEB",webPush,detailedNotifications:false},"u1") as never);
+    const ref=db.doc("users/u1/devices/web-test");
+    expect((await ref.get()).get("platform")).toBe("WEB");
+    expect((await ref.get()).get("webPush")).toEqual(webPush);
+    expect((await db.doc("users/u2/devices/web-test").get()).exists).toBe(false);
+    await expect(invokeRegisterDevice({data:{deviceId:"web-test",deviceDisplayName:"iPhone",platform:"WEB",webPush}} as never)).rejects.toMatchObject({code:"unauthenticated"});
+    await expect(invokeRegisterDevice(callable({deviceId:"web-test",deviceDisplayName:"iPhone",platform:"WEB",webPush:{...webPush,endpoint:"https://127.0.0.1/private"}},"u1") as never)).rejects.toMatchObject({code:"invalid-argument"});
+    expect((await ref.get()).get("webPush")).toEqual(webPush);
+    await invokeUnregisterDevice(callable({deviceId:"web-test"},"u1") as never);
+    expect((await ref.get()).get("webPush")).toBeUndefined();
+  });
   it("deletes an empty shelf with trashed stock and restores its stock only after the shelf", async () => {
     const request = (operationId: string, aggregateType: string, aggregateId: string, payload: object, baseRevision = 1, uid = "u1") =>
       callable({ operationId, pantryId: "p1", aggregateType, aggregateId, baseRevision, payload,

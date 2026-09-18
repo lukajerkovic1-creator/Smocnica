@@ -6,9 +6,10 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { db } from "./firebase";
 import { normalizedName, sha256 } from "./validation";
+import { sendWebNotification, validateWebPush, webPushVapid } from "./web-push";
 
 export const notifyLowStock = onDocumentCreated(
-  { region: "europe-west1", document: "pantries/{pantryId}/notifications/{notificationId}" },
+  { region: "europe-west1", document: "pantries/{pantryId}/notifications/{notificationId}", secrets: [webPushVapid] },
   async (event) => {
     const pantryId = event.params.pantryId;
     const notification = event.data?.data();
@@ -22,7 +23,28 @@ export const notifyLowStock = onDocumentCreated(
       }))),
     );
     const tokens = [...audiences.privateTokens, ...audiences.detailedTokens];
-    if (tokens.length === 0) {
+    const webDevices = deviceSnapshots.flatMap((snapshot) => snapshot.docs).filter((doc) => doc.get("webPush"));
+    const webAudiences = new Map<string, { subscription: NonNullable<ReturnType<typeof validateWebPush>>; detailed: boolean }>();
+    for (const device of webDevices) {
+      try {
+        const subscription = validateWebPush(device.get("webPush"));
+        if (subscription) {
+          const prior = webAudiences.get(subscription.endpoint);
+          webAudiences.set(subscription.endpoint, { subscription, detailed: (prior?.detailed ?? true) && device.get("detailedNotifications") === true });
+        }
+      } catch { logger.warn("WEB_PUSH_INVALID_SUBSCRIPTION"); }
+    }
+    for (const audience of webAudiences.values()) {
+      try { await sendWebNotification(audience.subscription, lowStockNotificationContent(notification, audience.detailed)); }
+      catch (error) {
+        const status = (error as { statusCode?: number }).statusCode;
+        if (status === 404 || status === 410) {
+          await Promise.all(webDevices.filter((device) => device.get("webPush.endpoint") === audience.subscription.endpoint)
+            .map((device) => device.ref.update({ webPush: FieldValue.delete() })));
+        } else logger.warn("WEB_PUSH_DELIVERY_FAILED", { status: status ?? 0 });
+      }
+    }
+    if (tokens.length === 0 && webAudiences.size === 0) {
       await event.data?.ref.update(notificationRetentionFields(0));
       return;
     }
@@ -46,7 +68,7 @@ export const notifyLowStock = onDocumentCreated(
         if (invalidTokens.length > 0) await deactivateTokens(invalidTokens, deviceSnapshots);
       }
     }
-    await event.data?.ref.update({ sentAt: FieldValue.serverTimestamp(), ...notificationRetentionFields(tokens.length) });
+    await event.data?.ref.update({ sentAt: FieldValue.serverTimestamp(), ...notificationRetentionFields(tokens.length + webAudiences.size) });
   },
 );
 

@@ -1,10 +1,11 @@
-name: Publish public privacy pages
+name: Publish Smočnica web
 
 on:
   push:
     branches: [master]
     paths:
       - 'public/**'
+      - 'web/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
 
@@ -25,10 +26,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Build and test web application
+        working-directory: web
+        env:
+          VITE_FIREBASE_CONFIG: ${{ secrets.WEB_FIREBASE_CONFIG }}
+          VITE_RECAPTCHA_SITE_KEY: ${{ secrets.WEB_RECAPTCHA_SITE_KEY }}
+          VITE_VAPID_KEY: ${{ secrets.WEB_VAPID_KEY }}
+        run: |
+          npm ci
+          npm test
+          npm run build
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
         with:
-          path: public
+          path: web/dist
       - name: Deploy public pages
         id: deployment
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

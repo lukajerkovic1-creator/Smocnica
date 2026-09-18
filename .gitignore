@@ -37,3 +37,10 @@ functions/lib/
 *.apk
 *.aab
 build-review-*.png
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
+web/public/privacy-policy.html
+web/public/delete-account.html
+web/public/styles.css

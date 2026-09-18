@@ -3,6 +3,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { db, daysFromNow, now } from "./firebase";
+import { validateWebPush } from "./web-push";
 import { migratePantryCanonicalSchema } from "./canonical-schema";
 import { PANTRY_LIMITS, assertResourceLimit } from "./limits";
 import { authUid, boolean, invitationCode, normalizedName, object, optionalText, requireMember, requireOwner, safeId, sha256, text } from "./validation";
@@ -224,9 +225,15 @@ export const registerDevice = onCall(callable, async (request) => {
   const deviceDisplayName = text(data, "deviceDisplayName", 2, 40);
   const fcmToken = optionalText(data, "fcmToken", 4096);
   const detailedNotifications = boolean(data, "detailedNotifications", false);
+  const platform = data.platform === undefined ? "ANDROID" : text(data, "platform");
+  if (!["ANDROID", "WEB"].includes(platform)) throw new HttpsError("invalid-argument", "Nepodržana platforma.");
   const update: Record<string, unknown> = {
-    name: deviceDisplayName, platform: "ANDROID", detailedNotifications, updatedAt: now(), active: true,
+    name: deviceDisplayName, platform, detailedNotifications, updatedAt: now(), active: true,
   };
+  if (data.webPush !== undefined) {
+    if (platform !== "WEB") throw new HttpsError("invalid-argument", "Web pretplata zahtijeva web uređaj.");
+    update.webPush = validateWebPush(data.webPush) ?? FieldValue.delete();
+  }
   if (fcmToken) update.fcmToken = fcmToken;
   const userRef = db.doc(`users/${uid}`);
   await db.runTransaction(async (transaction) => {
@@ -251,6 +258,7 @@ export const unregisterDevice = onCall(callable, async (request) => {
   await db.doc(`users/${uid}/devices/${deviceId}`).set({
     active: false,
     fcmToken: FieldValue.delete(),
+    webPush: FieldValue.delete(),
     invalidatedAt: now(),
   }, { merge: true });
   return { status: "OK" };

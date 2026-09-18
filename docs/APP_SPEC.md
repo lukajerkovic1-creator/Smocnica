@@ -2,6 +2,12 @@
 
 ## 1. Cilj i opseg
 
+### Web-verzija za iPhone (18. rujna 2026.)
+
+Uz Android postoji web-klijent naziva „Smočnica” na GitHub Pagesu. Otvara se u Safariju i dodaje na početni zaslon kao PWA. Koristi isti Google/Firebase račun, smočnice, članstvo i poslovne funkcije kao Android. Izgled zadržava pregledan popis i ljubičaste naglaske, uz obrasce prilagođene iPhoneu (`docs/design/iphone-web-reference.png`). Korisnik nije zatražio offline rad web-klijenta: pregled i promjene trebaju mrežu. Nepotvrđene mutacije i nacrt inventure ipak se trajno čuvaju u IndexedDB-u, radi oporavka prekida zahtjeva. Androidova Room strategija ostaje nepromijenjena.
+
+Web pokriva zalihe i varijante, barkod/kameru i ručni unos, fotografije i Gemini prijedloge, police i kategorije, kupnju, inventuru, povijest, koš, članstvo i pozivnice, grupiranje, JSON/CSV, teme i brisanje računa. Androidovu instalaciju APK ažuriranja zamjenjuje učitavanje nove web-verzije. Dostupnost bljeskalice i kamere ovisi o uređaju i dopuštenjima. Web-obavijesti na iPhoneu uključuju se iz instalirane web-aplikacije, nakon korisnikova dodira i dopuštenja.
+
 „Smočnica” je nativna Android aplikacija za evidenciju kućnih zaliha hrane i drugih potrošnih artikala po policama. Mora omogućiti da dva ili više korisnika na različitim Android uređajima u stvarnom vremenu znaju:
 
 - koji se artikli nalaze u smočnici
