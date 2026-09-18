@@ -294,6 +294,8 @@ class ProductEditorTest {
         expandDetails()
         scrollTo("Pakiranje / opis")
         compose.onNodeWithText("Pakiranje / opis").performTextInput("750 g")
+        expandDetails()
+        scrollTo("Barkod (opcionalno)")
         compose.onNodeWithContentDescription("Skeniraj barkod").performClick()
         compose.onNodeWithText("Zatvori bez očitanja").performClick()
         compose.onNode(hasText("Naziv *") and hasText("Ručno ime")).assertExists()
@@ -331,10 +333,13 @@ class ProductEditorTest {
         }
         scrollTo("Naziv *")
         compose.onNodeWithText("Naziv *").performTextInput("Moje ime")
+        expandDetails()
+        scrollTo("Barkod (opcionalno)")
         compose.onNodeWithContentDescription("Skeniraj barkod").performClick()
         compose.onNodeWithText("Očitaj").performClick()
         compose.waitForIdle()
 
+        scrollTo("Naziv *")
         compose.onNode(hasText("Naziv *") and hasText("Moje ime")).assertExists()
         expandDetails()
         scrollTo("Barkod (opcionalno)")
@@ -365,6 +370,8 @@ class ProductEditorTest {
                 )
             }
         }
+        expandDetails()
+        scrollTo("Barkod (opcionalno)")
         compose.onNodeWithContentDescription("Skeniraj barkod").performClick()
         compose.onNodeWithText("Očitaj").performClick()
 
@@ -409,6 +416,8 @@ class ProductEditorTest {
                 )
             }
         }
+        expandDetails()
+        scrollTo("Barkod (opcionalno)")
         compose.onNodeWithContentDescription("Skeniraj barkod").performClick()
         compose.onNodeWithText("Očitaj").performClick()
         compose.onNodeWithText("Artikl već postoji").assertExists()
@@ -487,6 +496,8 @@ class ProductEditorTest {
             }
         }
 
+        expandDetails()
+        scrollTo("Barkod (opcionalno)")
         compose.onNodeWithContentDescription("Skeniraj barkod").performClick()
         compose.onNodeWithText("Očitaj").performClick()
         compose.onNodeWithText("Dodaj količinu postojećem artiklu").performClick()
