@@ -558,4 +558,6 @@ data class TrashItem(
     val label: String,
     val deletedAt: Long,
     val purgeAfter: Long,
+    val packages: List<ProductVariant> = emptyList(),
+    val parentName: String = "",
 )

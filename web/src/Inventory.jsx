@@ -189,6 +189,7 @@ export default function Inventory() {
           </button>
         </div>
       </div>
+      <button className="manual-entry" onClick={() => open("Dodaj artikl", <ProductEditor initialShelf={shelf} />)}>Unesi ručno</button>
       {selecting && (
         <div className="bulkbar">
           <button
@@ -285,7 +286,6 @@ export default function Inventory() {
         cancel={() => open("Dodaj artikl", <ProductEditor initialShelf={shelf} />)} />)}>
         <Plus size={30} />
       </button>
-      <button className="manual-entry" onClick={() => open("Dodaj artikl", <ProductEditor initialShelf={shelf} />)}>Unesi ručno</button>
     </>
   );
 }
@@ -463,7 +463,7 @@ export function ProductDetail({ productId, selectedVariant }) {
           <div className="row wrap">
             <button
               onClick={() =>
-                open("Uredi varijantu", <VariantEditor variant={v} />)
+                open("Uredi pakiranje", <VariantEditor variant={v} />)
               }
             >
               <Edit size={18} />
@@ -483,20 +483,20 @@ export function ProductDetail({ productId, selectedVariant }) {
             <button
               onClick={() =>
                 open(
-                  "Grupiranje varijante",
+                  "Premjesti pakiranje pod drugi artikl",
                   <Grouping variant={v} product={p} />,
                 )
               }
             >
               <Layers size={18} />
-              Grupiraj
+              Premjesti pod drugi artikl
             </button>
             <button
               className="danger"
               onClick={() =>
                 confirm(
-                  "Obriši varijantu",
-                  "Varijanta i njezina zaliha ostat će u košu 30 dana.",
+                  "Obriši pakiranje",
+                  "Pakiranje i njegova zaliha ostat će u košu 30 dana.",
                   () =>
                     api.mutate(
                       "soft_delete",
@@ -515,11 +515,11 @@ export function ProductDetail({ productId, selectedVariant }) {
       ))}
       <button
         onClick={() =>
-          open("Nova varijanta", <VariantEditor productId={p.id} />)
+          open("Novo pakiranje", <VariantEditor productId={p.id} />)
         }
       >
         <Plus />
-        Dodaj varijantu
+        Dodaj pakiranje
       </button>
       <button
         onClick={() => open("Uredi artikl", <ProductEditor product={p} />)}
@@ -530,10 +530,10 @@ export function ProductDetail({ productId, selectedVariant }) {
         <button
           onClick={() =>
             confirm(
-              "Automatsko grupiranje",
+              "Prijedlozi povezivanja",
               p.doNotGroup
-                ? "Dopusti prijedloge grupiranja ovog artikla?"
-                : "Isključi prijedloge grupiranja ovog artikla?",
+                ? "Želite li prijedloge za prikaz ovog pakiranja pod postojećim artiklom?"
+                : "Isključiti prijedloge povezivanja za ovaj artikl?",
               () =>
                 api.mutate(
                   "set_do_not_group",
@@ -548,7 +548,7 @@ export function ProductDetail({ productId, selectedVariant }) {
             )
           }
         >
-          {p.doNotGroup ? "Dopusti grupiranje" : "Ne grupiraj ovaj artikl"}
+          {p.doNotGroup ? "Uključi prijedloge povezivanja" : "Isključi prijedloge povezivanja"}
         </button>
       )}
       <button
@@ -556,7 +556,7 @@ export function ProductDetail({ productId, selectedVariant }) {
         onClick={() =>
           confirm(
             "Obriši artikl",
-            "Artikl, njegove varijante i zalihe ostat će u košu 30 dana.",
+            "Artikl, njegova pakiranja i zalihe ostat će u košu 30 dana.",
             () =>
               api.mutate(
                 "soft_delete",
@@ -624,7 +624,7 @@ export function StockForm({
       }}
     >
       <Select
-        label="Varijanta"
+        label="Pakiranje"
         value={variant}
         rows={variants.map((v) => ({
           id: v.id,
@@ -888,24 +888,24 @@ export function ProductEditor({ product, initial = {}, initialShelf = "", initia
             required
           />
           </div>
-          {matches.length > 0 && (
+        </>
+      )}
+      <details open={!!product}>
+        <summary>Više podataka</summary>
+          {!product && matches.length > 0 && (
             <Select
-              label="Grupiranje (samo uz vaš odabir)"
+              label="Gdje prikazati ovo pakiranje?"
               value={group}
               onChange={(e) => setGroup(e.target.value)}
               rows={[
                 { id: "", name: "Novi zasebni artikl" },
                 ...matches.map((p) => ({
                   id: p.id,
-                  name: `Nova varijanta: ${p.name}`,
+                  name: `Pod postojećim artiklom: ${p.name}`,
                 })),
               ]}
             />
           )}
-        </>
-      )}
-      <details open={!!product}>
-        <summary>Više podataka</summary>
         {!product && <>
           <button type="button" disabled={recognizing || processing} onClick={() => setCameraMode("front")}>Ponovno snimi proizvod</button>
           <Field
@@ -953,7 +953,7 @@ export function ProductEditor({ product, initial = {}, initialShelf = "", initia
         </label>
         {!product && (
           <>
-            <Field label="Naziv varijante" name="displayName" />
+            <Field label="Naziv pakiranja" name="displayName" />
             <Field
               label="Oznaka pakiranja"
               name="packageLabel"
@@ -967,7 +967,7 @@ export function ProductEditor({ product, initial = {}, initialShelf = "", initia
             />
             <Field label="Opis" name="description" maxLength={500} />
             <Field
-              label="Minimum varijante (pakiranja)"
+              label="Najmanji broj ovih pakiranja"
               name="variantMinimum"
               type="number"
               min="0"
@@ -1050,7 +1050,7 @@ export function VariantEditor({ variant, productId }) {
       }}
     >
       <Field
-        label="Naziv varijante"
+        label="Naziv pakiranja"
         name="name"
         value={name}
         onChange={(e) => setName(e.target.value)}
@@ -1148,7 +1148,7 @@ function Grouping({ variant, product }) {
           required
           rows={active(data.products).filter((p) => p.id !== product.id)}
         />
-        <p>Zalihe ove varijante prelaze u odabrani artikl.</p>
+        <p>Zalihe ovog pakiranja prelaze u odabrani artikl.</p>
       </Form>
       <hr />
       <Form

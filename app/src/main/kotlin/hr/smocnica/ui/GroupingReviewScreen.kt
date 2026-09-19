@@ -64,7 +64,7 @@ fun GroupingReviewScreen(viewModel: MainViewModel, padding: PaddingValues, onBac
     val targets = remember(candidates) { mutableStateMapOf<String, String>().also { map -> candidates.forEach { map[it.variant.id] = it.suggestion.existingProductId.orEmpty() } } }
     val rememberRules = remember(candidates) { mutableStateMapOf<String, Boolean>().also { map -> candidates.forEach { map[it.variant.id] = true } } }
 
-    SecondaryScreenScaffold("Pregled grupiranja", padding, onBack) { inner ->
+    SecondaryScreenScaffold("Povezivanje pakiranja", padding, onBack) { inner ->
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = inner.calculateTopPadding() + 12.dp, bottom = 40.dp),
@@ -72,11 +72,11 @@ fun GroupingReviewScreen(viewModel: MainViewModel, padding: PaddingValues, onBac
         ) {
             item {
                 Text(
-                    "Nijedna varijanta neće se grupirati bez vaše potvrde. Istodobne promjene na drugom uređaju završavaju kao konflikt sinkronizacije.",
+                    "Odaberite pakiranja koja želite prikazivati pod istim artiklom. Ništa se ne mijenja bez vaše potvrde.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (!isOwner) item { Text("Samo vlasnik potvrđuje trajna pravila i oznaku Ne grupiraj.", color = MaterialTheme.colorScheme.error) }
+            if (!isOwner) item { Text("Samo vlasnik može spremiti pravila za buduće prijedloge.", color = MaterialTheme.colorScheme.error) }
             items(candidates, key = { it.variant.id }) { candidate ->
                 val source = products.first { it.product.id == candidate.sourceProductId }
                 Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
@@ -99,13 +99,13 @@ fun GroupingReviewScreen(viewModel: MainViewModel, padding: PaddingValues, onBac
                             Switch(rememberRules[candidate.variant.id] == true, { rememberRules[candidate.variant.id] = it })
                         }
                         if (isOwner) Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Ne predlaži grupiranje izvornog artikla", Modifier.weight(1f))
+                            Text("Ne predlaži povezivanje ovog artikla", Modifier.weight(1f))
                             Switch(source.product.doNotGroup, { viewModel.setDoNotGroup(source.product.id, it) })
                         }
                     }
                 }
             }
-            if (candidates.isEmpty()) item { EmptyState("Nema nepotvrđenih prijedloga grupiranja.") }
+            if (candidates.isEmpty()) item { EmptyState("Nema prijedloga za povezivanje pakiranja.") }
             if (candidates.isNotEmpty()) item {
                 Button(
                     onClick = {
@@ -120,7 +120,7 @@ fun GroupingReviewScreen(viewModel: MainViewModel, padding: PaddingValues, onBac
                     },
                     enabled = candidates.any { selected[it.variant.id] == true && targets[it.variant.id].orEmpty().isNotBlank() },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Potvrdi odabrana grupiranja") }
+                ) { Text("Poveži odabrana pakiranja") }
             }
         }
     }

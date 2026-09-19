@@ -146,6 +146,7 @@ fun StocksScreen(
     var showFilters by remember { mutableStateOf(false) }
     var showEditor by remember { mutableStateOf<ProductWithStock?>(null) }
     var creating by rememberSaveable(initialAction) { mutableStateOf(initialAction == "new") }
+    var captureOnCreate by rememberSaveable { mutableStateOf(true) }
     var orderName by rememberSaveable { mutableStateOf(InventoryOrder.NAME.name) }
     val order = InventoryOrder.valueOf(orderName)
     var movingProduct by remember { mutableStateOf<ProductWithStock?>(null) }
@@ -183,7 +184,7 @@ fun StocksScreen(
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) },
         floatingActionButton = {
-            InventoryAddButton { creating = true }
+            InventoryAddButton { captureOnCreate = true; creating = true }
         },
     ) { inner ->
         LazyColumn(
@@ -204,6 +205,12 @@ fun StocksScreen(
                     viewModel.updateFilter(activeFilter)
                 }, { orderName = it.name }, { showFilters = true }, allProducts, shelfActions)
             } }
+            item {
+                OutlinedButton(
+                    onClick = { captureOnCreate = false; creating = true },
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).fillMaxWidth(),
+                ) { Text("Unesi ručno") }
+            }
             if (!selecting && activeFilter.query.isBlank()) item {
                 RecentProductStrip(allProducts, shelves, selectedShelfId, viewModel, snackbar)
             }
@@ -248,7 +255,7 @@ fun StocksScreen(
     }, { target -> viewModel.moveAllStock(shelf.id, target, allProducts); deleteShelf = null }) }
     if (creating) ProductEditor(
         current = null,
-        capturePhotoInitially = true,
+        capturePhotoInitially = captureOnCreate,
         recognizePhoto = viewModel::recognizePhoto,
         shelves = shelves,
         categories = categories,
@@ -653,7 +660,7 @@ internal fun VariantQuickActionDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(item.product.name, fontWeight = FontWeight.Bold)
-                PairPicker("Varijanta", eligibleVariants.map { it.id to variantDisplayText(it) }, variantId) { variantId = it }
+                PairPicker("Pakiranje", eligibleVariants.map { it.id to variantDisplayText(it) }, variantId) { variantId = it }
                 PairPicker("Polica", shelfOptions.map { it.id to it.name }, shelfId) { shelfId = it }
             }
         },
@@ -666,7 +673,7 @@ internal fun variantDisplayText(variant: ProductVariant): String = listOfNotNull
     variant.manufacturer.takeIf(String::isNotBlank),
     variant.packageLabel.takeIf(String::isNotBlank),
     variant.displayName.takeIf { it.isNotBlank() && it != variant.manufacturer },
-).joinToString(" · ").ifBlank { "Varijanta" }
+).joinToString(" · ").ifBlank { "Pakiranje" }
 
 @Composable
 fun ProductEditor(
@@ -1047,7 +1054,7 @@ fun ProductEditor(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
-                if (detailsExpanded) item { OutlinedTextField(variantName, { variantName = it.take(100) }, label = { Text("Naziv varijante *") }, modifier = Modifier.fillMaxWidth()) }
+                if (detailsExpanded) item { OutlinedTextField(variantName, { variantName = it.take(100) }, label = { Text("Naziv pakiranja *") }, modifier = Modifier.fillMaxWidth()) }
                 if (detailsExpanded) item { OutlinedTextField(manufacturer, { manufacturer = it.take(100) }, label = { Text("Proizvođač (opcionalno)") }, modifier = Modifier.fillMaxWidth()) }
                 if (detailsExpanded) item {
                     OutlinedTextField(
@@ -1115,7 +1122,7 @@ fun ProductEditor(
                     OutlinedTextField(
                         variantMinimum,
                         { variantMinimum = it.filter(Char::isDigit) },
-                        label = { Text("Minimum ove varijante (pakiranja, opcionalno)") },
+                        label = { Text("Najmanji broj ovih pakiranja (opcionalno)") },
                         isError = variantMinimum.isNotBlank() && parsedVariantMinimum == null,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -1137,7 +1144,7 @@ fun ProductEditor(
                     operationError?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
                 }
                 item { TextButton({ detailsExpanded = !detailsExpanded }) { Text(if (detailsExpanded) "Sakrij dodatne postavke" else "Dodatne postavke") } }
-                if (isNew && groupingSuggestion != null && (detailsExpanded || groupingSuggestion.existingProductId != null)) item {
+                if (isNew && groupingSuggestion != null && detailsExpanded) item {
                     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("Prikaži zajedno", fontWeight = FontWeight.Bold)
@@ -1148,17 +1155,17 @@ fun ProductEditor(
                                     Checkbox(groupingConfirmed && targetProductId == suggestedId, { checked ->
                                         groupingConfirmed = checked
                                         targetProductId = if (checked) suggestedId else ""
-                                    }, Modifier.semantics { contentDescription = "Potvrdi grupiranje" })
+                                    }, Modifier.semantics { contentDescription = "Potvrdi povezivanje pakiranja" })
                                     Text("Dodaj postojećoj zalihi: "+groupingSuggestion.suggestedGenericName)
                                 }
                             }
                             if (detailsExpanded) {
                                 OutlinedButton({ name = groupingSuggestion.suggestedGenericName }) { Text("Primijeni predloženi naziv") }
-                                PairPicker("Grupiranje", listOf("" to "Nova samostalna grupa") + activeProducts.filterNot { it.product.doNotGroup }.map { it.product.id to it.product.name }, targetProductId) { selected ->
+                                PairPicker("Prikaži pod artiklom", listOf("" to "Novi zasebni artikl") + activeProducts.filterNot { it.product.doNotGroup }.map { it.product.id to it.product.name }, targetProductId) { selected ->
                                     targetProductId = selected; groupingConfirmed = false
                                 }
                                 if (targetProductId.isNotBlank() && targetProductId != suggestedId) Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(groupingConfirmed, { groupingConfirmed = it }, Modifier.semantics { contentDescription = "Potvrdi grupiranje" })
+                                    Checkbox(groupingConfirmed, { groupingConfirmed = it }, Modifier.semantics { contentDescription = "Potvrdi povezivanje pakiranja" })
                                     Text("Potvrđujem dodavanje odabranom artiklu")
                                 }
                             }

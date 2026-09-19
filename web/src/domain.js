@@ -177,7 +177,7 @@ export function validateSnapshot(value) {
       throw new Error("Artikl nema valjanu kategoriju.");
   for (const v of value.variants)
     if (!products.has(v.productId))
-      throw new Error("Varijanta nema valjani artikl.");
+      throw new Error("Pakiranje nema valjani artikl.");
   for (const s of value.stocks) {
     integer(s.quantity);
     if (!shelves.has(s.shelfId) || variants.get(s.variantId) !== s.productId)

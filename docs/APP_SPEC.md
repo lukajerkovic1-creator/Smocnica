@@ -83,6 +83,10 @@ Samo vlasnik može:
 
 ## 4. Početni ekran i dizajn
 
+Ručni unos ima jasno označen gumb „Unesi ručno” iznad nedavnih artikala i popisa, dostupan bez listanja kroz zalihe. Otvara obrazac bez pokretanja kamere. Korisničko sučelje koristi „pakiranje” i „naziv artikla” umjesto tehničkih pojmova „varijanta” i „generički naziv”. Povezivanje pakiranja pod postojeći artikl ne ometa osnovni unos: dostupno je u dodatnim postavkama i uvijek zahtijeva izričit odabir.
+
+Koš razlikuje artikl, pakiranje, policu i kategoriju hrvatskim oznakama. Uz artikle i pakiranja prikazuje veličinu, proizvođača ako postoji, povezani artikl i datum brisanja. Pakiranja obrisanog artikla prikazuju se unutar njegova zapisa uz objašnjenje zajedničkog vraćanja; zasebno obrisano pakiranje aktivnog artikla ima vlastitu radnju vraćanja. Potvrda trajnog brisanja identificira odabrani zapis.
+
 Odobrena referenca za početni popis, dodavanje i bočni izbornik: `docs/design/minimal-inventory-reference.png`. Korisnik je izričito odabrao ovaj izgled umjesto prethodne nadzorne ploče.
 
 Početni ekran prikazuje sve aktivne generičke artikle u ravnim kompaktnim redcima na svijetloj površini, odvojene tankim linijama. Svaki redak ima fotografiju lijevo (44 × 56 dp, cijelo pakiranje), naziv i kratku oznaku pakiranja/police, količinu desno i tri točkice. Podaci, fotografije, duljina naziva i sustavne trake ovise o stvarnim podacima i uređaju. Veća slova povećavaju visinu retka.

@@ -193,8 +193,8 @@ private fun VariantDetailCard(
                     Text(variant.packageLabel.ifBlank { "Veličina pakiranja nije poznata" }, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     variant.barcode?.let { Text("Barkod: $it", style = MaterialTheme.typography.bodySmall) }
                 }
-                IconButton(edit) { Icon(Icons.Outlined.Edit, "Uredi varijantu") }
-                IconButton(delete) { Icon(Icons.Outlined.DeleteOutline, "Obriši varijantu") }
+                IconButton(edit) { Icon(Icons.Outlined.Edit, "Uredi pakiranje") }
+                IconButton(delete) { Icon(Icons.Outlined.DeleteOutline, "Obriši pakiranje") }
             }
             Text("Ukupno ${stocks.sumOf { it.quantity }} pakiranja", fontWeight = FontWeight.SemiBold)
             stocks.filter { it.quantity > 0 }.forEach { stock ->
@@ -204,7 +204,7 @@ private fun VariantDetailCard(
                 }
             }
             split?.let { action ->
-                TextButton(action) { Text("Izdvoji u novi generički artikl") }
+                TextButton(action) { Text("Izdvoji u zaseban artikl") }
             }
         }
     }
@@ -219,14 +219,14 @@ private fun SplitVariantDialog(
     var name by remember(variant.id) { mutableStateOf(variant.displayName) }
     AlertDialog(
         onDismissRequest = dismiss,
-        title = { Text("Izdvoji varijantu") },
+        title = { Text("Izdvoji pakiranje") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Varijanta će postati jedina varijanta novog generičkog artikla. Zalihe, police, barkod i fotografija ostaju sačuvani.")
+                Text("Ovo pakiranje prikazivat će se kao zaseban artikl. Zalihe, police, barkod i fotografija ostaju sačuvani.")
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("Novi generički naziv") },
+                    label = { Text("Naziv novog artikla") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -260,11 +260,11 @@ private fun VariantQuantityActionDialog(
         onDismissRequest = dismiss,
         title = { Text(if (adding) "Dodaj pakiranja" else "Izvadi pakiranja") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            PairPicker("Varijanta", variants.map { it.id to variantDisplayText(it) }, variantId) { variantId = it; confirmLast = false }
+            PairPicker("Pakiranje", variants.map { it.id to variantDisplayText(it) }, variantId) { variantId = it; confirmLast = false }
             PairPicker("Polica", availableShelves.map { it.id to it.name }, shelfId) { shelfId = it; confirmLast = false }
             OutlinedTextField(quantity.toString(), { quantity = it.filter(Char::isDigit).toIntOrNull() ?: 1; confirmLast = false }, label = { Text("Broj pakiranja") })
             if (!adding) Text("Dostupno: $available pakiranja")
-            if (confirmLast) Text("Vadite posljednje pakiranje ove varijante. Ponovno potvrdite.", color = MaterialTheme.colorScheme.error)
+            if (confirmLast) Text("Vadite posljednje pakiranje ove vrste i veličine. Ponovno potvrdite.", color = MaterialTheme.colorScheme.error)
         } },
         confirmButton = { Button({
             if (!adding && quantity == variantTotal && !confirmLast) confirmLast = true
@@ -294,7 +294,7 @@ private fun VariantMoveStockDialog(
         onDismissRequest = dismiss,
         title = { Text("Premjesti pakiranja") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            PairPicker("Varijanta", variants.map { it.id to variantDisplayText(it) }, variantId) { variantId = it; confirmLarge = false }
+            PairPicker("Pakiranje", variants.map { it.id to variantDisplayText(it) }, variantId) { variantId = it; confirmLarge = false }
             PairPicker("Izvorna polica", sources.map { it.id to it.name }, from) { from = it; if (to == it) to = shelves.firstOrNull { shelf -> shelf.id != it }?.id.orEmpty(); confirmLarge = false }
             PairPicker("Odredišna polica", shelves.filterNot { it.id == from }.map { it.id to it.name }, to) { to = it; confirmLarge = false }
             OutlinedTextField(quantity.toString(), { quantity = it.filter(Char::isDigit).toIntOrNull() ?: 1; confirmLarge = false }, label = { Text("Broj pakiranja") })
@@ -382,7 +382,7 @@ fun ProductDetailScreen(
                         }
                     }
                 }
-                item { Text("Varijante", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+                item { Text("Pakiranja", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
                 items(item.variants.filter { it.deletedAt == null }, key = { it.id }) { variant ->
                     VariantDetailCard(
                         variant = variant,
@@ -464,8 +464,8 @@ fun ProductDetailScreen(
         }
         deletingVariant?.let { variant ->
             ConfirmDialog(
-                "Obrisati varijantu ${variant.displayName}?",
-                if (item.variants.count { it.deletedAt == null } == 1) "Ovo je posljednja varijanta pa će i generički artikl biti premješten u koš." else "Ostale varijante i njihove zalihe ostaju sačuvane.",
+                "Obrisati pakiranje ${variant.displayName}?",
+                if (item.variants.count { it.deletedAt == null } == 1) "Ovo je posljednje pakiranje pa će i artikl biti premješten u koš." else "Ostala pakiranja i njihove zalihe ostaju sačuvani.",
                 { deletingVariant = null },
             ) {
                 viewModel.deleteVariant(variant.id)
@@ -475,7 +475,7 @@ fun ProductDetailScreen(
         splittingVariant?.let { variant ->
             SplitVariantDialog(variant, { splittingVariant = null }) { name ->
                 viewModel.splitVariant(variant.id, name) {
-                    scope.launch { snackbar.showSnackbar("Varijanta je izdvojena u ${it.name}.") }
+                    scope.launch { snackbar.showSnackbar("Pakiranje je izdvojeno u ${it.name}.") }
                 }
                 splittingVariant = null
             }

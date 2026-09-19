@@ -70,6 +70,16 @@ if (new URLSearchParams(location.search).has("inventory-packages")) {
   data.variants.find((v) => v.id === "v2").manufacturer = "Testna mljekara";
   data.stocks.push({ id: "milk-small_s1", variantId: "milk-small", productId: "p2", shelfId: "s1", quantity: 1, revision: 1 });
 }
+if (new URLSearchParams(location.search).has("simple-entry-trash")) {
+  const deletedAt = Date.UTC(2026, 8, 19, 8), purgeAfter = deletedAt + 30 * 86400000;
+  data.products.push({ id: "deleted-milk", name: "Mlijeko", deletedAt, purgeAfter });
+  data.variants.push(
+    { id: "deleted-small", productId: "deleted-milk", displayName: "Mlijeko", packageUnit: "ML", packageAmountBase: 500, deletedAt, purgeAfter },
+    { id: "deleted-large", productId: "p2", displayName: "Mlijeko", packageUnit: "L", packageAmountBase: 1000, deletedAt, purgeAfter },
+  );
+  data.shelves.push({ id: "deleted-shelf", name: "Mlijeko", deletedAt, purgeAfter });
+  for (let i = 0; i < 40; i++) data.products.push({ id: `long-list-${i}`, name: `Testni artikl ${i}`, categoryId: "c1" });
+}
 function emit() {
   for (const [name, rows] of Object.entries(data)) change?.(name, [...rows]);
 }

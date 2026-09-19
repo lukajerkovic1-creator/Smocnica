@@ -243,7 +243,7 @@ export function mergeConflicts(current, incoming) {
       )
     )
       conflicts.push(
-        `Barkod varijante „${variant.displayName}” već je zauzet.`,
+        `Barkod pakiranja „${variant.displayName}” već je zauzet.`,
       );
   return conflicts;
 }

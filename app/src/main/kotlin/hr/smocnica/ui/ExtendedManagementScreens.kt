@@ -182,8 +182,9 @@ fun TrashScreen(viewModel: MainViewModel, padding: PaddingValues, onBack: () -> 
         items(trash, key = { "${it.type}_${it.id}" }) { item ->
             Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(item.label, fontWeight = FontWeight.Bold)
-                    Text("${item.type.name.lowercase()} · trajno brisanje ${formatDate(item.purgeAfter)}", style = MaterialTheme.typography.bodySmall)
+                    Text("${trashTypeLabel(item)}: ${item.label}", fontWeight = FontWeight.Bold)
+                    trashDetails(item).forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                    Text("Obrisano: ${formatDate(item.deletedAt)} · trajno brisanje ${formatDate(item.purgeAfter)}", style = MaterialTheme.typography.bodySmall)
                 }
                 IconButton({ viewModel.restoreTrash(item) }) { Icon(Icons.Outlined.Restore, "Vrati") }
                 IconButton({ purge = item }) { Icon(Icons.Outlined.DeleteForever, "Trajno obriši") }
@@ -193,7 +194,7 @@ fun TrashScreen(viewModel: MainViewModel, padding: PaddingValues, onBack: () -> 
         if (trash.isEmpty()) item { EmptyState("Koš je prazan.") }
         }
     }
-    purge?.let { item -> ConfirmDialog("Trajno obrisati?", "Ovu radnju nije moguće poništiti. Fotografija će također biti obrisana.", { purge = null }) { viewModel.purgeTrash(item); purge = null } }
+    purge?.let { item -> ConfirmDialog("Trajno obrisati: ${trashTypeLabel(item).lowercase()} ${item.label}?", "${trashDetails(item).joinToString("\n")}\nOvu radnju nije moguće poništiti. Fotografija će također biti obrisana.", { purge = null }) { viewModel.purgeTrash(item); purge = null } }
 }
 
 @Composable

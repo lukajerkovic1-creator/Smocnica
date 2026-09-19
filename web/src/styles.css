@@ -812,7 +812,7 @@ article .row {
 .recent-strip strong, .recent-strip small { display: block; white-space: normal; }
 .recent-strip small { margin-top: 4px; }
 .quick-undo { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
-.manual-entry { margin: 12px 16px 90px; }
+.manual-entry { margin: 8px 16px 12px; min-height: 48px; }
 
 .photo-camera video { display: block; width: 100%; max-height: 48dvh; min-height: 180px; object-fit: contain; background: #111; border-radius: 12px; }
 .photo-camera > button { width: 100%; margin-top: 12px; }

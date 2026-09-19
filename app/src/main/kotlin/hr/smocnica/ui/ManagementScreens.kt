@@ -372,7 +372,7 @@ fun MenuScreen(
         item { MenuEntry("Povijest aktivnosti", Icons.Outlined.History) { navigate("history") } }
         item { MenuEntry("Naziv uređaja: ${viewModel.deviceIdentity.displayName}", Icons.Outlined.Edit) { editDeviceName = true } }
         item { MenuEntry("Kategorije", Icons.Outlined.Category) { navigate("categories") } }
-        item { MenuEntry("Pregled grupiranja artikala", Icons.Outlined.Inventory2) { navigate("grouping-review") } }
+        item { MenuEntry("Povezivanje pakiranja", Icons.Outlined.Inventory2) { navigate("grouping-review") } }
         item { MenuEntry("Članovi i pozivni kod", Icons.Outlined.Group) { navigate("members") } }
         item { MenuEntry("Koš (30 dana)", Icons.Outlined.DeleteOutline) { navigate("trash") } }
         item { MenuEntry("JSON / CSV sigurnosna kopija", Icons.Outlined.FileDownload) { navigate("backup") } }

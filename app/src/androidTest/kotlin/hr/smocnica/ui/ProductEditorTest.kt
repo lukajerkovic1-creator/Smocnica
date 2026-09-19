@@ -34,6 +34,7 @@ import hr.smocnica.core.model.Category
 import hr.smocnica.ui.theme.SmocnicaTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
@@ -87,6 +88,26 @@ class ProductEditorTest {
         compose.runOnIdle { assertEquals(1, launches) }
     }
 
+    @Test fun manualEntryDoesNotStartCameraOrRequireConnectingPackages() {
+        var cameraLaunches = 0
+        var saved = false
+        compose.setContent {
+            SmocnicaTheme {
+                ProductEditor(current = null, capturePhotoInitially = false,
+                    launchPhotoCameraOverride = { cameraLaunches++ }, shelves = shelves, categories = categories,
+                    activeProducts = listOf(ProductWithStock(Product("milk", "p1", "Mlijeko", createdAt = 1, updatedAt = 1), emptyList())),
+                    onDismiss = {}, onSave = { submission, _, _, _, _, done ->
+                        assertTrue(submission.targetProductId.isNullOrBlank())
+                        saved = true; done(true)
+                    })
+            }
+        }
+        compose.onNodeWithText("Naziv *").performTextInput("Mlijeko")
+        compose.onNodeWithText("Prikaži zajedno").assertDoesNotExist()
+        compose.onNodeWithText("Spremi").assertIsEnabled().performClick()
+        compose.runOnIdle { assertEquals(0, cameraLaunches); assertTrue(saved) }
+    }
+
     private val shelves = listOf(
         Shelf("s1", "p1", "Polica 1", 0, createdAt = 1, updatedAt = 1),
         Shelf("s2", "p1", "Polica 2", 1, createdAt = 1, updatedAt = 1),
@@ -112,7 +133,7 @@ class ProductEditorTest {
                 )
             }
         }
-        compose.onNodeWithText("Naziv varijante *").assertDoesNotExist()
+        compose.onNodeWithText("Naziv pakiranja *").assertDoesNotExist()
         compose.onNodeWithText("Minimalna količina").assertDoesNotExist()
         scrollTo("Početna polica: Polica 2")
         compose.onNodeWithText("Početna polica: Polica 2").assertExists()
@@ -454,12 +475,12 @@ class ProductEditorTest {
         expandDetails()
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Prikaži zajedno"))
         compose.onNodeWithText("Prikaži zajedno").assertExists()
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Grupiranje: Nova samostalna grupa"))
-        compose.onNodeWithText("Grupiranje: Nova samostalna grupa").performClick()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Prikaži pod artiklom: Novi zasebni artikl"))
+        compose.onNodeWithText("Prikaži pod artiklom: Novi zasebni artikl").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Glatko brašno").fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(hasText("Glatko brašno") and hasClickAction()).performClick()
-        compose.onNode(hasScrollAction()).performScrollToNode(hasContentDescription("Potvrdi grupiranje"))
-        compose.onNodeWithContentDescription("Potvrdi grupiranje").performClick().assertIsOn()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasContentDescription("Potvrdi povezivanje pakiranja"))
+        compose.onNodeWithContentDescription("Potvrdi povezivanje pakiranja").performClick().assertIsOn()
         // AlertDialog actions are outside the LazyColumn. Scrolling the form to an
         // action node therefore fails on compact screens even though the action is
         // visible and enabled.

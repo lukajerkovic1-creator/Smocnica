@@ -37,6 +37,7 @@ import {
 } from "./domain";
 import { database } from "./outbox";
 import { inventoryPackageLabel } from "./inventory-label";
+import { trashRows } from "./trash-presentation";
 import Scanner from "./Scanner";
 import { exportBackup, readBackup, mergeConflicts } from "./backup";
 export function Shopping() {
@@ -699,21 +700,7 @@ export function HistoryScreen() {
 }
 export function TrashScreen() {
   const { data, api, run, confirm, pantry } = useApp();
-  const rows = ["shelves", "categories", "products", "variants"].flatMap(
-    (kind) =>
-      data[kind]
-        .filter((r) => r.deletedAt)
-        .map((r) => ({
-          ...r,
-          kind,
-          type: {
-            shelves: "SHELF",
-            categories: "CATEGORY",
-            products: "PRODUCT",
-            variants: "VARIANT",
-          }[kind],
-        })),
-  );
+  const rows = trashRows(data);
   return (
     <section className="section">
       <p>
@@ -723,9 +710,12 @@ export function TrashScreen() {
       {!rows.length && <Empty>Koš je prazan.</Empty>}
       {rows.map((r) => (
         <article key={`${r.kind}:${r.id}`}>
-          <strong>{r.name || r.displayName}</strong>
+          <strong>{r.typeLabel}: {r.title}</strong>
+          {r.details.map((detail, index) => <p key={index}>{detail}</p>)}
+          {r.restoresTogether && <p>Artikl se vraća zajedno s prikazanim pakiranjima.</p>}
+          <small>Obrisano: {new Date(timestamp(r.deletedAt)).toLocaleString("hr")}</small>
           <small>
-            Brisanje:{" "}
+            Trajno brisanje:{" "}
             {new Date(timestamp(r.purgeAfter)).toLocaleDateString("hr")}
           </small>
           <div className="row">
@@ -748,8 +738,8 @@ export function TrashScreen() {
               className="danger"
               onClick={() =>
                 confirm(
-                  "Trajno brisanje",
-                  "Ovaj zapis i pripadajuće fotografije bit će trajno obrisani. Radnja se ne može poništiti.",
+                  `Trajno obrisati: ${r.typeLabel.toLocaleLowerCase("hr")} ${r.title}?`,
+                  `${r.details.join(" · ")}\nOvaj zapis i pripadajuće fotografije bit će trajno obrisani. Radnja se ne može poništiti.`,
                   () =>
                     api.call("purgeTrash", {
                       pantryId: pantry.id,
@@ -846,10 +836,10 @@ export function SettingsScreen({ reload }) {
       {owner && (
         <button
           className="nav"
-          onClick={() => open("Pravila grupiranja", <Rules />)}
+          onClick={() => open("Pravila povezivanja pakiranja", <Rules />)}
         >
           <BookOpen />
-          Pravila grupiranja
+          Pravila povezivanja pakiranja
         </button>
       )}
       <button className="nav" onClick={() => location.reload()}>
@@ -1077,7 +1067,7 @@ function Rules() {
         }}
       >
         <Field label="Naziv koji prepoznajemo" name="source" required />
-        <Field label="Predloženi generički naziv" name="generic" required />
+        <Field label="Zajednički naziv artikla" name="generic" required />
         <Select
           label="Postojeći artikl (neobvezno)"
           name="product"
@@ -1216,7 +1206,7 @@ function Backups() {
         >
           <p>
             {preview.products.length} artikala, {preview.variants.length}{" "}
-            varijanti, {preview.shelves.length} polica.
+            pakiranja, {preview.shelves.length} polica.
           </p>
           <p>
             {

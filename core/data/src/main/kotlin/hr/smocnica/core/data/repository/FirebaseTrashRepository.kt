@@ -1,6 +1,7 @@
 package hr.smocnica.core.data.repository
 
 import hr.smocnica.core.data.local.SmocnicaDatabase
+import hr.smocnica.core.data.local.model
 import hr.smocnica.core.data.remote.FirebaseCallableClient
 import hr.smocnica.core.domain.TrashRepository
 import hr.smocnica.core.model.AggregateType
@@ -24,10 +25,12 @@ class FirebaseTrashRepository @Inject constructor(
     ) { products, variants, shelves, categories, activeProducts ->
         val activeProductIds = activeProducts.mapTo(hashSetOf()) { it.id }
         buildList {
-            products.forEach { row -> row.deletedAt?.let { deleted -> row.purgeAfter?.let { purge -> add(TrashItem(AggregateType.PRODUCT, row.id, pantryId, row.name, deleted, purge)) } } }
+            products.forEach { row -> row.deletedAt?.let { deleted -> row.purgeAfter?.let { purge -> add(TrashItem(AggregateType.PRODUCT, row.id, pantryId, row.name, deleted, purge,
+                packages = variants.filter { it.productId == row.id }.map { it.model() })) } } }
             variants.filter { it.productId in activeProductIds }.forEach { row ->
                 row.deletedAt?.let { deleted -> row.purgeAfter?.let { purge ->
-                    add(TrashItem(AggregateType.VARIANT, row.id, pantryId, row.displayName, deleted, purge))
+                    add(TrashItem(AggregateType.VARIANT, row.id, pantryId, row.displayName, deleted, purge,
+                        packages = listOf(row.model()), parentName = activeProducts.first { it.id == row.productId }.name))
                 } }
             }
             shelves.forEach { row -> row.deletedAt?.let { deleted -> row.purgeAfter?.let { purge -> add(TrashItem(AggregateType.SHELF, row.id, pantryId, row.name, deleted, purge)) } } }
