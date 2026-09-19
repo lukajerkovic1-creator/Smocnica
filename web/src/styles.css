@@ -669,6 +669,15 @@ article .row {
   align-items: center;
   padding: 15px 0;
   border-bottom: 1px solid var(--line);
+  gap: 12px;
+}
+.audit-row > span,
+.audit-package-summary {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.audit-row > strong {
+  flex-shrink: 0;
 }
 .invitation {
   text-align: center;

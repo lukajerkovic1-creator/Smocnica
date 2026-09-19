@@ -268,6 +268,8 @@ Kategorije:
 
 ## 11. Inventura
 
+Izbor pakiranja, unesena brojanja, potvrda razlika i povratna informacija skeniranja prikazuju naziv artikla, veličinu pakiranja i proizvođača ako je poznat. Jednaki nazivi artikla i varijante ne ponavljaju se; različit naziv varijante ostaje vidljiv. Veličina se izvodi iz strukturiranih podataka, uz oznaku pakiranja za stare zapise i „Nepoznata veličina” kad podatka nema. Za nepoznatu strukturiranu veličinu barkod dodatno pomaže razlikovati pakiranja ako je dostupan. Web ispod odabira prikazuje puni, prelomljivi opis odabranog pakiranja. Identitet i spremanje brojanja ostaju vezani uz `variantId`.
+
 Tijek:
 
 1. korisnik odabire policu

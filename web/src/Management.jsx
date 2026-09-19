@@ -36,6 +36,7 @@ import {
   totals,
 } from "./domain";
 import { database } from "./outbox";
+import { inventoryPackageLabel } from "./inventory-label";
 import Scanner from "./Scanner";
 import { exportBackup, readBackup, mergeConflicts } from "./backup";
 export function Shopping() {
@@ -394,6 +395,7 @@ export function Audit() {
   const { data, api, pantry, open, close, run, confirm } = useApp();
   const [draft, setDraft] = useState(null),
     [loaded, setLoaded] = useState(false);
+  const [selectedVariantId, setSelectedVariantId] = useState("");
   const key = `audit:${api.uid()}:${pantry.id}`;
   useEffect(() => {
     let live = true;
@@ -458,6 +460,11 @@ export function Audit() {
   const variants = active(data.variants).filter((v) =>
     data.products.some((p) => p.id === v.productId && !p.deletedAt),
   );
+  const packageLabel = (v) => inventoryPackageLabel(
+    data.products.find((p) => p.id === v.productId)?.name,
+    v,
+  );
+  const selectedVariant = variants.find((v) => v.id === selectedVariantId) || variants[0];
   const rows = variants.filter(
     (v) =>
       Object.hasOwn(draft.expected, v.id) || Object.hasOwn(draft.counts, v.id),
@@ -500,6 +507,7 @@ export function Audit() {
       </button>
       <Form
         submit="Dodaj brojanje"
+        submitDisabled={!selectedVariant}
         onSubmit={async (f) => {
           const id = f.get("variant");
           await save({
@@ -509,13 +517,21 @@ export function Audit() {
         }}
       >
         <Select
-          label="Varijanta"
+          label="Koje pakiranje brojite?"
           name="variant"
+          required
+          value={selectedVariant?.id || ""}
+          onChange={(event) => setSelectedVariantId(event.target.value)}
           rows={variants.map((v) => ({
             id: v.id,
-            name: `${data.products.find((p) => p.id === v.productId)?.name} · ${v.displayName}`,
+            name: packageLabel(v),
           }))}
         />
+        {selectedVariant && (
+          <p className="audit-package-summary" aria-live="polite">
+            Odabrano pakiranje: <strong>{packageLabel(selectedVariant)}</strong>
+          </p>
+        )}
         <Field
           label="Stvarni broj pakiranja"
           name="count"
@@ -528,7 +544,7 @@ export function Audit() {
       {rows.map((v) => (
         <div className="audit-row" key={v.id}>
           <span>
-            {v.displayName}
+            {packageLabel(v)}
             <small>Evidentirano: {draft.expected[v.id] || 0}</small>
           </span>
           <strong>{draft.counts[v.id] || 0} kom</strong>
@@ -572,7 +588,7 @@ export function Audit() {
               </p>
               {differences.map((v) => (
                 <p key={v.id}>
-                  {v.displayName}: {draft.expected[v.id] || 0} →{" "}
+                  {packageLabel(v)}: {draft.expected[v.id] || 0} →{" "}
                   {draft.counts[v.id] || 0}
                 </p>
               ))}

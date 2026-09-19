@@ -62,6 +62,14 @@ const data = {
   synonymRules: [],
   activities: [],
 };
+if (new URLSearchParams(location.search).has("inventory-packages")) {
+  data.variants.push(
+    { id: "milk-small", productId: "p2", displayName: "Mlijeko", manufacturer: "Testna mljekara", packageUnit: "ML", packageAmountBase: 500, revision: 1 },
+    { id: "milk-unknown", productId: "p2", displayName: "Mlijeko", packageUnit: "UNKNOWN", barcode: "12345678", revision: 1 },
+  );
+  data.variants.find((v) => v.id === "v2").manufacturer = "Testna mljekara";
+  data.stocks.push({ id: "milk-small_s1", variantId: "milk-small", productId: "p2", shelfId: "s1", quantity: 1, revision: 1 });
+}
 function emit() {
   for (const [name, rows] of Object.entries(data)) change?.(name, [...rows]);
 }

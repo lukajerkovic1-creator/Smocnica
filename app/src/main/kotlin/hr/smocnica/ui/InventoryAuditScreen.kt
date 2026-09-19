@@ -120,8 +120,7 @@ fun InventoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
             val actual = counts[entry.variant.id] ?: if (started) 0 else expected
             Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(entry.item.product.name, fontWeight = FontWeight.SemiBold)
-                    Text(entry.variant.displayName, style = MaterialTheme.typography.bodySmall)
+                    Text(inventoryPackageLabel(entry.item.product.name, entry.variant), fontWeight = FontWeight.SemiBold)
                     Text("Evidentirano: $expected kom", style = MaterialTheme.typography.bodySmall)
                 }
                 IconButton({
@@ -162,12 +161,15 @@ fun InventoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     if (session.differences.isEmpty()) Text("Nema razlika. Stanje police odgovara evidenciji.")
                     session.differences.forEach { difference ->
+                        val entry = variantEntries.firstOrNull { it.variant.id == difference.variantId }
+                        val label = entry?.let { inventoryPackageLabel(it.item.product.name, it.variant) }
+                            ?: difference.productName
                         Text(
                             "${when (difference.type) {
                                 InventoryDifferenceType.MISSING -> "Nedostaje"
                                 InventoryDifferenceType.UNEXPECTED -> "Neočekivano"
                                 InventoryDifferenceType.QUANTITY -> "Razlika"
-                            }} · ${difference.productName}: ${difference.expectedQuantity} → ${difference.actualQuantity}",
+                            }} · $label: ${difference.expectedQuantity} → ${difference.actualQuantity}",
                         )
                     }
                 }
@@ -201,7 +203,7 @@ fun InventoryScreen(viewModel: MainViewModel, padding: PaddingValues) {
             val (item, variant) = match
             counts[variant.id] = (counts[variant.id] ?: 0) + 1
             viewModel.persistInventoryDraft(shelfId, counts.toMap())
-            lastScan = "${item.product.name} — ${variant.displayName}: ${counts[variant.id]} kom"
+            lastScan = "${inventoryPackageLabel(item.product.name, variant)}: ${counts[variant.id]} kom"
             scanError = null
         }
     }
