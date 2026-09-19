@@ -59,6 +59,8 @@ jobs:
           cache: npm
           cache-dependency-path: functions/package-lock.json
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools
       - uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4
       - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - name: Verify Cloud Functions and Firebase rules
